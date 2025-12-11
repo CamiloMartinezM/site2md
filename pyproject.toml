@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "site2md"
+version = "0.1.0"
+description = "A CLI tool to convert any static website into a single concatenated Markdown document."
+authors = [{ name = "Camilo Martínez M.", email = "cama00005@uni-saarland.de" }]
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "cyclopts>=2.0.0",
+    "markdownify>=0.11.6",
+    "beautifulsoup4>=4.12.0",
+]
+
+[project.scripts]
+site2md = "site2md.main:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/site2md"]
