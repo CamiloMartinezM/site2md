@@ -2,5 +2,5 @@
 
 **Capital:** Known City
 **Population:** 4
-**Currency:** Credits
+**Currency** Credits
 **Area (km2):** 8

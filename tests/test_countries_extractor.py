@@ -21,6 +21,17 @@ class CountriesExtractorTests(unittest.TestCase):
         """Return one independently authored country fixture."""
         return (FIXTURES / name).read_text(encoding="utf-8")
 
+    def assert_fixture_fails(self, name: str) -> ExtractionError:
+        """Return the structured failure from one drift fixture."""
+        with self.assertRaises(ExtractionError) as raised:
+            extract(self.fixture(name), EXTRACTOR_ID)
+        return raised.exception
+
+    def country_schema(self) -> dict[str, object]:
+        """Return the JSON-native built-in country collection schema."""
+        info = next(item for item in list_extractors() if item.id == EXTRACTOR_ID)
+        return json.loads(json.dumps(info.record_schema))
+
     def test_valid_fixture_normalizes_complete_records_and_warns_on_order(self) -> None:
         result = extract(self.fixture("valid.md"), EXTRACTOR_ID)
         payload = json.loads(result.to_json())
@@ -74,26 +85,51 @@ class CountriesExtractorTests(unittest.TestCase):
             [f"{EXTRACTOR_ID}.unexpected-label"],
         )
 
-    def test_source_drift_fixtures_fail_the_complete_extraction(self) -> None:
-        fixtures = (
-            "missing-label.md",
-            "duplicate-label.md",
-            "empty-name.md",
-            "invalid-population.md",
-            "invalid-area.md",
-            "duplicate-name.md",
-            "count-mismatch.md",
-            "zero-candidates.md",
-            "exact-duplicate-record.md",
-        )
+    def test_nested_strong_labels_are_accepted(self) -> None:
+        markdown = """### Nested Emphasis
 
-        for fixture in fixtures:
-            with self.subTest(fixture=fixture), self.assertRaises(ExtractionError):
-                extract(self.fixture(fixture), EXTRACTOR_ID)
+***Capital:*** Layer City
+**Population:** 6
+**Area (km2):** 9
+"""
+
+        payload = json.loads(extract(markdown, EXTRACTOR_ID).to_json())
+
+        self.assertEqual(payload["records"][0]["value"]["capital"], "Layer City")
+
+    def test_missing_label_fails_complete_extraction(self) -> None:
+        self.assert_fixture_fails("missing-label.md")
+
+    def test_duplicate_label_fails_complete_extraction(self) -> None:
+        self.assert_fixture_fails("duplicate-label.md")
+
+    def test_empty_name_fails_record_schema(self) -> None:
+        error = self.assert_fixture_fails("empty-name.md")
+
+        self.assertEqual(error.code, "site2md.record_schema_validation_failed")
+
+    def test_invalid_population_fails_complete_extraction(self) -> None:
+        self.assert_fixture_fails("invalid-population.md")
+
+    def test_invalid_area_fails_complete_extraction(self) -> None:
+        self.assert_fixture_fails("invalid-area.md")
+
+    def test_duplicate_names_fail_even_when_values_differ(self) -> None:
+        self.assert_fixture_fails("duplicate-name.md")
+
+    def test_declared_count_mismatch_fails_complete_extraction(self) -> None:
+        self.assert_fixture_fails("count-mismatch.md")
+
+    def test_zero_candidates_fail_collection_schema(self) -> None:
+        error = self.assert_fixture_fails("zero-candidates.md")
+
+        self.assertEqual(error.code, "site2md.record_schema_validation_failed")
+
+    def test_exact_duplicate_record_fixture_fails_complete_extraction(self) -> None:
+        self.assert_fixture_fails("exact-duplicate-record.md")
 
     def test_country_collection_schema_enforces_the_complete_contract(self) -> None:
-        info = next(item for item in list_extractors() if item.id == EXTRACTOR_ID)
-        schema = info.record_schema
+        schema = self.country_schema()
         validator = Draft202012Validator(schema)
         valid = {
             "name": "Schema Land",
@@ -106,19 +142,52 @@ class CountriesExtractorTests(unittest.TestCase):
         self.assertEqual(schema["minItems"], 1)
         self.assertIs(schema["uniqueItems"], True)
         self.assertFalse(list(validator.iter_errors([valid])))
-        invalid_collections: tuple[list[object], ...] = (
-            [],
-            [valid, valid],
-            [{**valid, "continent": "Elsewhere"}],
-            [{**valid, "name": ""}],
-            [{**valid, "capital": ""}],
-            [{**valid, "population": -1}],
-            [{**valid, "population": 1.5}],
-            [{**valid, "area_km2": -0.1}],
+
+    def test_country_collection_schema_rejects_exact_duplicates(self) -> None:
+        validator = Draft202012Validator(self.country_schema())
+        record = {
+            "name": "Duplicate Land",
+            "capital": None,
+            "population": 1,
+            "area_km2": 2,
+        }
+
+        self.assertTrue(list(validator.iter_errors([record, record])))
+
+    def test_country_record_schema_forbids_additional_fields(self) -> None:
+        validator = Draft202012Validator(self.country_schema())
+        record = {
+            "name": "Extra Land",
+            "capital": None,
+            "population": 1,
+            "area_km2": 2,
+            "continent": "Elsewhere",
+        }
+
+        self.assertTrue(list(validator.iter_errors([record])))
+
+    def test_country_record_schema_declares_scalar_constraints(self) -> None:
+        record_schema = self.country_schema()["items"]
+
+        self.assertEqual(
+            record_schema,
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["name", "capital", "population", "area_km2"],
+                "properties": {
+                    "name": {"type": "string", "minLength": 1},
+                    "capital": {
+                        "anyOf": [
+                            {"type": "string", "minLength": 1},
+                            {"type": "null"},
+                        ]
+                    },
+                    "population": {"type": "integer", "minimum": 0},
+                    "area_km2": {"type": "number", "minimum": 0},
+                },
+            },
         )
-        for collection in invalid_collections:
-            with self.subTest(collection=collection):
-                self.assertTrue(list(validator.iter_errors(collection)))
 
 
 if __name__ == "__main__":

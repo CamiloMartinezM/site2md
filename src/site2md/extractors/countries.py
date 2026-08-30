@@ -85,7 +85,9 @@ def _is_country_start(heading: Node, paragraph: Node) -> bool:
     if paragraph.kind != "paragraph":
         return False
     strong_text = {
-        child.plain_text().strip() for child in paragraph.children if child.kind == "strong"
+        child.plain_text().strip()
+        for child in _inline_nodes(paragraph)
+        if child.kind == "strong"
     }
     return bool(strong_text.intersection(LABELS))
 
@@ -95,14 +97,13 @@ def _labeled_values(paragraph: Node) -> tuple[dict[str, str], tuple[str, ...], t
     values: dict[str, str] = {}
     encountered_labels = []
     unexpected_labels = []
-    children = paragraph.children
+    children = _inline_nodes(paragraph)
     for index, child in enumerate(children):
         label = child.plain_text().strip()
         if child.kind != "strong":
             continue
         if label not in LABELS:
-            if label.endswith(":"):
-                unexpected_labels.append(label)
+            unexpected_labels.append(label)
             continue
         if label in values:
             raise ValueError(f"Country record has duplicate label: {label}")
@@ -118,6 +119,17 @@ def _labeled_values(paragraph: Node) -> tuple[dict[str, str], tuple[str, ...], t
     if missing:
         raise ValueError(f"Country record is missing labels: {', '.join(missing)}")
     return values, tuple(encountered_labels), tuple(unexpected_labels)
+
+
+def _inline_nodes(node: Node) -> tuple[Node, ...]:
+    """Return inline content in source order with strong labels kept atomic."""
+    flattened = []
+    for child in node.children:
+        if child.kind in {"strong", "line_break"} or not child.children:
+            flattened.append(child)
+        else:
+            flattened.extend(_inline_nodes(child))
+    return tuple(flattened)
 
 
 def _capital(value: str) -> str | None:
