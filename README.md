@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)
+![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.10+-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
@@ -97,7 +97,7 @@ site2md build https://example.com --keep-temp
 - `--max-page-size-mib`: Set a positive integer response-size limit for one remote page. This option applies only to remote URLs and defaults to 25 MiB.
 - `--keep-temp`: Preserve temporary remote page data after success or failure. The command prints the retained path.
 
-Remote fetches use a 30-second timeout, a `site2md/0.1.0` user agent, and no automatic retries. They accept only final, nonempty `text/html` or `application/xhtml+xml` responses with a `2xx` status code. The command follows HTTP and HTTPS redirects except for HTTPS-to-HTTP downgrades.
+Remote fetches use a 30-second timeout, a `site2md/0.2.0` user agent, and no automatic retries. They accept only final, nonempty `text/html` or `application/xhtml+xml` responses with a `2xx` status code. The command follows HTTP and HTTPS redirects except for HTTPS-to-HTTP downgrades.
 
 Remote fetch and validation failures preserve an existing output file. By default, the command removes temporary remote data after both successful and failed conversions.
 
