@@ -88,6 +88,9 @@ site2md build https://example.com --max-page-size-mib 10 --output page.md
 
 # Keep temporary remote page data after success or failure
 site2md build https://example.com --keep-temp
+
+# Inspect installed structured-data Extractors without running provider code
+site2md extractors
 ```
 
 ### Options
@@ -110,6 +113,7 @@ The tool is self-documenting via the CLI.
 ```bash
 site2md --help
 site2md build --help
+site2md extractors --help
 ```
 
 ---

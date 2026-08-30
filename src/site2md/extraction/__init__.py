@@ -7,11 +7,11 @@ import html
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from html.entities import html5
-from importlib.metadata import Distribution, distribution
+from importlib.metadata import Distribution, EntryPoint, distributions
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 import marko
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
@@ -34,6 +34,7 @@ ENTITY_REFERENCE = re.compile(
     r"&(?:#[xX][0-9A-Fa-f]{1,6}|#[0-9]{1,7}|[A-Za-z][A-Za-z0-9]{1,31});"
 )
 LINE_ENDING = re.compile(r"\r\n?|\n")
+EXTRACTOR_ID = re.compile(r"^[a-z0-9]+(?:[.-][a-z0-9]+)+$")
 
 NODE_KINDS = {
     "Heading": "heading",
@@ -71,6 +72,47 @@ class _PositionedMarkoNode(Protocol):
     source_span: tuple[int, int]
 
 
+class ExtractionError(Exception):
+    """A structured failure while resolving or running an Extractor."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        providers: tuple[str, ...] = (),
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.providers = providers
+
+
+@dataclass(frozen=True)
+class ExtractorInfo:
+    """Static information about one installed Extractor declaration."""
+
+    id: str
+    status: Literal["available", "conflict", "unavailable"]
+    provider_distribution: str
+    provider_version: str
+    implementation_version: str | None
+    record_schema_id: str | None
+    record_schema_version: str | None
+    record_schema: Mapping[str, Any]
+    detail: str
+
+
+@dataclass(frozen=True)
+class _DiscoveredExtractor:
+    """Internal static discovery record retaining its lazy entry point."""
+
+    info: ExtractorInfo
+    provider: Distribution
+    entry_point: EntryPoint | None
+    declaration: Mapping[str, Any] | None
+    failure_code: str | None = None
+
+
 @dataclass(frozen=True)
 class ExtractionResult:
     """A validated extraction result with deterministic JSON serialization."""
@@ -87,28 +129,58 @@ class ExtractionResult:
         ) + "\n"
 
 
+def list_extractors() -> tuple[ExtractorInfo, ...]:
+    """Return deterministic static information about installed Extractors."""
+    return tuple(item.info for item in _discover_extractors())
+
+
 def extract(markdown: str, extractor_id: str) -> ExtractionResult:
     """Extract validated records from Markdown using one exact Extractor ID."""
-    provider = distribution("site2md")
-    declaration = _extractor_declaration(provider, extractor_id)
+    selected = _selected_extractor(extractor_id)
+    provider = selected.provider
+    declaration = selected.declaration
+    entry_point = selected.entry_point
+    if declaration is None or entry_point is None:
+        raise AssertionError("Available Extractor lacks static discovery metadata")
     schema = declaration["record_schema"]["schema"]
     Draft202012Validator.check_schema(schema)
 
-    entry_point = next(
-        (
-            candidate
-            for candidate in provider.entry_points
-            if candidate.group == ENTRY_POINT_GROUP and candidate.name == extractor_id
-        ),
-        None,
-    )
-    if entry_point is None:
-        raise ValueError(f"Unknown Extractor ID: {extractor_id}")
-
-    factory = entry_point.load()
-    extractor: Extractor = factory()
+    try:
+        factory = entry_point.load()
+    except Exception as cause:
+        raise ExtractionError(
+            "site2md.extractor_import_failed",
+            f"Could not import Extractor {extractor_id}: {cause}",
+        ) from cause
+    if not callable(factory):
+        interface_cause = TypeError("Extractor entry point is not a callable factory")
+        raise ExtractionError(
+            "site2md.extractor_interface_invalid",
+            f"Extractor {extractor_id} does not expose a callable factory",
+        ) from interface_cause
+    try:
+        extractor: Extractor = factory()
+    except Exception as cause:
+        raise ExtractionError(
+            "site2md.extractor_factory_failed",
+            f"Extractor factory {extractor_id} failed: {cause}",
+        ) from cause
+    if not callable(getattr(extractor, "extract", None)):
+        interface_cause = TypeError(
+            "Extractor factory result has no callable extract method"
+        )
+        raise ExtractionError(
+            "site2md.extractor_interface_invalid",
+            f"Extractor factory {extractor_id} returned an incompatible object",
+        ) from interface_cause
     document = _converted_document(markdown)
-    provider_result = extractor.extract(document)
+    try:
+        provider_result = extractor.extract(document)
+    except Exception as cause:
+        raise ExtractionError(
+            "site2md.extractor_execution_failed",
+            f"Extractor {extractor_id} failed: {cause}",
+        ) from cause
     values = [candidate.value for candidate in provider_result.records]
     Draft202012Validator(schema).validate(values)
 
@@ -122,29 +194,290 @@ def extract(markdown: str, extractor_id: str) -> ExtractionResult:
     return ExtractionResult(payload=payload)
 
 
-def _extractor_declaration(
-    provider: Distribution, extractor_id: str
-) -> Mapping[str, Any]:
-    """Read one Extractor declaration from the provider's static manifest."""
-    manifest_files = [
-        file
-        for file in provider.files or ()
-        if Path(str(file)).name == MANIFEST_NAME
-    ]
+def _selected_extractor(extractor_id: str) -> _DiscoveredExtractor:
+    """Resolve one exact, statically valid, unambiguous Extractor."""
+    if EXTRACTOR_ID.fullmatch(extractor_id) is None:
+        raise ExtractionError(
+            "site2md.extractor_unknown",
+            f"Unknown Extractor ID: {extractor_id}",
+        )
+    matches = [item for item in _discover_extractors() if item.info.id == extractor_id]
+    if not matches:
+        raise ExtractionError(
+            "site2md.extractor_unknown",
+            f"Unknown Extractor ID: {extractor_id}",
+        )
+    selected = matches[0]
+    if selected.info.status == "conflict":
+        providers = tuple(
+            f"{item.info.provider_distribution} {item.info.provider_version}"
+            for item in matches
+        )
+        provider_list = ", ".join(providers)
+        raise ExtractionError(
+            "site2md.extractor_conflict",
+            f"Extractor ID {extractor_id} is claimed by: {provider_list}",
+            providers=providers,
+        )
+    if selected.info.status == "unavailable":
+        raise ExtractionError(
+            selected.failure_code or "site2md.extractor_unavailable",
+            f"Extractor {extractor_id} is unavailable: {selected.info.detail}",
+        )
+    return selected
+
+
+def _discover_extractors() -> tuple[_DiscoveredExtractor, ...]:
+    """Inspect installed distribution metadata without importing provider code."""
+    discovered: list[_DiscoveredExtractor] = []
+    for provider in distributions():
+        metadata_errors: list[str] = []
+        try:
+            entry_points = tuple(
+                entry_point
+                for entry_point in provider.entry_points
+                if entry_point.group == ENTRY_POINT_GROUP
+            )
+        except Exception as cause:
+            entry_points = ()
+            metadata_errors.append(f"entry-point metadata could not be read: {cause}")
+        try:
+            manifest_files = tuple(
+                file
+                for file in provider.files or ()
+                if Path(str(file)).name == MANIFEST_NAME
+            )
+        except Exception as cause:
+            manifest_files = ()
+            metadata_errors.append(f"installed file metadata could not be read: {cause}")
+        if not entry_points and not manifest_files:
+            continue
+        discovered.extend(
+            _inspect_provider(
+                provider,
+                entry_points,
+                manifest_files,
+                metadata_errors,
+            )
+        )
+
+    by_id: dict[str, list[int]] = {}
+    for index, item in enumerate(discovered):
+        by_id.setdefault(item.info.id, []).append(index)
+    for indexes in by_id.values():
+        if len(indexes) < 2:
+            continue
+        providers = sorted(
+            (
+                f"{discovered[index].info.provider_distribution} "
+                f"{discovered[index].info.provider_version}"
+                for index in indexes
+            ),
+            key=str.casefold,
+        )
+        detail = f"claimed by multiple providers: {', '.join(providers)}"
+        for index in indexes:
+            item = discovered[index]
+            discovered[index] = replace(
+                item,
+                info=replace(item.info, status="conflict", detail=detail),
+                failure_code="site2md.extractor_conflict",
+            )
+    return tuple(sorted(discovered, key=_discovery_sort_key))
+
+
+def _inspect_provider(
+    provider: Distribution,
+    entry_points: tuple[EntryPoint, ...],
+    manifest_files: tuple[object, ...],
+    metadata_errors: list[str],
+) -> list[_DiscoveredExtractor]:
+    """Validate one provider's static manifest against its entry points."""
+    errors = list(metadata_errors)
+    try:
+        provider_name = provider.metadata.get("Name")
+    except Exception as cause:
+        provider_name = None
+        errors.append(f"provider distribution metadata could not be read: {cause}")
+    if not provider_name:
+        provider_name = "<unknown provider>"
+        errors.append("provider distribution name is missing")
+    try:
+        provider_version = provider.version
+    except Exception as cause:
+        provider_version = None
+        errors.append(f"provider distribution version could not be read: {cause}")
+    if not provider_version:
+        provider_version = "<unknown version>"
+        errors.append("provider distribution version is missing")
+    declarations: list[Mapping[str, Any]] = []
+
     if len(manifest_files) != 1:
-        raise ValueError(f"Provider must contain exactly one {MANIFEST_NAME}")
-    manifest_path = provider.locate_file(manifest_files[0])
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("manifest_version") != 1:
-        raise ValueError("Provider manifest does not use interface version 1")
-    declarations = [
-        declaration
-        for declaration in manifest.get("extractors", [])
-        if declaration.get("id") == extractor_id
-    ]
-    if len(declarations) != 1:
-        raise ValueError(f"Unknown Extractor ID: {extractor_id}")
-    return declarations[0]
+        errors.append(f"provider must contain exactly one {MANIFEST_NAME}")
+    else:
+        try:
+            manifest_path = provider.locate_file(manifest_files[0])  # type: ignore[arg-type]
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as cause:
+            errors.append(f"provider manifest could not be read: {cause}")
+        else:
+            if not isinstance(manifest, Mapping):
+                errors.append("provider manifest must be a JSON object")
+            else:
+                if type(manifest.get("manifest_version")) is not int or manifest.get(
+                    "manifest_version"
+                ) != 1:
+                    errors.append("provider manifest does not use manifest version 1")
+                raw_declarations = manifest.get("extractors")
+                if not isinstance(raw_declarations, list) or not raw_declarations:
+                    errors.append("provider manifest must declare at least one Extractor")
+                else:
+                    for declaration in raw_declarations:
+                        if isinstance(declaration, Mapping):
+                            declarations.append(declaration)
+                        else:
+                            errors.append("every Extractor declaration must be an object")
+
+    entry_point_ids = [entry_point.name for entry_point in entry_points]
+    declaration_ids: list[str] = []
+    for declaration in declarations:
+        declaration_id = declaration.get("id")
+        if isinstance(declaration_id, str):
+            declaration_ids.append(declaration_id)
+    if len(entry_point_ids) != len(set(entry_point_ids)):
+        errors.append("provider has duplicate Extractor entry-point names")
+    if len(declaration_ids) != len(set(declaration_ids)):
+        errors.append("provider has duplicate Extractor declarations")
+    if set(entry_point_ids) != set(declaration_ids):
+        errors.append("manifest Extractor IDs do not agree with entry-point names")
+
+    ids = sorted(set(entry_point_ids) | set(declaration_ids))
+    if not ids:
+        ids = ["<unknown>"]
+    results: list[_DiscoveredExtractor] = []
+    for extractor_id in ids:
+        item_errors = list(errors)
+        if EXTRACTOR_ID.fullmatch(extractor_id) is None:
+            item_errors.append(
+                "Extractor ID must be lowercase and provider-qualified"
+            )
+        matching_declarations = [
+            declaration
+            for declaration in declarations
+            if declaration.get("id") == extractor_id
+        ]
+        matching_entry_points = [
+            entry_point
+            for entry_point in entry_points
+            if entry_point.name == extractor_id
+        ]
+        declaration = (
+            matching_declarations[0] if len(matching_declarations) == 1 else None
+        )
+        entry_point = (
+            matching_entry_points[0] if len(matching_entry_points) == 1 else None
+        )
+        failure_code = "site2md.extractor_unavailable"
+        if declaration is not None:
+            declaration_errors, unsupported = _declaration_errors(declaration)
+            item_errors.extend(declaration_errors)
+            if unsupported and len(declaration_errors) == 1 and not errors:
+                failure_code = "site2md.extractor_unsupported"
+        if entry_point is None:
+            item_errors.append("Extractor must have exactly one matching entry point")
+
+        implementation_version, schema_id, schema_version, schema = (
+            _declaration_information(declaration)
+        )
+        status: Literal["available", "unavailable"] = (
+            "unavailable" if item_errors else "available"
+        )
+        info = ExtractorInfo(
+            id=extractor_id,
+            status=status,
+            provider_distribution=provider_name,
+            provider_version=provider_version,
+            implementation_version=implementation_version,
+            record_schema_id=schema_id,
+            record_schema_version=schema_version,
+            record_schema=schema,
+            detail="; ".join(dict.fromkeys(item_errors)),
+        )
+        results.append(
+            _DiscoveredExtractor(
+                info=info,
+                provider=provider,
+                entry_point=entry_point,
+                declaration=declaration,
+                failure_code=failure_code if item_errors else None,
+            )
+        )
+    return results
+
+
+def _declaration_errors(
+    declaration: Mapping[str, Any],
+) -> tuple[list[str], bool]:
+    """Return static shape and interface errors for one declaration."""
+    errors: list[str] = []
+    interface_version = declaration.get("interface_version")
+    unsupported = type(interface_version) is int and interface_version != 1
+    if type(interface_version) is not int:
+        errors.append("Extractor interface version must be an integer")
+    elif interface_version != 1:
+        errors.append(f"unsupported Extractor interface version {interface_version}")
+    if not isinstance(declaration.get("implementation_version"), str) or not declaration.get(
+        "implementation_version"
+    ):
+        errors.append("Extractor implementation version must be a nonempty string")
+    record_schema = declaration.get("record_schema")
+    if not isinstance(record_schema, Mapping):
+        errors.append("record schema declaration must be an object")
+    else:
+        if not isinstance(record_schema.get("id"), str) or not record_schema.get("id"):
+            errors.append("record schema ID must be a nonempty string")
+        if not isinstance(record_schema.get("version"), str) or not record_schema.get(
+            "version"
+        ):
+            errors.append("record schema version must be a nonempty string")
+        if not isinstance(record_schema.get("schema"), Mapping):
+            errors.append("record schema must be a JSON object")
+    return errors, unsupported
+
+
+def _declaration_information(
+    declaration: Mapping[str, Any] | None,
+) -> tuple[str | None, str | None, str | None, Mapping[str, Any]]:
+    """Extract public listing fields from one declaration when present."""
+    if declaration is None:
+        return None, None, None, {}
+    implementation_version = declaration.get("implementation_version")
+    record_schema = declaration.get("record_schema")
+    if not isinstance(record_schema, Mapping):
+        return (
+            implementation_version if isinstance(implementation_version, str) else None,
+            None,
+            None,
+            {},
+        )
+    schema_id = record_schema.get("id")
+    schema_version = record_schema.get("version")
+    schema = record_schema.get("schema")
+    return (
+        implementation_version if isinstance(implementation_version, str) else None,
+        schema_id if isinstance(schema_id, str) else None,
+        schema_version if isinstance(schema_version, str) else None,
+        schema if isinstance(schema, Mapping) else {},
+    )
+
+
+def _discovery_sort_key(item: _DiscoveredExtractor) -> tuple[str, str, str]:
+    """Return the stable ordering key for public Extractor information."""
+    return (
+        item.info.id,
+        item.info.provider_distribution.casefold(),
+        item.info.provider_version,
+    )
 
 
 def _converted_document(markdown: str) -> ConvertedDocument:
