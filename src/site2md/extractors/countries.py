@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import math
+import re
 from decimal import Decimal, InvalidOperation
 
 from site2md.extractors.v1 import (
     ConvertedDocument,
+    Diagnostic,
     Extraction,
     Extractor,
     Node,
@@ -13,6 +16,8 @@ from site2md.extractors.v1 import (
 )
 
 LABELS = ("Capital:", "Population:", "Area (km2):")
+DECLARED_COUNT = re.compile(r"\b([0-9]+)\s+countries?\b", re.IGNORECASE)
+DIAGNOSTIC_PREFIX = "site2md.scrapethissite.countries"
 
 
 class CountriesExtractor:
@@ -21,24 +26,51 @@ class CountriesExtractor:
     def extract(self, document: ConvertedDocument) -> Extraction:
         """Return the country candidates in source order."""
         records = []
+        diagnostics = []
+        names: set[str] = set()
         for section in document.sections:
             for index, node in enumerate(section.nodes[:-1]):
                 paragraph = section.nodes[index + 1]
                 if not _is_country_start(node, paragraph):
                     continue
-                values = _labeled_values(paragraph)
+                name = document.plain_text(node).strip()
+                values, encountered_labels, unexpected_labels = _labeled_values(
+                    paragraph
+                )
+                if encountered_labels != LABELS:
+                    diagnostics.append(
+                        Diagnostic(
+                            severity="warning",
+                            code=f"{DIAGNOSTIC_PREFIX}.reordered-labels",
+                            message=f"Country record labels are reordered: {name}",
+                            provenance=(paragraph.span,),
+                        )
+                    )
+                for label in unexpected_labels:
+                    diagnostics.append(
+                        Diagnostic(
+                            severity="warning",
+                            code=f"{DIAGNOSTIC_PREFIX}.unexpected-label",
+                            message=f"Country record has an unexpected label: {label}",
+                            provenance=(paragraph.span,),
+                        )
+                    )
+                if name in names:
+                    raise ValueError(f"Duplicate country name: {name}")
+                names.add(name)
                 records.append(
                     RecordCandidate(
                         value={
-                            "name": document.plain_text(node).strip(),
+                            "name": name,
                             "capital": _capital(values["Capital:"]),
-                            "population": int(values["Population:"]),
+                            "population": _population(values["Population:"]),
                             "area_km2": _area(values["Area (km2):"]),
                         },
                         provenance=(document.covering_span(node, paragraph),),
                     )
                 )
-        return Extraction(records=tuple(records))
+        _validate_declared_counts(document, len(records))
+        return Extraction(records=tuple(records), diagnostics=tuple(diagnostics))
 
 
 def create_extractor() -> Extractor:
@@ -58,14 +90,23 @@ def _is_country_start(heading: Node, paragraph: Node) -> bool:
     return bool(strong_text.intersection(LABELS))
 
 
-def _labeled_values(paragraph: Node) -> dict[str, str]:
+def _labeled_values(paragraph: Node) -> tuple[dict[str, str], tuple[str, ...], tuple[str, ...]]:
     """Read required values following their exact strong labels."""
     values: dict[str, str] = {}
+    encountered_labels = []
+    unexpected_labels = []
     children = paragraph.children
     for index, child in enumerate(children):
         label = child.plain_text().strip()
-        if child.kind != "strong" or label not in LABELS:
+        if child.kind != "strong":
             continue
+        if label not in LABELS:
+            if label.endswith(":"):
+                unexpected_labels.append(label)
+            continue
+        if label in values:
+            raise ValueError(f"Country record has duplicate label: {label}")
+        encountered_labels.append(label)
         value_parts = []
         for following in children[index + 1 :]:
             if following.kind in {"strong", "line_break"}:
@@ -76,7 +117,7 @@ def _labeled_values(paragraph: Node) -> dict[str, str]:
     missing = [label for label in LABELS if label not in values]
     if missing:
         raise ValueError(f"Country record is missing labels: {', '.join(missing)}")
-    return values
+    return values, tuple(encountered_labels), tuple(unexpected_labels)
 
 
 def _capital(value: str) -> str | None:
@@ -84,9 +125,37 @@ def _capital(value: str) -> str | None:
     return None if value == "None" else value
 
 
+def _population(value: str) -> int:
+    """Parse a country population as an integer."""
+    try:
+        return int(value)
+    except ValueError as error:
+        raise ValueError(f"Invalid country population: {value}") from error
+
+
 def _area(value: str) -> float:
     """Parse decimal or exponent-form square kilometers."""
     try:
-        return float(Decimal(value))
+        area = float(Decimal(value))
     except InvalidOperation as error:
         raise ValueError(f"Invalid country area: {value}") from error
+    if not math.isfinite(area):
+        raise ValueError(f"Invalid country area: {value}")
+    return area
+
+
+def _validate_declared_counts(document: ConvertedDocument, record_count: int) -> None:
+    """Reject H1 country counts that disagree with valid candidates."""
+    for section in document.sections:
+        for node in section.nodes:
+            if node.kind != "heading" or node.attributes.get("level") != 1:
+                continue
+            match = DECLARED_COUNT.search(document.plain_text(node))
+            if match is None:
+                continue
+            declared_count = int(match.group(1))
+            if declared_count != record_count:
+                raise ValueError(
+                    "Declared country count "
+                    f"{declared_count} does not match {record_count} candidates"
+                )
