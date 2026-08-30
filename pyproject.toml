@@ -14,13 +14,22 @@ dependencies = [
     "cyclopts>=2.0.0",
     "markdownify>=0.11.6",
     "beautifulsoup4>=4.12.0",
+    "marko>=2.2.4,<3",
+    "jsonschema>=4.18,<4.25; python_version < '3.10'",
+    "jsonschema>=4.18,<5; python_version >= '3.10'",
 ]
+
+[project.entry-points."site2md.extractors.v1"]
+"site2md.scrapethissite.countries" = "site2md.extractors.countries:create_extractor"
 
 [project.scripts]
 site2md = "site2md.main:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/site2md"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/site2md/extractors/provider-manifest-v1.json" = "site2md/extractors/provider-manifest-v1.json"
 
 [tool.ruff.lint]
 ignore = [

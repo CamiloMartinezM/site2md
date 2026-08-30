@@ -1,0 +1,36 @@
+{
+  "manifest_version": 1,
+  "extractors": [
+    {
+      "id": "site2md.scrapethissite.countries",
+      "interface_version": 1,
+      "implementation_version": "1.0.0",
+      "record_schema": {
+        "id": "urn:site2md:extractors:scrapethissite:countries:v1",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "urn:site2md:extractors:scrapethissite:countries:v1",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "capital", "population", "area_km2"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "capital": {
+                "anyOf": [
+                  {"type": "string", "minLength": 1},
+                  {"type": "null"}
+                ]
+              },
+              "population": {"type": "integer", "minimum": 0},
+              "area_km2": {"type": "number", "minimum": 0}
+            }
+          }
+        }
+      }
+    }
+  ]
+}
