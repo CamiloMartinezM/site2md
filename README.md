@@ -8,7 +8,7 @@
 
 **Professional Website to Markdown Converter** ✨
 
-*A powerful, feature-rich tool to convert entire websites into a single Markdown document for LLM ingestion, offline reading, or archiving.*
+*Convert a local HTML tree or one remote web page into a Markdown document for LLM ingestion, offline reading, or archiving.*
 
 
 [Installation](#-installation) • [Features](#-features) • [Usage](#-usage) • [Examples](#-examples)
@@ -46,9 +46,8 @@ pip install -e .
 
 ## 🌐 Supported Inputs
 
-- **Static Websites** - Documentation sites, blogs, portfolios.
-- **Local Directories** - Convert a folder of HTML files you already have.
-- **Remote URLs** - Automatically mirrors files using `wget` before conversion.
+- **Local Directories** - Convert and concatenate a folder of HTML files you already have.
+- **Remote URLs** - Fetch and convert one server-rendered HTML page without following its links.
 
 ---
 
@@ -56,7 +55,7 @@ pip install -e .
 
 ### Core Features
 - **One-Command Conversion** - From URL to single `.md` file in one go.
-- **Smart Mirroring** - Uses `wget` robustly to download all page requisites locally.
+- **Safe Page Mode** - Fetches only the requested remote page and keeps its links usable.
 - **Intelligent Cleaning** - Automatically strips navigation bars, footers, and scripts using `BeautifulSoup`.
 - **Markdownify Integration** - High-quality HTML-to-Markdown conversion.
 - **Concatenation** - Merges hundreds of pages into one seamless manual with page separators.
@@ -75,20 +74,22 @@ pip install -e .
 ### Command Line Mode
 
 ```bash
-# Download and convert from a URL
+# Fetch and convert one remote page (page mode is the default)
 site2md build https://yasa-sleep.org/index.html --output manual.md
+site2md build https://yasa-sleep.org/index.html --mode page --output manual.md
 
 # Convert a local directory
 site2md build ./input_folder --output manual.md
 
-# Keep temporary download files (for debugging)
+# Keep temporary remote page data (for debugging)
 site2md build https://example.com --keep-temp
 ```
 
 ### Options
 
 - `--output`: Specify the output filename (default: `complete_manual.md`).
-- `--keep-temp`: Don't delete the folder downloaded by `wget`.
+- `--mode page`: Explicitly select page mode for a remote URL (the default and only available mode).
+- `--keep-temp`: Don't delete temporary remote page data.
 
 ---
 
@@ -107,9 +108,6 @@ site2md build --help
 
 ### Required
 - **Python 3.10** or higher
-- **wget** (accessible in system PATH) - Required for URL mirroring.
-  - **Linux**: Usually pre-installed or `sudo apt install wget`
-  - **macOS**: `brew install wget`
 
 ### Dependencies (Installed automatically)
 - `cyclopts` - For the CLI interface
