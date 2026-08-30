@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "site2md"
-version = "0.2.0"
+version = "0.3.0"
 description = "A CLI tool that converts a local HTML tree or one remote web page to Markdown."
 authors = [{ name = "Camilo Martínez M.", email = "cama00005@uni-saarland.de" }]
 license = { text = "MIT" }
@@ -31,6 +31,9 @@ packages = ["src/site2md"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/site2md/extractors/provider-manifest-v1.json" = "site2md/extractors/provider-manifest-v1.json"
+
+[tool.hatch.build.targets.sdist]
+exclude = ["/kleinanzeigen-66123-mietwohnungen.md"]
 
 [tool.ruff.lint]
 ignore = [

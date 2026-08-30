@@ -15,7 +15,7 @@ from typing import IO, Literal
 RemoteMode = Literal["page"]
 DEFAULT_MAX_PAGE_SIZE_MIB = 25
 REQUEST_TIMEOUT_SECONDS = 30
-USER_AGENT = "site2md/0.2.0"
+USER_AGENT = "site2md/0.3.0"
 _BYTES_PER_MIB = 1024 * 1024
 _CHUNK_SIZE = 64 * 1024
 _ALLOWED_MEDIA_TYPES = {"text/html", "application/xhtml+xml"}

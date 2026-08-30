@@ -21,7 +21,7 @@ class InstallerTests(unittest.TestCase):
             wget_sentinel = Path(temp_dir) / "wget-invoked"
 
             shims = {
-                "python3": "#!/bin/sh\nprintf 'Python 3.10.0\\n'\n",
+                "python3": "#!/bin/sh\nprintf 'Python 3.9.0\\n'\n",
                 "pip3": "#!/bin/sh\nexit 0\n",
                 "wget": (
                     "#!/bin/sh\n"

@@ -2,8 +2,8 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)
-![Python](https://img.shields.io/badge/python-3.10+-brightgreen.svg)
+![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)
+![Python](https://img.shields.io/badge/python-3.9+-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 **HTML to Markdown Converter** ✨
@@ -61,6 +61,7 @@ Remote conversion processes the HTML returned by the server. It doesn't run Java
 - **Intelligent Cleaning** - Automatically strips navigation bars, footers, and scripts using `BeautifulSoup`.
 - **Markdownify Integration** - High-quality HTML-to-Markdown conversion.
 - **Concatenation** - Merges local HTML files into one document with page separators.
+- **Structured Extraction** - Runs an explicitly selected Extractor over converted Markdown and emits validated, deterministic JSON with source provenance.
 - **Progress Tracking** - Beautiful CLI with rich progress bars and status updates.
 - **Zero bloat** - No heavy browser engines required (unlike PDF converters).
 
@@ -102,6 +103,10 @@ site2md extract site2md.scrapethissite.countries converted.md --output records.j
 
 Without `--output`, `extract` writes only the JSON document to standard output. Warnings are included in that document and repeated concisely on standard error. Markdown input must be UTF-8. Extraction and output failures leave standard output empty, and an existing output file is replaced only after the complete JSON document has been serialized and flushed successfully.
 
+Extractor IDs are exact and case-sensitive; `site2md` never guesses which Extractor to use. `extractors` lists installed providers from their static metadata without importing their code. Extractors are trusted, in-process Python plug-ins: they are not sandboxed, and interface version 1 does not provide per-run configuration. Install or remove third-party provider packages with normal Python package tooling. See the [Extractor provider guide](docs/extractor-providers.md) for the complete contract.
+
+Extraction is synchronous and whole-document based. It adds no Markdown size limit; memory use grows with the input document and extraction result.
+
 ### Build Options
 
 - `--output`: Specify the output filename (default: `complete_manual.md`).
@@ -109,7 +114,7 @@ Without `--output`, `extract` writes only the JSON document to standard output. 
 - `--max-page-size-mib`: Set a positive integer response-size limit for one remote page. This option applies only to remote URLs and defaults to 25 MiB.
 - `--keep-temp`: Preserve temporary remote page data after success or failure. The command prints the retained path.
 
-Remote fetches use a 30-second timeout, a `site2md/0.2.0` user agent, and no automatic retries. They accept only final, nonempty `text/html` or `application/xhtml+xml` responses with a `2xx` status code. The command follows HTTP and HTTPS redirects except for HTTPS-to-HTTP downgrades.
+Remote fetches use a 30-second timeout, a `site2md/0.3.0` user agent, and no automatic retries. They accept only final, nonempty `text/html` or `application/xhtml+xml` responses with a `2xx` status code. The command follows HTTP and HTTPS redirects except for HTTPS-to-HTTP downgrades.
 
 Remote fetch and validation failures preserve an existing output file. By default, the command removes temporary remote data after both successful and failed conversions.
 
@@ -131,7 +136,7 @@ site2md extractors --help
 ## 🔧 Requirements
 
 ### Required
-- **Python 3.10** or higher
+- **Python 3.9** or higher
 
 Remote page conversion doesn't require `wget` or a browser engine.
 
@@ -139,7 +144,10 @@ Remote page conversion doesn't require `wget` or a browser engine.
 - `cyclopts` - For the CLI interface
 - `markdownify` - For conversion
 - `beautifulsoup4` - For HTML parsing
-- `rich` - For the beautiful terminal UI
+- `rich` - For terminal output
+- `marko` - For interpreting converted Markdown behind the provider interface
+- `jsonschema` - For validating provider schemas and extracted records
+- `packaging` - For validating provider versions
 
 ---
 
