@@ -81,7 +81,10 @@ site2md build https://yasa-sleep.org/index.html --mode page --output manual.md
 # Convert a local directory
 site2md build ./input_folder --output manual.md
 
-# Keep temporary remote page data (for debugging)
+# Limit the remote page response size (default: 25 MiB)
+site2md build https://example.com --max-page-size-mib 10 --output page.md
+
+# Keep temporary remote page data after a failed fetch (for debugging)
 site2md build https://example.com --keep-temp
 ```
 
@@ -89,7 +92,10 @@ site2md build https://example.com --keep-temp
 
 - `--output`: Specify the output filename (default: `complete_manual.md`).
 - `--mode page`: Explicitly select page mode for a remote URL (the default and only available mode).
+- `--max-page-size-mib`: Positive integer response-size limit for one remote page (default: 25 MiB).
 - `--keep-temp`: Don't delete temporary remote page data.
+
+Remote fetches use a 30-second timeout, `site2md/0.1.0` user agent, no automatic retries, and only accept final non-empty HTML/XHTML 2xx responses. HTTP/HTTPS redirects are followed, except HTTPS-to-HTTP downgrades. Failed conversions leave an existing output file unchanged.
 
 ---
 

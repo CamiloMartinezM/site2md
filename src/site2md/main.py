@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.progress import Progress
 
 from site2md.converter import convert_html_to_markdown, convert_remote_page_to_markdown
-from site2md.downloader import RemoteMode, fetch_remote
+from site2md.downloader import DEFAULT_MAX_PAGE_SIZE_MIB, RemoteMode, fetch_remote
 from site2md.finder import find_html_files
 from site2md.merger import merge_markdowns
 
@@ -25,6 +25,7 @@ def build(
     output: Path = Path("complete_manual.md"),
     keep_temp: bool = False,
     mode: RemoteMode = "page",
+    max_page_size_mib: Optional[int] = None,
 ) -> None:
     """Build a single Markdown file from a local HTML directory or remote page.
 
@@ -33,16 +34,32 @@ def build(
         output: Path where the result Markdown should be saved.
         keep_temp: If True, temporary remote page data is not deleted.
         mode: Scope used to fetch remote content. Only page mode is available.
+        max_page_size_mib: Positive MiB limit for one remote page (default: 25).
     """
     temp_download_dir: Optional[Path] = None
     markdown_contents: list[str] = []
     is_remote = input_source.startswith("http://") or input_source.startswith("https://")
 
     try:
+        if max_page_size_mib is not None and max_page_size_mib <= 0:
+            console.print("[red]Error:[/red] --max-page-size-mib must be a positive integer.")
+            sys.exit(1)
+
+        if not is_remote and max_page_size_mib is not None:
+            console.print("[red]Error:[/red] --max-page-size-mib can only be used with remote URLs.")
+            sys.exit(1)
+
+        effective_max_page_size_mib = max_page_size_mib or DEFAULT_MAX_PAGE_SIZE_MIB
+
         if is_remote:
             console.print(f"[cyan]Fetching page {input_source}...[/cyan]")
             try:
-                remote_page = fetch_remote(input_source, mode)
+                remote_page = fetch_remote(
+                    input_source,
+                    mode,
+                    max_page_size_mib=effective_max_page_size_mib,
+                    keep_temp=keep_temp,
+                )
             except Exception as error:
                 console.print(f"[red]Error fetching remote page:[/red] {error}")
                 sys.exit(1)

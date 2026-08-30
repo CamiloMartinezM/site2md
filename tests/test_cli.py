@@ -3,30 +3,41 @@
 from __future__ import annotations
 
 import os
+import socket
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Union
 
 Response = tuple[int, dict[str, str], bytes]
+Route = Union[Response, Callable[[BaseHTTPRequestHandler], None]]
 
 
 class RecordingServer:
     """Serve fixed responses and record every requested path."""
 
-    def __init__(self, routes: dict[str, Response]) -> None:
+    def __init__(self, routes: dict[str, Route]) -> None:
         self.requests: list[str] = []
+        self.user_agents: list[str | None] = []
         requests = self.requests
+        user_agents = self.user_agents
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:  # noqa: N802
                 requests.append(self.path)
+                user_agents.append(self.headers.get("User-Agent"))
                 route = routes.get(self.path)
                 if route is None:
                     response = (404, {"Content-Type": "text/plain"}, b"not found")
+                elif callable(route):
+                    route(self)
+                    return
                 else:
                     response = route
 
@@ -69,7 +80,9 @@ class Site2mdCliTests(unittest.TestCase):
         if not cls.command.is_file():
             raise RuntimeError(f"Installed site2md command not found at {cls.command}")
 
-    def run_site2md(self, *arguments: object, without_wget: bool = False) -> subprocess.CompletedProcess[str]:
+    def run_site2md(
+        self, *arguments: object, without_wget: bool = False, timeout: float | None = None
+    ) -> subprocess.CompletedProcess[str]:
         """Run the installed command and capture its observable result."""
         env = os.environ.copy()
         if without_wget:
@@ -80,6 +93,7 @@ class Site2mdCliTests(unittest.TestCase):
             capture_output=True,
             text=True,
             env=env,
+            timeout=timeout,
         )
 
     @staticmethod
@@ -100,6 +114,11 @@ class Site2mdCliTests(unittest.TestCase):
 </main></body>
 </html>"""
 
+    @staticmethod
+    def valid_html(text: str = "ok") -> bytes:
+        """Return a minimal HTML page containing text."""
+        return f"<html><body><main><p>{text}</p></main></body></html>".encode()
+
     def assert_link_rich_page(self, markdown: str, origin: str) -> None:
         """Assert page-mode URL normalization in generated Markdown."""
         self.assertIn(f"<!-- Source: {origin}/results -->", markdown)
@@ -110,6 +129,13 @@ class Site2mdCliTests(unittest.TestCase):
         self.assertIn("[Email](mailto:agent@example.com)", markdown)
         self.assertIn("[Telephone](tel:+4912345)", markdown)
         self.assertIn(f"![Home]({origin}/catalog/images/home.jpg)", markdown)
+
+    def assert_failed_without_replacing_output(
+        self, result: subprocess.CompletedProcess[str], output: Path
+    ) -> None:
+        """Assert a failed conversion preserved the prior destination contents."""
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(output.read_text(encoding="utf-8"), "previous")
 
     def test_explicit_page_mode_fetches_only_the_requested_document(self) -> None:
         with RecordingServer(
@@ -123,6 +149,7 @@ class Site2mdCliTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(server.requests, ["/results"])
+            self.assertEqual(server.user_agents, ["site2md/0.1.0"])
             self.assertTrue(output.is_file())
             self.assert_link_rich_page(output.read_text(encoding="utf-8"), server.origin)
 
@@ -140,9 +167,129 @@ class Site2mdCliTests(unittest.TestCase):
             self.assertEqual(server.requests, ["/results"])
             self.assert_link_rich_page(output.read_text(encoding="utf-8"), server.origin)
 
+    def test_explicit_positive_page_size_limit_overrides_default(self) -> None:
+        routes = {"/small": (200, {"Content-Type": "text/html"}, self.valid_html("small"))}
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "small.md"
+
+            result = self.run_site2md(
+                "build", f"{server.origin}/small", "--max-page-size-mib", "1", "--output", output
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("small", output.read_text(encoding="utf-8"))
+
+    def test_invalid_page_size_values_are_rejected_before_conversion(self) -> None:
+        with RecordingServer({"/ok": (200, {"Content-Type": "text/html"}, self.valid_html())}) as server:
+            for value in ["0", "-1", "abc"]:
+                with self.subTest(value=value):
+                    result = self.run_site2md(
+                        "build", f"{server.origin}/ok", "--max-page-size-mib", value
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(server.requests, [])
+
+    def test_page_size_option_is_rejected_for_local_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "input"
+            root.mkdir()
+            (root / "index.html").write_text("<html><body>local</body></html>", encoding="utf-8")
+            output = Path(temp_dir) / "local.md"
+
+            for value in ["1", "25"]:
+                with self.subTest(value=value):
+                    result = self.run_site2md(
+                        "build", root, "--max-page-size-mib", value, "--output", output
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(output.exists())
+
+    def test_declared_oversized_response_fails_without_replacing_output(self) -> None:
+        routes = {
+            "/huge": (
+                200,
+                {"Content-Type": "text/html", "Content-Length": str(2 * 1024 * 1024)},
+                b"<html></html>",
+            )
+        }
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "out.md"
+            output.write_text("previous", encoding="utf-8")
+
+            result = self.run_site2md(
+                "build", f"{server.origin}/huge", "--max-page-size-mib", "1", "--output", output
+            )
+
+            self.assert_failed_without_replacing_output(result, output)
+            self.assertIn("exceeding", result.stdout)
+
+    def test_streaming_oversized_response_fails_without_unbounded_read(self) -> None:
+        chunks_sent = []
+
+        def stream(handler: BaseHTTPRequestHandler) -> None:
+            handler.send_response(200)
+            handler.send_header("Content-Type", "text/html")
+            handler.end_headers()
+            for _ in range(20):
+                chunks_sent.append(1)
+                try:
+                    handler.wfile.write(b"x" * 65536)
+                    handler.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    break
+                time.sleep(0.01)
+
+        with RecordingServer({"/stream": stream}) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "stream.md"
+            output.write_text("previous", encoding="utf-8")
+
+            result = self.run_site2md(
+                "build", f"{server.origin}/stream", "--max-page-size-mib", "1", "--output", output
+            )
+
+            self.assert_failed_without_replacing_output(result, output)
+            self.assertLess(len(chunks_sent), 20)
+
+    def test_slow_response_uses_timeout_without_retries(self) -> None:
+        from site2md import downloader
+
+        def slow(handler: BaseHTTPRequestHandler) -> None:
+            time.sleep(1)
+            try:
+                handler.send_response(200)
+                handler.send_header("Content-Type", "text/html")
+                handler.end_headers()
+                handler.wfile.write(self.valid_html("late"))
+            except (BrokenPipeError, ConnectionResetError, socket.timeout):
+                pass
+
+        original_timeout = downloader.REQUEST_TIMEOUT_SECONDS
+        downloader.REQUEST_TIMEOUT_SECONDS = 0.2
+        try:
+            with RecordingServer({"/slow": slow}) as server:
+                with self.assertRaises(downloader.RemoteFetchError):
+                    downloader.fetch_remote(f"{server.origin}/slow")
+                self.assertEqual(server.requests, ["/slow"])
+        finally:
+            downloader.REQUEST_TIMEOUT_SECONDS = original_timeout
+
+    def test_invalid_final_responses_fail_without_replacing_output(self) -> None:
+        routes = {
+            "/empty": (200, {"Content-Type": "text/html"}, b""),
+            "/json": (200, {"Content-Type": "application/json"}, b"{}"),
+            "/missing": (404, {"Content-Type": "text/html"}, self.valid_html()),
+        }
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            for path in routes:
+                with self.subTest(path=path):
+                    output = Path(temp_dir) / f"{path.strip('/')}.md"
+                    output.write_text("previous", encoding="utf-8")
+                    result = self.run_site2md("build", f"{server.origin}{path}", "--output", output)
+                    self.assert_failed_without_replacing_output(result, output)
+
     def test_redirect_uses_final_url_for_source_and_relative_links(self) -> None:
         html = b'<html><body><main><a href="child.html">Child</a></main></body></html>'
-        routes: dict[str, Response] = {
+        routes: dict[str, Route] = {
             "/start": (302, {"Location": "/final/page.html"}, b""),
             "/final/page.html": (200, {"Content-Type": "text/html"}, html),
         }
@@ -157,13 +304,80 @@ class Site2mdCliTests(unittest.TestCase):
             self.assertIn(f"<!-- Source: {server.origin}/final/page.html -->", markdown)
             self.assertIn(f"[Child]({server.origin}/final/child.html)", markdown)
 
+    def test_cross_origin_redirect_is_allowed(self) -> None:
+        with RecordingServer(
+            {"/final": (200, {"Content-Type": "text/html"}, self.valid_html("final"))}
+        ) as final_server:
+            routes = {"/start": (302, {"Location": f"{final_server.origin}/final"}, b"")}
+            with RecordingServer(routes) as start_server, tempfile.TemporaryDirectory() as temp_dir:
+                output = Path(temp_dir) / "redirect.md"
+
+                result = self.run_site2md("build", f"{start_server.origin}/start", "--output", output)
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(start_server.requests, ["/start"])
+                self.assertEqual(final_server.requests, ["/final"])
+                self.assertIn("final", output.read_text(encoding="utf-8"))
+
+    def test_https_to_http_redirect_policy_rejects_downgrade(self) -> None:
+        from site2md.downloader import RemoteFetchError, _SafeRedirectHandler
+
+        class Request:
+            full_url = "https://example.test/start"
+
+        with self.assertRaises(RemoteFetchError):
+            _SafeRedirectHandler().redirect_request(
+                Request(), None, 302, "Found", {}, "http://example.test/final"
+            )
+
+    def test_keep_temp_controls_failed_fetch_artifacts(self) -> None:
+        def stream(handler: BaseHTTPRequestHandler) -> None:
+            handler.send_response(200)
+            handler.send_header("Content-Type", "text/html")
+            handler.end_headers()
+            for _ in range(20):
+                try:
+                    handler.wfile.write(b"x" * 65536)
+                    handler.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    break
+
+        routes: dict[str, Route] = {"/stream": stream}
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "out.md"
+            output.write_text("previous", encoding="utf-8")
+
+            result = self.run_site2md(
+                "build", f"{server.origin}/stream", "--max-page-size-mib", "1", "--output", output
+            )
+
+            self.assert_failed_without_replacing_output(result, output)
+            self.assertNotIn("Temporary files kept at", result.stdout)
+
+            kept_result = self.run_site2md(
+                "build",
+                f"{server.origin}/stream",
+                "--max-page-size-mib",
+                "1",
+                "--output",
+                output,
+                "--keep-temp",
+            )
+
+            self.assert_failed_without_replacing_output(kept_result, output)
+            marker = "Temporary files kept at "
+            self.assertIn(marker, kept_result.stdout)
+            kept_dir = Path(kept_result.stdout.split(marker, 1)[1].splitlines()[0].strip())
+            self.assertTrue(kept_dir.is_dir())
+            self.assertGreater((kept_dir / "page.html").stat().st_size, 0)
+
     def test_response_and_document_encoding_metadata_are_honored(self) -> None:
         http_declared = "<html><body><main><p>caf\u00e9</p></main></body></html>".encode("iso-8859-1")
         meta_declared = (
             '<html><head><meta charset="windows-1252"></head>'
             '<body><main><p>Price \u20ac10</p></main></body></html>'
         ).encode("windows-1252")
-        routes: dict[str, Response] = {
+        routes: dict[str, Route] = {
             "/http-encoding": (
                 200,
                 {"Content-Type": "text/html; charset=iso-8859-1"},
