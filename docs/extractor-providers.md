@@ -1,6 +1,6 @@
 # Writing an Extractor provider
 
-An Extractor provider is a normal Python distribution that derives source-specific records from a converted Markdown document. Install providers with `pip` or another standard package tool, then inspect them with `site2md extractors`.
+An Extractor provider is a normal Python distribution that derives source-specific records from a converted document. Install providers with `pip` or another standard package tool, then inspect them with `site2md extractors`.
 
 > [!WARNING]
 > Providers are trusted, in-process Python code. `site2md` does not sandbox them. Interface version 1 also has no per-run provider configuration; publish materially different behavior under a separate exact Extractor ID.

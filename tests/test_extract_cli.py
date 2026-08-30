@@ -464,33 +464,79 @@ countries.create_extractor = lambda: NoisyExtractor()
                         self.assertEqual(result.stdout, b"")
                         self.assertIn(b"forced provider failure", result.stderr)
 
-    @unittest.skipUnless(Path("/dev/full").exists(), "requires /dev/full")
-    def test_extract_reports_standard_output_write_failures_with_status_one(
-        self,
-    ) -> None:
-        with Path("/dev/full").open("wb", buffering=0) as full_device:
-            result = subprocess.run(
-                [
-                    str(self.command),
-                    "extract",
-                    "site2md.scrapethissite.countries",
-                    "-",
-                ],
-                check=False,
-                input=b"""### Full device
+    def test_extract_reports_pre_emission_stdout_failure_without_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            environment = self.startup_hook_environment(
+                Path(temp_dir),
+                """from site2md import main
+
+real_write = main.os.write
+
+def fail_standard_output(descriptor, contents):
+    if descriptor == 1:
+        raise OSError("forced pre-emission failure")
+    return real_write(descriptor, contents)
+
+main.os.write = fail_standard_output
+""",
+            )
+            result = self.run_site2md(
+                "extract",
+                "site2md.scrapethissite.countries",
+                "-",
+                input_bytes=b"""### Failed sink
 
 **Capital:** Error City
 **Population:** 11
 **Area (km2):** 12
 """,
-                stdout=full_device,
-                stderr=subprocess.PIPE,
+                extra_environment=environment,
             )
 
         self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, b"")
         self.assertIn(b"could not write extraction result", result.stderr)
         self.assertNotIn(b"Traceback", result.stderr)
         self.assertNotIn(b"Exception ignored", result.stderr)
+
+    def test_extract_retries_short_stdout_writes_until_json_is_complete(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            environment = self.startup_hook_environment(
+                Path(temp_dir),
+                """from site2md import main
+
+real_write = main.os.write
+shortened = False
+
+def short_standard_output_write(descriptor, contents):
+    global shortened
+    if descriptor == 1 and not shortened:
+        shortened = True
+        return real_write(descriptor, contents[:7])
+    return real_write(descriptor, contents)
+
+main.os.write = short_standard_output_write
+""",
+            )
+            result = self.run_site2md(
+                "extract",
+                "site2md.scrapethissite.countries",
+                "-",
+                input_bytes=b"""### Short write
+
+**Capital:** Complete City
+**Population:** 13
+**Area (km2):** 14
+""",
+                extra_environment=environment,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertEqual(result.stderr, b"")
+        self.assertEqual(
+            json.loads(result.stdout)["records"][0]["value"]["name"],
+            "Short write",
+        )
 
 
 if __name__ == "__main__":

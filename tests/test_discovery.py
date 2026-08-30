@@ -291,6 +291,21 @@ def create_extractor():
                 "site2md.extractor_interface_invalid",
                 TypeError,
             ),
+            (
+                "execution-provider",
+                "example.execution-failure",
+                "execution_provider",
+                (
+                    "class FailingExtractor:\n"
+                    "    def extract(self, document):\n"
+                    "        raise RuntimeError('execution exploded')\n"
+                    "def create_extractor():\n"
+                    "    return FailingExtractor()\n"
+                ),
+                None,
+                "site2md.extractor_execution_failed",
+                RuntimeError,
+            ),
         ]
         for provider, extractor_id, module, source, manifest, code, cause in cases:
             with self.subTest(code=code), tempfile.TemporaryDirectory() as temp_dir:
@@ -516,6 +531,60 @@ def create_extractor():
 
 class ExtractorsCliTests(unittest.TestCase):
     """Exercise the installed human-readable listing command."""
+
+    def test_listing_diagnostics_are_stable_across_hash_seeds(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            extractor_id = "example.invalid-references"
+            manifest = _manifest(extractor_id)
+            declaration = manifest["extractors"][0]  # type: ignore[index]
+            schema = declaration["record_schema"]["schema"]  # type: ignore[index]
+            schema["items"] = {"$ref": "#/$defs/items-missing"}  # type: ignore[index]
+            schema["contains"] = {"$ref": "#/$defs/contains-missing"}  # type: ignore[index]
+            _install_provider(
+                root,
+                distribution_name="invalid-references-provider",
+                extractor_id=extractor_id,
+                module_name="invalid_references_provider",
+                module_source="def create_extractor():\n    return object()\n",
+                manifest=manifest,
+            )
+            command = Path(sys.executable).with_name("site2md")
+            outputs = []
+            for seed in ("1", "3"):
+                environment = os.environ.copy()
+                existing_path = environment.get("PYTHONPATH")
+                environment["PYTHONPATH"] = (
+                    f"{root}{os.pathsep}{existing_path}"
+                    if existing_path
+                    else str(root)
+                )
+                environment["PYTHONHASHSEED"] = seed
+                result = subprocess.run(
+                    [str(command), "extractors"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    env=environment,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                outputs.append(result.stdout)
+
+        self.assertEqual(outputs[0], outputs[1])
+
+    def test_listing_usage_errors_exit_two(self) -> None:
+        command = Path(sys.executable).with_name("site2md")
+
+        result = subprocess.run(
+            [str(command), "extractors", "unexpected-argument"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+        self.assertNotIn("Traceback", result.stderr)
 
     def test_listing_succeeds_and_is_deterministic_with_broken_entries(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

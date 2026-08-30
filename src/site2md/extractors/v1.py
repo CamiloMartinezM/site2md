@@ -48,7 +48,7 @@ class Node:
 
 @dataclass(frozen=True)
 class SourceSection:
-    """An ordered portion of converted Markdown with source attribution."""
+    """An ordered portion of a converted document with source attribution."""
 
     source: str | None
     nodes: tuple[Node, ...]
@@ -60,7 +60,7 @@ class SourceSection:
 
 @dataclass(frozen=True)
 class ConvertedDocument:
-    """The complete provider-facing interpretation of converted Markdown."""
+    """The complete provider-facing converted document."""
 
     sections: tuple[SourceSection, ...]
     _markdown: str = field(default="", repr=False, compare=False)

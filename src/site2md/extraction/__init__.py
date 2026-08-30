@@ -51,7 +51,7 @@ SEMANTIC_VERSION = re.compile(
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
 )
 DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
-SCHEMA_VALUE_KEYWORDS = {
+SCHEMA_VALUE_KEYWORDS = (
     "additionalProperties",
     "contains",
     "contentSchema",
@@ -63,14 +63,14 @@ SCHEMA_VALUE_KEYWORDS = {
     "then",
     "unevaluatedItems",
     "unevaluatedProperties",
-}
-SCHEMA_ARRAY_KEYWORDS = {"allOf", "anyOf", "oneOf", "prefixItems"}
-SCHEMA_MAPPING_KEYWORDS = {
+)
+SCHEMA_ARRAY_KEYWORDS = ("allOf", "anyOf", "oneOf", "prefixItems")
+SCHEMA_MAPPING_KEYWORDS = (
     "$defs",
     "dependentSchemas",
     "patternProperties",
     "properties",
-}
+)
 
 NODE_KINDS = {
     "Heading": "heading",

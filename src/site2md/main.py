@@ -121,7 +121,10 @@ def _discard_provider_output() -> Iterator[None]:
 
 
 def _write_standard_output(contents: bytes) -> None:
-    """Write complete bytes without deferring errors to interpreter shutdown."""
+    """Write all bytes and report sink failures without deferred flush errors.
+
+    Bytes already accepted by a stream cannot be rolled back if a later write fails.
+    """
     remaining = memoryview(contents)
     while remaining:
         written = os.write(sys.stdout.fileno(), remaining)
@@ -160,7 +163,7 @@ def main() -> int:
     try:
         app(exit_on_error=False)
     except cyclopts.CycloptsError:
-        if sys.argv[1:2] == ["extract"]:
+        if sys.argv[1:2] in (["extract"], ["extractors"]):
             return 2
         return 1
     return 0

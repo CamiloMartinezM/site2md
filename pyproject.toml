@@ -33,7 +33,15 @@ packages = ["src/site2md"]
 "src/site2md/extractors/provider-manifest-v1.json" = "site2md/extractors/provider-manifest-v1.json"
 
 [tool.hatch.build.targets.sdist]
-exclude = ["/kleinanzeigen-66123-mietwohnungen.md"]
+include = [
+    "/LICENSE",
+    "/README.md",
+    "/docs/*.md",
+    "/install.sh",
+    "/pyproject.toml",
+    "/src",
+    "/tests",
+]
 
 [tool.ruff.lint]
 ignore = [

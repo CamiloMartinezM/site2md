@@ -262,6 +262,58 @@ code
         with self.assertRaises(FrozenInstanceError):
             heading.text = "changed"  # type: ignore[misc]
 
+    def test_provider_observes_a_table_nested_in_a_list(self) -> None:
+        markdown = """# Nested contract
+
+Evidence.
+
+- Outer item
+
+  | Key | Value |
+  | --- | --- |
+  | A | B |
+"""
+        observer = ObservingExtractor()
+
+        with patch(
+            "site2md.extractors.countries.create_extractor",
+            return_value=observer,
+        ):
+            extract(markdown, "site2md.scrapethissite.countries")
+
+        document = observer.documents[0]
+        outer_list = next(node for node in document.walk() if node.kind == "list")
+        nested_table = next(
+            node for node in document.walk(outer_list) if node.kind == "table"
+        )
+        self.assertNotIn(nested_table, document.sections[0].nodes)
+        self.assertEqual(
+            document.source_text(nested_table.span),
+            "| Key | Value |\n  | --- | --- |\n  | A | B |\n",
+        )
+
+    def test_provider_observes_malformed_markdown_as_literal_content(self) -> None:
+        markdown = """# Malformed contract
+
+Evidence.
+
+[unterminated link
+"""
+        observer = ObservingExtractor()
+
+        with patch(
+            "site2md.extractors.countries.create_extractor",
+            return_value=observer,
+        ):
+            extract(markdown, "site2md.scrapethissite.countries")
+
+        document = observer.documents[0]
+        malformed_paragraph = document.sections[0].nodes[-1]
+        self.assertEqual(
+            document.plain_text(malformed_paragraph),
+            "[unterminated link",
+        )
+
     def test_plain_text_decodes_only_complete_commonmark_entities(self) -> None:
         markdown = "# &copy &copy; &#65 &#65; &notit;\n\nEvidence.\n"
         observer = ObservingExtractor()

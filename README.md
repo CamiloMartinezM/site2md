@@ -61,7 +61,7 @@ Remote conversion processes the HTML returned by the server. It doesn't run Java
 - **Intelligent Cleaning** - Automatically strips navigation bars, footers, and scripts using `BeautifulSoup`.
 - **Markdownify Integration** - High-quality HTML-to-Markdown conversion.
 - **Concatenation** - Merges local HTML files into one document with page separators.
-- **Structured Extraction** - Runs an explicitly selected Extractor over converted Markdown and emits validated, deterministic JSON with source provenance.
+- **Structured Extraction** - Runs an explicitly selected Extractor over a converted document and emits validated, deterministic JSON with source provenance.
 - **Progress Tracking** - Beautiful CLI with rich progress bars and status updates.
 - **Zero bloat** - No heavy browser engines required (unlike PDF converters).
 
@@ -93,7 +93,7 @@ site2md build https://example.com --keep-temp
 # Inspect installed structured-data Extractors without running provider code
 site2md extractors
 
-# Extract deterministic JSON from converted Markdown
+# Extract deterministic JSON from a converted document
 site2md extract site2md.scrapethissite.countries converted.md
 cat converted.md | site2md extract site2md.scrapethissite.countries -
 
@@ -101,7 +101,7 @@ cat converted.md | site2md extract site2md.scrapethissite.countries -
 site2md extract site2md.scrapethissite.countries converted.md --output records.json
 ```
 
-Without `--output`, `extract` writes only the JSON document to standard output. Warnings are included in that document and repeated concisely on standard error. Markdown input must be UTF-8. Extraction and output failures leave standard output empty, and an existing output file is replaced only after the complete JSON document has been serialized and flushed successfully.
+Without `--output`, `extract` writes only the JSON document to standard output. Warnings are included in that document and repeated concisely on standard error. Markdown input must be UTF-8. Failures before standard-output emission leave standard output empty. If an output stream accepts a prefix and then fails, that prefix cannot be rolled back; the command exits with status `1` and the stream can contain incomplete JSON. An existing output file is replaced only after the complete JSON document has been serialized and flushed successfully.
 
 Extractor IDs are exact and case-sensitive; `site2md` never guesses which Extractor to use. `extractors` lists installed providers from their static metadata without importing their code. Extractors are trusted, in-process Python plug-ins: they are not sandboxed, and interface version 1 does not provide per-run configuration. Install or remove third-party provider packages with normal Python package tooling. See the [Extractor provider guide](docs/extractor-providers.md) for the complete contract.
 
@@ -145,7 +145,7 @@ Remote page conversion doesn't require `wget` or a browser engine.
 - `markdownify` - For conversion
 - `beautifulsoup4` - For HTML parsing
 - `rich` - For terminal output
-- `marko` - For interpreting converted Markdown behind the provider interface
+- `marko` - For interpreting converted documents behind the provider interface
 - `jsonschema` - For validating provider schemas and extracted records
 - `packaging` - For validating provider versions
 
