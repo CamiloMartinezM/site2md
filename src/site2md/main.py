@@ -1,16 +1,22 @@
 """Main entry point for the site2md CLI."""
 
+from __future__ import annotations
+
 import shutil
 import sys
 from pathlib import Path
-from typing import Optional
 
 import cyclopts
 from rich.console import Console
 from rich.progress import Progress
 
 from site2md.converter import convert_html_to_markdown, convert_remote_page_to_markdown
-from site2md.downloader import DEFAULT_MAX_PAGE_SIZE_MIB, RemoteMode, fetch_remote
+from site2md.downloader import (
+    DEFAULT_MAX_PAGE_SIZE_MIB,
+    RemoteFetchError,
+    RemoteMode,
+    fetch_remote,
+)
 from site2md.finder import find_html_files
 from site2md.merger import merge_markdowns
 
@@ -25,7 +31,7 @@ def build(
     output: Path = Path("complete_manual.md"),
     keep_temp: bool = False,
     mode: RemoteMode = "page",
-    max_page_size_mib: Optional[int] = None,
+    max_page_size_mib: int | None = None,
 ) -> None:
     """Build a single Markdown file from a local HTML directory or remote page.
 
@@ -36,9 +42,9 @@ def build(
         mode: Scope used to fetch remote content. Only page mode is available.
         max_page_size_mib: Positive MiB limit for one remote page (default: 25).
     """
-    temp_download_dir: Optional[Path] = None
+    temp_download_dir: Path | None = None
     markdown_contents: list[str] = []
-    is_remote = input_source.startswith("http://") or input_source.startswith("https://")
+    is_remote = input_source.startswith(("http://", "https://"))
 
     try:
         if max_page_size_mib is not None and max_page_size_mib <= 0:
@@ -60,7 +66,7 @@ def build(
                     max_page_size_mib=effective_max_page_size_mib,
                     keep_temp=keep_temp,
                 )
-            except Exception as error:
+            except (RemoteFetchError, ValueError) as error:
                 console.print(f"[red]Error fetching remote page:[/red] {error}")
                 sys.exit(1)
 
@@ -68,7 +74,12 @@ def build(
             console.print("Found [bold]1[/bold] HTML file.")
             with Progress() as progress:
                 task = progress.add_task("[cyan]Converting HTML to Markdown...", total=1)
-                markdown_contents.append(convert_remote_page_to_markdown(remote_page))
+                try:
+                    markdown = convert_remote_page_to_markdown(remote_page)
+                except Exception as error:
+                    console.print(f"[red]Error converting remote page:[/red] {error}")
+                    sys.exit(1)
+                markdown_contents.append(markdown)
                 progress.advance(task)
         else:
             input_dir = Path(input_source)

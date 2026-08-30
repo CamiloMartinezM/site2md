@@ -23,17 +23,15 @@ def convert_html_to_markdown(html_path: Path) -> str:
 
 def convert_remote_page_to_markdown(page: RemotePage) -> str:
     """Convert a remote page while retaining usable remote references."""
-    try:
-        soup = BeautifulSoup(
-            page.content_path.read_bytes(),
-            "html.parser",
-            from_encoding=page.encoding,
-        )
-        _resolve_remote_references(soup, page.source_url)
-        return _convert_soup_to_markdown(soup, page.source_url)
-    except Exception as error:
-        print(f"Error converting {page.source_url}: {error}", file=sys.stderr)
-        return f"\n\n<!-- Error converting {page.source_url} -->\n\n"
+    soup = BeautifulSoup(
+        page.content_path.read_bytes(),
+        "html.parser",
+        from_encoding=page.encoding,
+    )
+    _resolve_remote_references(soup, page.source_url)
+    _clean_soup(soup)
+    content = soup.body or soup
+    return _render_markdown(str(content), page.source_url)
 
 
 def _resolve_remote_references(soup: BeautifulSoup, source_url: str) -> None:
@@ -46,7 +44,7 @@ def _resolve_remote_references(soup: BeautifulSoup, source_url: str) -> None:
             base_url = urljoin(source_url, base_href)
 
     for attribute in ("href", "src"):
-        for tag in soup.find_all(attrs={attribute: True}):
+        for tag in soup.select(f"[{attribute}]"):
             value = tag.get(attribute)
             if isinstance(value, str):
                 tag[attribute] = _resolve_reference(value, base_url)
@@ -65,6 +63,19 @@ def _resolve_reference(reference: str, base_url: str) -> str:
 
 def _convert_soup_to_markdown(soup: BeautifulSoup, source: str) -> str:
     """Clean parsed HTML and add its source attribution to Markdown output."""
+    _clean_soup(soup)
+    main_content = (
+        soup.select_one("main")
+        or soup.select_one("article")
+        or soup.select_one(".bd-content")
+        or soup.body
+        or soup
+    )
+    return _render_markdown(str(main_content), source)
+
+
+def _clean_soup(soup: BeautifulSoup) -> None:
+    """Remove elements excluded from generated Markdown."""
     for selector in [
         "nav",
         ".bd-sidebar",
@@ -81,12 +92,8 @@ def _convert_soup_to_markdown(soup: BeautifulSoup, source: str) -> str:
         for tag in soup.select(selector):
             tag.decompose()
 
-    main_content = (
-        soup.select_one("main")
-        or soup.select_one("article")
-        or soup.select_one(".bd-content")
-        or soup.body
-    )
-    text = str(main_content) if main_content else str(soup)
-    markdown = md(text, heading_style="atx")
+
+def _render_markdown(content: str, source: str) -> str:
+    """Convert cleaned HTML and prepend its source attribution."""
+    markdown = md(content, heading_style="atx")
     return f"\n\n<!-- Source: {source} -->\n\n" + markdown

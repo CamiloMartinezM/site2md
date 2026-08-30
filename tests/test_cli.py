@@ -10,10 +10,13 @@ import tempfile
 import threading
 import time
 import unittest
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Union
+from typing import TYPE_CHECKING, Union
+
+if TYPE_CHECKING:
+    from typing_extensions import Self
 
 Response = tuple[int, dict[str, str], bytes]
 Route = Union[Response, Callable[[BaseHTTPRequestHandler], None]]
@@ -22,14 +25,14 @@ Route = Union[Response, Callable[[BaseHTTPRequestHandler], None]]
 class RecordingServer:
     """Serve fixed responses and record every requested path."""
 
-    def __init__(self, routes: dict[str, Route]) -> None:
+    def __init__(self, routes: Mapping[str, Route]) -> None:
         self.requests: list[str] = []
         self.user_agents: list[str | None] = []
         requests = self.requests
         user_agents = self.user_agents
 
         class Handler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:  # noqa: N802
+            def do_GET(self) -> None:
                 requests.append(self.path)
                 user_agents.append(self.headers.get("User-Agent"))
                 route = routes.get(self.path)
@@ -58,10 +61,9 @@ class RecordingServer:
     @property
     def origin(self) -> str:
         """Return this server's HTTP origin."""
-        host, port = self.httpd.server_address
-        return f"http://{host}:{port}"
+        return f"http://{self.httpd.server_name}:{self.httpd.server_port}"
 
-    def __enter__(self) -> RecordingServer:
+    def __enter__(self) -> Self:
         self.thread.start()
         return self
 
@@ -74,6 +76,8 @@ class RecordingServer:
 class Site2mdCliTests(unittest.TestCase):
     """Exercise remote and local conversion through the installed CLI."""
 
+    command: Path
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.command = Path(sys.executable).with_name("site2md")
@@ -81,12 +85,18 @@ class Site2mdCliTests(unittest.TestCase):
             raise RuntimeError(f"Installed site2md command not found at {cls.command}")
 
     def run_site2md(
-        self, *arguments: object, without_wget: bool = False, timeout: float | None = None
+        self,
+        *arguments: object,
+        without_wget: bool = False,
+        timeout: float | None = None,
+        extra_environment: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         """Run the installed command and capture its observable result."""
         env = os.environ.copy()
         if without_wget:
             env["PATH"] = str(self.command.parent)
+        if extra_environment:
+            env.update(extra_environment)
         return subprocess.run(
             [str(self.command), *map(str, arguments)],
             check=False,
@@ -95,6 +105,19 @@ class Site2mdCliTests(unittest.TestCase):
             env=env,
             timeout=timeout,
         )
+
+    @staticmethod
+    def startup_hook_environment(root: Path, source: str) -> dict[str, str]:
+        """Create a subprocess-only Python startup hook."""
+        hook_dir = root / "startup-hook"
+        hook_dir.mkdir()
+        (hook_dir / "sitecustomize.py").write_text(source, encoding="utf-8")
+        python_path = os.environ.get("PYTHONPATH")
+        if python_path:
+            hook_path = f"{hook_dir}{os.pathsep}{python_path}"
+        else:
+            hook_path = str(hook_dir)
+        return {"PYTHONPATH": hook_path}
 
     @staticmethod
     def link_rich_html() -> bytes:
@@ -166,6 +189,56 @@ class Site2mdCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(server.requests, ["/results"])
             self.assert_link_rich_page(output.read_text(encoding="utf-8"), server.origin)
+
+    def test_page_mode_converts_the_complete_cleaned_body(self) -> None:
+        html = b"""<html><body>
+<p>Content before the main element.</p>
+<main><p>Content inside the main element.</p></main>
+<aside><p>Content after the main element.</p></aside>
+</body></html>"""
+        routes = {"/complete": (200, {"Content-Type": "text/html"}, html)}
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "complete.md"
+
+            result = self.run_site2md(
+                "build", f"{server.origin}/complete", "--output", output
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            markdown = output.read_text(encoding="utf-8")
+            self.assertIn("Content before the main element.", markdown)
+            self.assertIn("Content inside the main element.", markdown)
+            self.assertIn("Content after the main element.", markdown)
+
+    def test_remote_conversion_failure_does_not_replace_output(self) -> None:
+        routes = {"/page": (200, {"Content-Type": "text/html"}, self.valid_html())}
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            output = temp_root / "result.md"
+            output.write_text("previous", encoding="utf-8")
+            environment = self.startup_hook_environment(
+                temp_root,
+                """from site2md import converter
+
+def fail_markdown_conversion(*args, **kwargs):
+    raise RuntimeError("forced conversion failure")
+
+converter.md = fail_markdown_conversion
+""",
+            )
+
+            result = self.run_site2md(
+                "build",
+                f"{server.origin}/page",
+                "--output",
+                output,
+                extra_environment=environment,
+            )
+
+            self.assert_failed_without_replacing_output(result, output)
+            self.assertIn("Error converting remote page:", result.stdout)
+            self.assertIn("forced conversion failure", result.stdout)
+            self.assertNotIn("Traceback", result.stderr)
 
     def test_explicit_positive_page_size_limit_overrides_default(self) -> None:
         routes = {"/small": (200, {"Content-Type": "text/html"}, self.valid_html("small"))}
@@ -251,8 +324,6 @@ class Site2mdCliTests(unittest.TestCase):
             self.assertLess(len(chunks_sent), 20)
 
     def test_slow_response_uses_timeout_without_retries(self) -> None:
-        from site2md import downloader
-
         def slow(handler: BaseHTTPRequestHandler) -> None:
             time.sleep(1)
             try:
@@ -263,15 +334,30 @@ class Site2mdCliTests(unittest.TestCase):
             except (BrokenPipeError, ConnectionResetError, socket.timeout):
                 pass
 
-        original_timeout = downloader.REQUEST_TIMEOUT_SECONDS
-        downloader.REQUEST_TIMEOUT_SECONDS = 0.2
-        try:
-            with RecordingServer({"/slow": slow}) as server:
-                with self.assertRaises(downloader.RemoteFetchError):
-                    downloader.fetch_remote(f"{server.origin}/slow")
-                self.assertEqual(server.requests, ["/slow"])
-        finally:
-            downloader.REQUEST_TIMEOUT_SECONDS = original_timeout
+        with RecordingServer({"/slow": slow}) as server, tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            output = temp_root / "slow.md"
+            output.write_text("previous", encoding="utf-8")
+            environment = self.startup_hook_environment(
+                temp_root,
+                """from site2md import downloader
+
+downloader.REQUEST_TIMEOUT_SECONDS = 0.2
+""",
+            )
+
+            result = self.run_site2md(
+                "build",
+                f"{server.origin}/slow",
+                "--output",
+                output,
+                timeout=3,
+                extra_environment=environment,
+            )
+
+            self.assert_failed_without_replacing_output(result, output)
+            self.assertEqual(server.requests, ["/slow"])
+            self.assertIn("timed out", result.stdout.lower())
 
     def test_invalid_final_responses_fail_without_replacing_output(self) -> None:
         routes = {
@@ -320,15 +406,40 @@ class Site2mdCliTests(unittest.TestCase):
                 self.assertIn("final", output.read_text(encoding="utf-8"))
 
     def test_https_to_http_redirect_policy_rejects_downgrade(self) -> None:
-        from site2md.downloader import RemoteFetchError, _SafeRedirectHandler
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            output = temp_root / "redirect.md"
+            output.write_text("previous", encoding="utf-8")
+            environment = self.startup_hook_environment(
+                temp_root,
+                """import io
+import urllib.request
+from email.message import Message
+from urllib.response import addinfourl
 
-        class Request:
-            full_url = "https://example.test/start"
+class RedirectingHTTPSHandler(urllib.request.BaseHandler):
+    def https_open(self, request):
+        headers = Message()
+        headers["Location"] = "http://example.test/final"
+        response = addinfourl(io.BytesIO(b""), headers, request.full_url, 302)
+        response.msg = "Found"
+        return response
 
-        with self.assertRaises(RemoteFetchError):
-            _SafeRedirectHandler().redirect_request(
-                Request(), None, 302, "Found", {}, "http://example.test/final"
+urllib.request.HTTPSHandler = RedirectingHTTPSHandler
+""",
             )
+
+            result = self.run_site2md(
+                "build",
+                "https://example.test/start",
+                "--output",
+                output,
+                timeout=3,
+                extra_environment=environment,
+            )
+
+            self.assert_failed_without_replacing_output(result, output)
+            self.assertIn("Refusing HTTPS-to-HTTP redirect downgrade.", result.stdout)
 
     def test_keep_temp_controls_failed_fetch_artifacts(self) -> None:
         def stream(handler: BaseHTTPRequestHandler) -> None:

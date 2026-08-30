@@ -1,13 +1,16 @@
 """Remote page retrieval for site2md."""
 
+from __future__ import annotations
+
 import shutil
 import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from http.client import HTTPMessage
 from pathlib import Path
-from typing import Literal, Optional
+from typing import IO, Literal
 
 RemoteMode = Literal["page"]
 DEFAULT_MAX_PAGE_SIZE_MIB = 25
@@ -21,10 +24,6 @@ _ALLOWED_MEDIA_TYPES = {"text/html", "application/xhtml+xml"}
 class RemoteFetchError(RuntimeError):
     """Raised when a remote page cannot be safely fetched."""
 
-    def __init__(self, message: str, temp_dir: Optional[Path] = None) -> None:
-        super().__init__(message)
-        self.temp_dir = temp_dir
-
 
 @dataclass(frozen=True)
 class RemotePage:
@@ -32,7 +31,7 @@ class RemotePage:
 
     content_path: Path
     source_url: str
-    encoding: Optional[str]
+    encoding: str | None
 
 
 def fetch_remote(
@@ -51,7 +50,15 @@ def fetch_remote(
 class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
     """Follow redirects except HTTPS-to-HTTP downgrades."""
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: HTTPMessage,
+        newurl: str,
+    ) -> urllib.request.Request | None:
         old_scheme = urllib.parse.urlsplit(req.full_url).scheme.lower()
         new_scheme = urllib.parse.urlsplit(newurl).scheme.lower()
         if old_scheme == "https" and new_scheme == "http":
@@ -128,6 +135,6 @@ def _fetch_page(url: str, *, max_page_size_mib: int, keep_temp: bool) -> RemoteP
 def _handle_fetch_failure(error: RemoteFetchError, temp_dir: Path, keep_temp: bool) -> None:
     """Clean or retain temporary fetch data, then raise an actionable error."""
     if keep_temp:
-        raise RemoteFetchError(f"{error} Temporary files kept at {temp_dir}", temp_dir) from error
+        raise RemoteFetchError(f"{error} Temporary files kept at {temp_dir}") from error
     shutil.rmtree(temp_dir)
     raise error
