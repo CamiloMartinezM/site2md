@@ -4,15 +4,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import unittest
 from dataclasses import FrozenInstanceError
+from importlib.resources import files
 from unittest.mock import patch
 
-from site2md.extraction import extract
+from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
+
+from site2md.extraction import ExtractionError, extract
 from site2md.extractors.v1 import (
     ConvertedDocument,
+    Diagnostic,
     Extraction,
     RecordCandidate,
+    SourceSpan,
 )
 
 
@@ -316,6 +322,209 @@ code
             [section.source for section in observer.documents[0].sections],
             [None, "one"],
         )
+
+    def test_warning_diagnostic_is_preserved_on_success(self) -> None:
+        markdown = "# Country\n\nEvidence.\n"
+        observer = ObservingExtractor()
+        original_extract = observer.extract
+
+        def extract_with_warning(document: ConvertedDocument) -> Extraction:
+            extracted = original_extract(document)
+            return Extraction(
+                records=extracted.records,
+                diagnostics=(
+                    Diagnostic(
+                        severity="warning",
+                        code="site2md.scrapethissite.countries.reordered",
+                        message="Fields were reordered",
+                        provenance=(document.sections[0].nodes[0].span,),
+                    ),
+                ),
+            )
+
+        observer.extract = extract_with_warning  # type: ignore[method-assign]
+        with patch(
+            "site2md.extractors.countries.create_extractor",
+            return_value=observer,
+        ):
+            result = extract(markdown, "site2md.scrapethissite.countries")
+
+        payload = json.loads(result.to_json())
+        self.assertEqual(payload["diagnostics"][0]["severity"], "warning")
+        self.assertEqual(
+            payload["diagnostics"][0]["provenance"][0]["start"],
+            0,
+        )
+
+    def test_error_diagnostic_discards_candidates_and_fails(self) -> None:
+        class ErrorExtractor:
+            def extract(self, document: ConvertedDocument) -> Extraction:
+                heading = document.sections[0].nodes[0]
+                return Extraction(
+                    records=(
+                        RecordCandidate(
+                            value={
+                                "name": "Must be discarded",
+                                "capital": None,
+                                "population": 0,
+                                "area_km2": 0,
+                            },
+                            provenance=(heading.span,),
+                        ),
+                    ),
+                    diagnostics=(
+                        Diagnostic(
+                            severity="error",
+                            code="site2md.scrapethissite.countries.drift",
+                            message="Source structure changed",
+                            provenance=(heading.span,),
+                        ),
+                    ),
+                )
+
+        with patch(
+            "site2md.extractors.countries.create_extractor",
+            return_value=ErrorExtractor(),
+        ), self.assertRaises(ExtractionError) as raised:
+            extract("# Country\n", "site2md.scrapethissite.countries")
+
+        self.assertEqual(raised.exception.code, "site2md.extractor_reported_error")
+        self.assertEqual(
+            [diagnostic.code for diagnostic in raised.exception.diagnostics],
+            ["site2md.scrapethissite.countries.drift"],
+        )
+
+    def test_malformed_diagnostics_are_rejected(self) -> None:
+        cases = (
+            Diagnostic(
+                severity="notice",  # type: ignore[arg-type]
+                code="site2md.scrapethissite.countries.notice",
+                message="Wrong severity",
+            ),
+            Diagnostic(
+                severity="warning",
+                code="another-provider.warning",
+                message="Wrong namespace",
+            ),
+            Diagnostic(
+                severity="warning",
+                code="site2md.scrapethissite.countries.empty",
+                message="",
+            ),
+            Diagnostic(
+                severity="warning",
+                code=7,  # type: ignore[arg-type]
+                message="Non-string code",
+            ),
+        )
+        for diagnostic in cases:
+            with self.subTest(code=diagnostic.code):
+                class InvalidDiagnosticExtractor:
+                    def __init__(self, invalid: Diagnostic) -> None:
+                        self.invalid = invalid
+
+                    def extract(self, document: ConvertedDocument) -> Extraction:
+                        return Extraction(records=(), diagnostics=(self.invalid,))
+
+                with patch(
+                    "site2md.extractors.countries.create_extractor",
+                    return_value=InvalidDiagnosticExtractor(diagnostic),
+                ), self.assertRaises(ExtractionError) as raised:
+                    extract("# Diagnostic\n", "site2md.scrapethissite.countries")
+
+                self.assertEqual(
+                    raised.exception.code,
+                    "site2md.extractor_output_invalid",
+                )
+
+    def test_invalid_json_values_and_provenance_fail_structurally(self) -> None:
+        cyclic: list[object] = []
+        cyclic.append(cyclic)
+        cases = (
+            ({1: "not a string key"}, None, "site2md.extractor_output_invalid"),
+            ({"instance": object()}, None, "site2md.extractor_output_invalid"),
+            ({"instance": math.inf}, None, "site2md.extractor_output_invalid"),
+            ({"instance": cyclic}, None, "site2md.extractor_output_invalid"),
+            (
+                {"instance": 1},
+                SourceSpan(0, 0, 1000, 1, 1),
+                "site2md.provenance_invalid",
+            ),
+        )
+        for value, invalid_span, expected_code in cases:
+            with self.subTest(value=value):
+                class InvalidExtractor:
+                    def __init__(
+                        self,
+                        invalid_value: object,
+                        invalid_provenance: SourceSpan | None,
+                    ) -> None:
+                        self.invalid_value = invalid_value
+                        self.invalid_provenance = invalid_provenance
+
+                    def extract(self, document: ConvertedDocument) -> Extraction:
+                        span = (
+                            self.invalid_provenance
+                            or document.sections[0].nodes[0].span
+                        )
+                        return Extraction(
+                            records=(RecordCandidate(value=self.invalid_value, provenance=(span,)),),  # type: ignore[arg-type]
+                        )
+
+                with patch(
+                    "site2md.extractors.countries.create_extractor",
+                    return_value=InvalidExtractor(value, invalid_span),
+                ), self.assertRaises(ExtractionError) as raised:
+                    extract("# Country\n", "site2md.scrapethissite.countries")
+
+                self.assertEqual(raised.exception.code, expected_code)
+
+    def test_successful_result_is_deeply_immutable(self) -> None:
+        result = extract(
+            "# One country\n\n### Example\n\n**Capital:** None  \n**Population:** 1  \n**Area (km2):** 2\n",
+            "site2md.scrapethissite.countries",
+        )
+
+        with self.assertRaises(TypeError):
+            result.payload["format_version"] = 2  # type: ignore[index]
+        record = result.payload["records"][0]  # type: ignore[index]
+        with self.assertRaises(TypeError):
+            record["value"]["name"] = "changed"  # type: ignore[index]
+        with self.assertRaises(AttributeError):
+            result.payload["records"].append(record)  # type: ignore[union-attr]
+
+    def test_shared_result_schema_validates_the_fixed_envelope(self) -> None:
+        markdown = "# One country\n\n### Åland\n\n**Capital:** Mariehamn  \n**Population:** 1  \n**Area (km2):** 2\n"
+        serialized = extract(
+            markdown,
+            "site2md.scrapethissite.countries",
+        ).to_json()
+        schema = json.loads(
+            files("site2md.extraction")
+            .joinpath("result-schema-v1.json")
+            .read_text(encoding="utf-8")
+        )
+
+        self.assertEqual(schema["$id"], "urn:site2md:extraction-result:v1")
+        Draft202012Validator.check_schema(schema)
+        Draft202012Validator(schema).validate(json.loads(serialized))
+        self.assertEqual(
+            list(json.loads(serialized)),
+            [
+                "format_version",
+                "extractor",
+                "provider",
+                "record_schema",
+                "input_digest",
+                "source_sections",
+                "records",
+                "diagnostics",
+            ],
+        )
+        self.assertIn("Åland", serialized)
+        self.assertNotIn("\\u00c5", serialized)
+        self.assertTrue(serialized.endswith("\n"))
+        self.assertFalse(serialized.endswith("\n\n"))
 
 
 if __name__ == "__main__":

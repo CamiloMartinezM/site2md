@@ -5,19 +5,28 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import math
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from html.entities import html5
 from importlib.metadata import Distribution, EntryPoint, distributions
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Literal, Protocol, cast
+from urllib.parse import unquote, urlsplit
 
 import marko
-from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
+from jsonschema import (  # type: ignore[import-untyped]
+    Draft202012Validator,
+    SchemaError,
+)
+from packaging.version import InvalidVersion, Version
 
 from site2md.extractors.v1 import (
     ConvertedDocument,
+    Diagnostic,
+    Extraction,
     Extractor,
     Node,
     RecordCandidate,
@@ -35,6 +44,33 @@ ENTITY_REFERENCE = re.compile(
 )
 LINE_ENDING = re.compile(r"\r\n?|\n")
 EXTRACTOR_ID = re.compile(r"^[a-z0-9]+(?:[.-][a-z0-9]+)+$")
+SEMANTIC_VERSION = re.compile(
+    r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+    r"(?:-(?:(?:0|[1-9][0-9]*)|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+    r"(?:\.(?:(?:0|[1-9][0-9]*)|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+)
+DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
+SCHEMA_VALUE_KEYWORDS = {
+    "additionalProperties",
+    "contains",
+    "contentSchema",
+    "else",
+    "if",
+    "items",
+    "not",
+    "propertyNames",
+    "then",
+    "unevaluatedItems",
+    "unevaluatedProperties",
+}
+SCHEMA_ARRAY_KEYWORDS = {"allOf", "anyOf", "oneOf", "prefixItems"}
+SCHEMA_MAPPING_KEYWORDS = {
+    "$defs",
+    "dependentSchemas",
+    "patternProperties",
+    "properties",
+}
 
 NODE_KINDS = {
     "Heading": "heading",
@@ -80,10 +116,14 @@ class ExtractionError(Exception):
         code: str,
         message: str,
         *,
+        diagnostics: tuple[Diagnostic, ...] = (),
         providers: tuple[str, ...] = (),
     ) -> None:
         super().__init__(message)
         self.code = code
+        self.diagnostics = diagnostics or (
+            Diagnostic(severity="error", code=code, message=message),
+        )
         self.providers = providers
 
 
@@ -119,10 +159,14 @@ class ExtractionResult:
 
     payload: Mapping[str, Any]
 
+    def __post_init__(self) -> None:
+        """Freeze the complete validated result envelope."""
+        object.__setattr__(self, "payload", _freeze_json_value(self.payload))
+
     def to_json(self) -> str:
         """Serialize the result deterministically as JSON."""
         return json.dumps(
-            self.payload,
+            _json_native(self.payload),
             ensure_ascii=False,
             indent=2,
             allow_nan=False,
@@ -143,7 +187,6 @@ def extract(markdown: str, extractor_id: str) -> ExtractionResult:
     if declaration is None or entry_point is None:
         raise AssertionError("Available Extractor lacks static discovery metadata")
     schema = declaration["record_schema"]["schema"]
-    Draft202012Validator.check_schema(schema)
 
     try:
         factory = entry_point.load()
@@ -181,13 +224,51 @@ def extract(markdown: str, extractor_id: str) -> ExtractionResult:
             "site2md.extractor_execution_failed",
             f"Extractor {extractor_id} failed: {cause}",
         ) from cause
-    values = [candidate.value for candidate in provider_result.records]
-    Draft202012Validator(schema).validate(values)
+    if not isinstance(provider_result, Extraction):
+        raise ExtractionError(
+            "site2md.extractor_output_invalid",
+            f"Extractor {extractor_id} returned an invalid extraction object",
+        )
+    diagnostics = _validated_diagnostics(
+        provider_result.diagnostics,
+        extractor_id,
+        document,
+    )
+    if any(diagnostic.severity == "error" for diagnostic in diagnostics):
+        raise ExtractionError(
+            "site2md.extractor_reported_error",
+            f"Extractor {extractor_id} reported an error",
+            diagnostics=diagnostics,
+        )
+    records, values = _validated_records(provider_result.records, document)
+    validation_errors = sorted(
+        Draft202012Validator(schema).iter_errors(values),
+        key=lambda error: (
+            tuple(str(part) for part in error.absolute_path),
+            tuple(str(part) for part in error.absolute_schema_path),
+            error.message,
+        ),
+    )
+    if validation_errors:
+        schema_diagnostics = tuple(
+            Diagnostic(
+                severity="error",
+                code="site2md.record_schema_validation_failed",
+                message=_schema_validation_message(error),
+            )
+            for error in validation_errors
+        )
+        raise ExtractionError(
+            "site2md.record_schema_validation_failed",
+            f"Extractor {extractor_id} returned records that do not match its schema",
+            diagnostics=schema_diagnostics,
+        )
 
     payload = _result_payload(
         markdown=markdown,
         document=document,
-        records=provider_result.records,
+        records=records,
+        diagnostics=diagnostics,
         provider=provider,
         declaration=declaration,
     )
@@ -426,23 +507,147 @@ def _declaration_errors(
         errors.append("Extractor interface version must be an integer")
     elif interface_version != 1:
         errors.append(f"unsupported Extractor interface version {interface_version}")
-    if not isinstance(declaration.get("implementation_version"), str) or not declaration.get(
-        "implementation_version"
-    ):
+    implementation_version = declaration.get("implementation_version")
+    if not isinstance(implementation_version, str) or not implementation_version:
         errors.append("Extractor implementation version must be a nonempty string")
+    else:
+        try:
+            Version(implementation_version)
+        except InvalidVersion:
+            errors.append("Extractor implementation version must follow PEP 440")
     record_schema = declaration.get("record_schema")
     if not isinstance(record_schema, Mapping):
         errors.append("record schema declaration must be an object")
     else:
-        if not isinstance(record_schema.get("id"), str) or not record_schema.get("id"):
-            errors.append("record schema ID must be a nonempty string")
-        if not isinstance(record_schema.get("version"), str) or not record_schema.get(
-            "version"
-        ):
-            errors.append("record schema version must be a nonempty string")
-        if not isinstance(record_schema.get("schema"), Mapping):
-            errors.append("record schema must be a JSON object")
+        errors.extend(_record_schema_errors(record_schema))
     return errors, unsupported
+
+
+def _record_schema_errors(record_schema: Mapping[str, Any]) -> list[str]:
+    """Return identity, version, and self-contained schema errors."""
+    errors: list[str] = []
+    schema_id = record_schema.get("id")
+    if not isinstance(schema_id, str) or not _absolute_uri(schema_id):
+        errors.append("record schema ID must be a stable absolute URI")
+    schema_version = record_schema.get("version")
+    if not isinstance(schema_version, str) or SEMANTIC_VERSION.fullmatch(
+        schema_version
+    ) is None:
+        errors.append("record schema version must follow semantic versioning")
+    schema = record_schema.get("schema")
+    if not isinstance(schema, Mapping):
+        errors.append("record schema must be a JSON object")
+        return errors
+    try:
+        _validate_json_value(schema, path="record schema")
+    except ValueError as cause:
+        errors.append(str(cause))
+        return errors
+    if schema.get("$schema") != DRAFT_2020_12:
+        errors.append("record schema must declare JSON Schema Draft 2020-12")
+    if schema.get("$id") != schema_id:
+        errors.append("record schema $id must match its declared ID")
+    if schema.get("type") != "array":
+        errors.append("record schema root must validate the complete candidate array")
+    reference_error = _schema_reference_error(schema, schema)
+    if reference_error is not None:
+        errors.append(reference_error)
+    try:
+        Draft202012Validator.check_schema(_json_native(schema))
+    except SchemaError as cause:
+        errors.append(f"record schema is invalid: {cause.message}")
+    return errors
+
+
+def _absolute_uri(value: str) -> bool:
+    """Return whether a value is an absolute URI without a fragment."""
+    parsed = urlsplit(value)
+    return bool(parsed.scheme) and not parsed.fragment
+
+
+def _schema_reference_error(
+    root: Mapping[str, Any],
+    value: Any,
+    resource_root: Mapping[str, Any] | None = None,
+) -> str | None:
+    """Return the first external or unresolved schema-reference error."""
+    if not isinstance(value, Mapping):
+        return None
+    if resource_root is None:
+        resource_root = root
+    elif "$id" in value and value is not resource_root:
+        resource_root = value
+    for keyword in ("$ref", "$dynamicRef"):
+        if keyword not in value:
+            continue
+        reference = value[keyword]
+        if not isinstance(reference, str) or not reference.startswith("#"):
+            return f"record schema reference must be local: {reference!r}"
+        if not _local_reference_exists(resource_root, reference):
+            return f"record schema local reference does not resolve: {reference}"
+    for nested in _schema_children(value):
+        invalid = _schema_reference_error(root, nested, resource_root)
+        if invalid is not None:
+            return invalid
+    return None
+
+
+def _local_reference_exists(resource_root: Mapping[str, Any], reference: str) -> bool:
+    """Return whether a local JSON Pointer or anchor resolves in the schema."""
+    fragment = unquote(reference[1:])
+    if not fragment:
+        return True
+    if fragment.startswith("/"):
+        current: Any = resource_root
+        for encoded_part in fragment[1:].split("/"):
+            part = encoded_part.replace("~1", "/").replace("~0", "~")
+            if isinstance(current, Mapping) and part in current:
+                current = current[part]
+            elif isinstance(current, Sequence) and not isinstance(
+                current, (str, bytes, bytearray)
+            ) and part.isdigit() and int(part) < len(current):
+                current = current[int(part)]
+            else:
+                return False
+        return True
+    return _contains_schema_anchor(resource_root, fragment, resource_root)
+
+
+def _contains_schema_anchor(
+    value: Any,
+    anchor: str,
+    resource_root: Mapping[str, Any],
+) -> bool:
+    """Return whether a schema tree declares one static or dynamic anchor."""
+    if not isinstance(value, Mapping):
+        return False
+    if value is not resource_root and "$id" in value:
+        return False
+    if value.get("$anchor") == anchor or value.get("$dynamicAnchor") == anchor:
+        return True
+    return any(
+        _contains_schema_anchor(nested, anchor, resource_root)
+        for nested in _schema_children(value)
+    )
+
+
+def _schema_children(schema: Mapping[str, Any]) -> tuple[Any, ...]:
+    """Return only values that Draft 2020-12 defines as child schemas."""
+    children: list[Any] = []
+    for keyword in SCHEMA_VALUE_KEYWORDS:
+        if keyword in schema:
+            children.append(schema[keyword])
+    for keyword in SCHEMA_ARRAY_KEYWORDS:
+        value = schema.get(keyword)
+        if isinstance(value, Sequence) and not isinstance(
+            value, (str, bytes, bytearray)
+        ):
+            children.extend(value)
+    for keyword in SCHEMA_MAPPING_KEYWORDS:
+        value = schema.get(keyword)
+        if isinstance(value, Mapping):
+            children.extend(value.values())
+    return tuple(children)
 
 
 def _declaration_information(
@@ -685,11 +890,242 @@ def _line_number(markdown: str, offset: int) -> int:
     return line
 
 
+def _validated_diagnostics(
+    diagnostics: tuple[Diagnostic, ...],
+    extractor_id: str,
+    document: ConvertedDocument,
+) -> tuple[Diagnostic, ...]:
+    """Validate ordered provider diagnostics at the host boundary."""
+    if not isinstance(diagnostics, tuple):
+        raise ExtractionError(
+            "site2md.extractor_output_invalid",
+            "Extractor diagnostics must be an ordered sequence",
+        )
+    for index, diagnostic in enumerate(diagnostics):
+        if not isinstance(diagnostic, Diagnostic):
+            raise ExtractionError(
+                "site2md.extractor_output_invalid",
+                f"Extractor diagnostic {index} has an invalid type",
+            )
+        if diagnostic.severity not in {"warning", "error"}:
+            raise ExtractionError(
+                "site2md.extractor_output_invalid",
+                f"Extractor diagnostic {index} has an invalid severity",
+            )
+        if (
+            not isinstance(diagnostic.code, str)
+            or EXTRACTOR_ID.fullmatch(diagnostic.code) is None
+            or not diagnostic.code.startswith(f"{extractor_id}.")
+        ):
+            raise ExtractionError(
+                "site2md.extractor_output_invalid",
+                f"Extractor diagnostic {index} has an invalid namespaced code",
+            )
+        if not isinstance(diagnostic.message, str) or not diagnostic.message.strip():
+            raise ExtractionError(
+                "site2md.extractor_output_invalid",
+                f"Extractor diagnostic {index} must have a nonempty message",
+            )
+        for span_index, span in enumerate(diagnostic.provenance):
+            _validate_span(
+                span,
+                document,
+                context=f"diagnostic {index} provenance {span_index}",
+            )
+    return diagnostics
+
+
+def _validated_records(
+    records: tuple[RecordCandidate, ...],
+    document: ConvertedDocument,
+) -> tuple[tuple[RecordCandidate, ...], list[dict[str, Any]]]:
+    """Validate candidate values and provenance without changing their order."""
+    if not isinstance(records, tuple):
+        raise ExtractionError(
+            "site2md.extractor_output_invalid",
+            "Extractor records must be an ordered sequence",
+        )
+    native_values: list[dict[str, Any]] = []
+    for index, candidate in enumerate(records):
+        if not isinstance(candidate, RecordCandidate):
+            raise ExtractionError(
+                "site2md.extractor_output_invalid",
+                f"Record candidate {index} has an invalid type",
+            )
+        if not isinstance(candidate.value, Mapping):
+            raise ExtractionError(
+                "site2md.extractor_output_invalid",
+                f"Record candidate {index} value must be an object",
+            )
+        try:
+            _validate_json_value(candidate.value, path=f"record candidate {index}")
+        except (TypeError, ValueError) as cause:
+            raise ExtractionError(
+                "site2md.extractor_output_invalid",
+                str(cause),
+            ) from cause
+        if not candidate.provenance:
+            raise ExtractionError(
+                "site2md.provenance_invalid",
+                f"Record candidate {index} must have at least one provenance span",
+            )
+        for span_index, span in enumerate(candidate.provenance):
+            _validate_span(
+                span,
+                document,
+                context=f"record candidate {index} provenance {span_index}",
+            )
+        native = _json_native(candidate.value)
+        native_values.append(cast(dict[str, Any], native))
+    return records, native_values
+
+
+def _validate_json_value(
+    value: Any,
+    *,
+    path: str,
+    ancestors: set[int] | None = None,
+) -> None:
+    """Reject values outside the finite JSON data model."""
+    if value is None or type(value) in {bool, int, str}:
+        return
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise ValueError(f"{path} contains a non-finite number")
+        return
+    if isinstance(value, Mapping):
+        ancestors = set() if ancestors is None else ancestors
+        identity = id(value)
+        if identity in ancestors:
+            raise ValueError(f"{path} contains a cyclic JSON value")
+        ancestors.add(identity)
+        try:
+            for key, nested in value.items():
+                if not isinstance(key, str):
+                    raise TypeError(f"{path} contains a non-string object key")
+                _validate_json_value(
+                    nested,
+                    path=f"{path}.{key}",
+                    ancestors=ancestors,
+                )
+        finally:
+            ancestors.remove(identity)
+        return
+    if isinstance(value, Sequence) and not isinstance(
+        value, (str, bytes, bytearray)
+    ):
+        ancestors = set() if ancestors is None else ancestors
+        identity = id(value)
+        if identity in ancestors:
+            raise ValueError(f"{path} contains a cyclic JSON value")
+        ancestors.add(identity)
+        try:
+            for index, nested in enumerate(value):
+                _validate_json_value(
+                    nested,
+                    path=f"{path}[{index}]",
+                    ancestors=ancestors,
+                )
+        finally:
+            ancestors.remove(identity)
+        return
+    raise ValueError(f"{path} contains a non-JSON-native value")
+
+
+def _validate_span(
+    span: SourceSpan,
+    document: ConvertedDocument,
+    *,
+    context: str,
+) -> None:
+    """Validate one provider-supplied span against the converted document."""
+    if not isinstance(span, SourceSpan):
+        raise ExtractionError(
+            "site2md.provenance_invalid",
+            f"{context} is not a SourceSpan",
+        )
+    integer_fields = (
+        span.source_section,
+        span.start,
+        span.end,
+        span.start_line,
+        span.end_line,
+    )
+    if any(type(value) is not int for value in integer_fields):
+        raise ExtractionError(
+            "site2md.provenance_invalid",
+            f"{context} contains a non-integer coordinate",
+        )
+    if not 0 <= span.source_section < len(document.sections):
+        raise ExtractionError(
+            "site2md.provenance_invalid",
+            f"{context} refers to an unknown source section",
+        )
+    if not 0 <= span.start < span.end <= len(document._markdown):
+        raise ExtractionError(
+            "site2md.provenance_invalid",
+            f"{context} falls outside the converted document",
+        )
+    section_nodes = document.sections[span.source_section].nodes
+    if not section_nodes:
+        raise ExtractionError(
+            "site2md.provenance_invalid",
+            f"{context} refers to an empty source section",
+        )
+    section_start = min(node.span.start for node in section_nodes)
+    section_end = max(node.span.end for node in section_nodes)
+    if span.start < section_start or span.end > section_end:
+        raise ExtractionError(
+            "site2md.provenance_invalid",
+            f"{context} falls outside its source section",
+        )
+    start_line = _line_number(document._markdown, span.start)
+    end_line = _line_number(document._markdown, span.end - 1)
+    if (span.start_line, span.end_line) != (start_line, end_line):
+        raise ExtractionError(
+            "site2md.provenance_invalid",
+            f"{context} has line numbers inconsistent with its offsets",
+        )
+
+
+def _schema_validation_message(error: Any) -> str:
+    """Return a deterministic record-schema failure message."""
+    location = "$"
+    for part in error.absolute_path:
+        location += f"[{part}]" if isinstance(part, int) else f".{part}"
+    return f"{location}: {error.message}"
+
+
+def _freeze_json_value(value: Any) -> Any:
+    """Return a deeply immutable JSON-compatible value."""
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {key: _freeze_json_value(nested) for key, nested in value.items()}
+        )
+    if isinstance(value, Sequence) and not isinstance(
+        value, (str, bytes, bytearray)
+    ):
+        return tuple(_freeze_json_value(nested) for nested in value)
+    return value
+
+
+def _json_native(value: Any) -> Any:
+    """Return mutable JSON-native containers while preserving insertion order."""
+    if isinstance(value, Mapping):
+        return {key: _json_native(nested) for key, nested in value.items()}
+    if isinstance(value, Sequence) and not isinstance(
+        value, (str, bytes, bytearray)
+    ):
+        return [_json_native(nested) for nested in value]
+    return value
+
+
 def _result_payload(
     *,
     markdown: str,
     document: ConvertedDocument,
     records: tuple[RecordCandidate, ...],
+    diagnostics: tuple[Diagnostic, ...],
     provider: Distribution,
     declaration: Mapping[str, Any],
 ) -> Mapping[str, Any]:
@@ -719,7 +1155,17 @@ def _result_payload(
             }
             for candidate in records
         ],
-        "diagnostics": [],
+        "diagnostics": [
+            {
+                "severity": diagnostic.severity,
+                "code": diagnostic.code,
+                "message": diagnostic.message,
+                "provenance": [
+                    _span_payload(span, document) for span in diagnostic.provenance
+                ],
+            }
+            for diagnostic in diagnostics
+        ],
     }
 
 

@@ -30,6 +30,7 @@ def _manifest(extractor_id: str, interface_version: int = 1) -> dict[str, object
                     "version": "1.0.0",
                     "schema": {
                         "$schema": "https://json-schema.org/draft/2020-12/schema",
+                        "$id": f"urn:example:{extractor_id}:v1",
                         "type": "array",
                         "items": {
                             "type": "object",
@@ -309,6 +310,208 @@ def create_extractor():
                 self.assertEqual(raised.exception.code, code)
                 if cause is not None:
                     self.assertIsInstance(raised.exception.__cause__, cause)
+
+
+class ExtractionContractTests(unittest.TestCase):
+    """Exercise provider contracts through the public extraction operation."""
+
+    def test_invalid_or_remote_schema_is_rejected_before_provider_import(self) -> None:
+        cases = {
+            "remote": {"items": {"$ref": "https://example.test/record.json"}},
+            "missing-local": {"items": {"$ref": "#/$defs/missing"}},
+            "nested-anchor": {
+                "items": {"$ref": "#record"},
+                "$defs": {
+                    "other": {
+                        "$id": "urn:example:other-resource",
+                        "$anchor": "record",
+                        "type": "object",
+                    }
+                },
+            },
+            "wrong-root": {"type": "object"},
+            "wrong-draft": {"$schema": "http://json-schema.org/draft-07/schema#"},
+        }
+        for suffix, replacement in cases.items():
+            with self.subTest(case=suffix), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                extractor_id = f"example.schema-{suffix}"
+                manifest = _manifest(extractor_id)
+                declaration = manifest["extractors"][0]  # type: ignore[index]
+                schema = declaration["record_schema"]["schema"]  # type: ignore[index]
+                schema.update(replacement)  # type: ignore[union-attr]
+                imported = root / "imported"
+                _install_provider(
+                    root,
+                    distribution_name=f"schema-{suffix}-provider",
+                    extractor_id=extractor_id,
+                    module_name=f"schema_{suffix.replace('-', '_')}_provider",
+                    module_source=(
+                        "from pathlib import Path\n"
+                        f"Path({str(imported)!r}).write_text('imported', encoding='utf-8')\n"
+                        "def create_extractor():\n    return object()\n"
+                    ),
+                    manifest=manifest,
+                )
+                module = f"schema_{suffix.replace('-', '_')}_provider"
+                with _installed(root, module):
+                    info = next(
+                        item for item in list_extractors() if item.id == extractor_id
+                    )
+                    with self.assertRaises(ExtractionError) as raised:
+                        extract("# Must not execute\n", extractor_id)
+
+                self.assertEqual(info.status, "unavailable")
+                self.assertEqual(raised.exception.code, "site2md.extractor_unavailable")
+                self.assertFalse(imported.exists())
+
+    def test_local_references_work_and_format_checking_is_disabled(self) -> None:
+        extractor_id = "example.local-schema"
+        manifest = _manifest(extractor_id)
+        declaration = manifest["extractors"][0]  # type: ignore[index]
+        schema = declaration["record_schema"]["schema"]  # type: ignore[index]
+        schema["$defs"] = {  # type: ignore[index]
+            "record": {
+                "type": "object",
+                "required": ["instance"],
+                "properties": {
+                    "instance": {"type": "string", "format": "uuid"},
+                    "literal": {
+                        "const": {"$ref": "https://example.test/instance-data"}
+                    },
+                },
+            }
+        }
+        schema["items"] = {"$ref": "#/$defs/record"}  # type: ignore[index]
+        source = '''from site2md.extractors.v1 import Extraction, RecordCandidate
+class LocalReferenceExtractor:
+    def extract(self, document):
+        return Extraction(records=(RecordCandidate(value={"instance": "not-a-uuid"}, provenance=(document.sections[0].nodes[0].span,)),))
+def create_extractor():
+    return LocalReferenceExtractor()
+'''
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            _install_provider(
+                root,
+                distribution_name="local-schema-provider",
+                extractor_id=extractor_id,
+                module_name="local_schema_provider",
+                module_source=source,
+                manifest=manifest,
+            )
+            with _installed(root, "local_schema_provider"):
+                result = extract("# Local schema\n", extractor_id)
+
+        self.assertEqual(
+            json.loads(result.to_json())["records"][0]["value"]["instance"],
+            "not-a-uuid",
+        )
+
+    def test_collection_schema_controls_zero_records_and_array_constraints(self) -> None:
+        source = '''from site2md.extractors.v1 import Extraction, RecordCandidate
+class CollectionExtractor:
+    def extract(self, document):
+        records = () if INSTANCE is None else (RecordCandidate(value={"instance": INSTANCE}, provenance=(document.sections[0].nodes[0].span,)),)
+        return Extraction(records=records)
+def create_extractor():
+    return CollectionExtractor()
+'''
+        cases = (("zero", None, None, True), ("minimum", 1, 2, False))
+        for suffix, instance, minimum, succeeds in cases:
+            with self.subTest(case=suffix), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                extractor_id = f"example.collection-{suffix}"
+                manifest = _manifest(extractor_id)
+                declaration = manifest["extractors"][0]  # type: ignore[index]
+                schema = declaration["record_schema"]["schema"]  # type: ignore[index]
+                if minimum is not None:
+                    schema["minItems"] = minimum  # type: ignore[index]
+                module = f"collection_{suffix}_provider"
+                _install_provider(
+                    root,
+                    distribution_name=f"collection-{suffix}-provider",
+                    extractor_id=extractor_id,
+                    module_name=module,
+                    module_source=f"INSTANCE = {instance!r}\n{source}",
+                    manifest=manifest,
+                )
+                with _installed(root, module):
+                    if succeeds:
+                        payload = json.loads(extract("# Collection\n", extractor_id).to_json())
+                        self.assertEqual(payload["records"], [])
+                    else:
+                        with self.assertRaises(ExtractionError) as raised:
+                            extract("# Collection\n", extractor_id)
+                        self.assertEqual(
+                            raised.exception.code,
+                            "site2md.record_schema_validation_failed",
+                        )
+
+    def test_manifest_versions_follow_independent_versioning_rules(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            extractor_id = "example.invalid-version"
+            manifest = _manifest(extractor_id)
+            declaration = manifest["extractors"][0]  # type: ignore[index]
+            declaration["implementation_version"] = "not a version"  # type: ignore[index]
+            declaration["record_schema"]["version"] = "1"  # type: ignore[index]
+            _install_provider(
+                root,
+                distribution_name="invalid-version-provider",
+                extractor_id=extractor_id,
+                module_name="invalid_version_provider",
+                module_source="def create_extractor():\n    return object()\n",
+                manifest=manifest,
+            )
+            with _installed(root, "invalid_version_provider"):
+                info = next(
+                    item for item in list_extractors() if item.id == extractor_id
+                )
+
+        self.assertEqual(info.status, "unavailable")
+        self.assertIn("PEP 440", info.detail)
+        self.assertIn("semantic versioning", info.detail)
+
+    def test_record_and_field_order_are_preserved_without_deduplication(self) -> None:
+        extractor_id = "example.ordered"
+        manifest = _manifest(extractor_id)
+        declaration = manifest["extractors"][0]  # type: ignore[index]
+        schema = declaration["record_schema"]["schema"]  # type: ignore[index]
+        schema["items"] = {"type": "object"}  # type: ignore[index]
+        source = '''from site2md.extractors.v1 import Extraction, RecordCandidate
+class OrderedExtractor:
+    def extract(self, document):
+        span = document.sections[0].nodes[0].span
+        return Extraction(records=(
+            RecordCandidate(value={"second": 2, "first": 1}, provenance=(span,)),
+            RecordCandidate(value={"second": 2, "first": 1}, provenance=(span,)),
+        ))
+def create_extractor():
+    return OrderedExtractor()
+'''
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            _install_provider(
+                root,
+                distribution_name="ordered-provider",
+                extractor_id=extractor_id,
+                module_name="ordered_provider",
+                module_source=source,
+                manifest=manifest,
+            )
+            with _installed(root, "ordered_provider"):
+                payload = json.loads(extract("# Ordered\n", extractor_id).to_json())
+
+        self.assertEqual(len(payload["records"]), 2)
+        self.assertEqual(
+            list(payload["records"][0]["value"]),
+            ["second", "first"],
+        )
+        self.assertEqual(
+            payload["records"][0]["value"],
+            payload["records"][1]["value"],
+        )
 
 
 class ExtractorsCliTests(unittest.TestCase):

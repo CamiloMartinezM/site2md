@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Protocol, Union
+from typing import Literal, Protocol, Union
 
 JsonScalar = Union[None, bool, int, float, str]
 JsonValue = Union[JsonScalar, Sequence["JsonValue"], Mapping[str, "JsonValue"]]
@@ -112,12 +112,36 @@ class RecordCandidate:
     value: Mapping[str, JsonValue]
     provenance: tuple[SourceSpan, ...]
 
+    def __post_init__(self) -> None:
+        """Freeze the candidate's ordered provenance spans."""
+        object.__setattr__(self, "provenance", tuple(self.provenance))
+
+
+@dataclass(frozen=True)
+class Diagnostic:
+    """A provider warning or error with optional ordered provenance."""
+
+    severity: Literal["warning", "error"]
+    code: str
+    message: str
+    provenance: tuple[SourceSpan, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Freeze the diagnostic's ordered provenance spans."""
+        object.__setattr__(self, "provenance", tuple(self.provenance))
+
 
 @dataclass(frozen=True)
 class Extraction:
     """Ordered record candidates returned by an Extractor."""
 
     records: tuple[RecordCandidate, ...]
+    diagnostics: tuple[Diagnostic, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Freeze ordered provider output collections."""
+        object.__setattr__(self, "records", tuple(self.records))
+        object.__setattr__(self, "diagnostics", tuple(self.diagnostics))
 
 
 class Extractor(Protocol):
