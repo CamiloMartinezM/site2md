@@ -28,7 +28,7 @@ chmod +x install.sh
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/site2md.git
+git clone https://github.com/CamiloMartinezM/site2md.git
 cd site2md
 
 # Install
