@@ -10,7 +10,6 @@ from site2md.extractors.v1 import (
     Extractor,
     Node,
     RecordCandidate,
-    SourceSpan,
 )
 
 LABELS = ("Capital:", "Population:", "Area (km2):")
@@ -31,12 +30,12 @@ class CountriesExtractor:
                 records.append(
                     RecordCandidate(
                         value={
-                            "name": node.plain_text().strip(),
+                            "name": document.plain_text(node).strip(),
                             "capital": _capital(values["Capital:"]),
                             "population": int(values["Population:"]),
                             "area_km2": _area(values["Area (km2):"]),
                         },
-                        provenance=(_covering_span(node.span, paragraph.span),),
+                        provenance=(document.covering_span(node, paragraph),),
                     )
                 )
         return Extraction(records=tuple(records))
@@ -91,14 +90,3 @@ def _area(value: str) -> float:
         return float(Decimal(value))
     except InvalidOperation as error:
         raise ValueError(f"Invalid country area: {value}") from error
-
-
-def _covering_span(first: SourceSpan, last: SourceSpan) -> SourceSpan:
-    """Cover adjacent nodes from one source section."""
-    return SourceSpan(
-        source_section=first.source_section,
-        start=first.start,
-        end=last.end,
-        start_line=first.start_line,
-        end_line=last.end_line,
-    )
