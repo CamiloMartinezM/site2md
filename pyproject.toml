@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "site2md"
 version = "0.1.0"
-description = "A CLI tool to convert any static website into a single concatenated Markdown document."
+description = "A CLI tool that converts a local HTML tree or one remote web page to Markdown."
 authors = [{ name = "Camilo Martínez M.", email = "cama00005@uni-saarland.de" }]
 license = { text = "MIT" }
 readme = "README.md"

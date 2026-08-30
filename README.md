@@ -6,7 +6,7 @@
 ![Python](https://img.shields.io/badge/python-3.10+-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
-**Professional Website to Markdown Converter** ✨
+**HTML to Markdown Converter** ✨
 
 *Convert a local HTML tree or one remote web page into a Markdown document for LLM ingestion, offline reading, or archiving.*
 
@@ -49,6 +49,8 @@ pip install -e .
 - **Local Directories** - Convert and concatenate a folder of HTML files you already have.
 - **Remote URLs** - Fetch and convert one server-rendered HTML page without following its links.
 
+Remote conversion processes the HTML returned by the server. It doesn't run JavaScript, so it doesn't include content that requires client-side rendering.
+
 ---
 
 ## ✨ Features
@@ -58,14 +60,14 @@ pip install -e .
 - **Safe Page Mode** - Fetches only the requested remote page and keeps its links usable.
 - **Intelligent Cleaning** - Automatically strips navigation bars, footers, and scripts using `BeautifulSoup`.
 - **Markdownify Integration** - High-quality HTML-to-Markdown conversion.
-- **Concatenation** - Merges hundreds of pages into one seamless manual with page separators.
+- **Concatenation** - Merges local HTML files into one document with page separators.
 - **Progress Tracking** - Beautiful CLI with rich progress bars and status updates.
 - **Zero bloat** - No heavy browser engines required (unlike PDF converters).
 
 ### Why use site2md?
 - **LLM Ready** - Create massive context files for RAG (Retrieval-Augmented Generation) applications.
 - **Offline Reading** - Read documentation on your e-reader or Markdown view.
-- **Archiving** - Snapshot an entire website into a readable text format.
+- **Archiving** - Save a local HTML collection or one remote page in a readable text format.
 
 ---
 
@@ -84,18 +86,20 @@ site2md build ./input_folder --output manual.md
 # Limit the remote page response size (default: 25 MiB)
 site2md build https://example.com --max-page-size-mib 10 --output page.md
 
-# Keep temporary remote page data after a failed fetch (for debugging)
+# Keep temporary remote page data after success or failure
 site2md build https://example.com --keep-temp
 ```
 
 ### Options
 
 - `--output`: Specify the output filename (default: `complete_manual.md`).
-- `--mode page`: Explicitly select page mode for a remote URL (the default and only available mode).
-- `--max-page-size-mib`: Positive integer response-size limit for one remote page (default: 25 MiB).
-- `--keep-temp`: Don't delete temporary remote page data.
+- `--mode page`: Explicitly select page mode for a remote URL. Page mode is the default and only available remote mode.
+- `--max-page-size-mib`: Set a positive integer response-size limit for one remote page. This option applies only to remote URLs and defaults to 25 MiB.
+- `--keep-temp`: Preserve temporary remote page data after success or failure. The command prints the retained path.
 
-Remote fetches use a 30-second timeout, `site2md/0.1.0` user agent, no automatic retries, and only accept final non-empty HTML/XHTML 2xx responses. HTTP/HTTPS redirects are followed, except HTTPS-to-HTTP downgrades. Failed conversions leave an existing output file unchanged.
+Remote fetches use a 30-second timeout, a `site2md/0.1.0` user agent, and no automatic retries. They accept only final, nonempty `text/html` or `application/xhtml+xml` responses with a `2xx` status code. The command follows HTTP and HTTPS redirects except for HTTPS-to-HTTP downgrades.
+
+Remote fetch and validation failures preserve an existing output file. By default, the command removes temporary remote data after both successful and failed conversions.
 
 ---
 
@@ -114,6 +118,8 @@ site2md build --help
 
 ### Required
 - **Python 3.10** or higher
+
+Remote page conversion doesn't require `wget` or a browser engine.
 
 ### Dependencies (Installed automatically)
 - `cyclopts` - For the CLI interface
