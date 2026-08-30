@@ -91,9 +91,18 @@ site2md build https://example.com --keep-temp
 
 # Inspect installed structured-data Extractors without running provider code
 site2md extractors
+
+# Extract deterministic JSON from converted Markdown
+site2md extract site2md.scrapethissite.countries converted.md
+cat converted.md | site2md extract site2md.scrapethissite.countries -
+
+# Atomically replace a JSON output file after successful extraction
+site2md extract site2md.scrapethissite.countries converted.md --output records.json
 ```
 
-### Options
+Without `--output`, `extract` writes only the JSON document to standard output. Warnings are included in that document and repeated concisely on standard error. Markdown input must be UTF-8. Extraction and output failures leave standard output empty, and an existing output file is replaced only after the complete JSON document has been serialized and flushed successfully.
+
+### Build Options
 
 - `--output`: Specify the output filename (default: `complete_manual.md`).
 - `--mode page`: Explicitly select page mode for a remote URL. Page mode is the default and only available remote mode.
@@ -113,6 +122,7 @@ The tool is self-documenting via the CLI.
 ```bash
 site2md --help
 site2md build --help
+site2md extract --help
 site2md extractors --help
 ```
 

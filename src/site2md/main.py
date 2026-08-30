@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import ctypes
+import os
 import shutil
 import sys
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Annotated, NoReturn
 
 import cyclopts
 from rich.console import Console
@@ -17,12 +23,147 @@ from site2md.downloader import (
     RemoteMode,
     fetch_remote,
 )
-from site2md.extraction import list_extractors
+from site2md.extraction import ExtractionError, list_extractors
+from site2md.extraction import extract as extract_markdown
 from site2md.finder import find_html_files
 from site2md.merger import merge_markdowns
 
 app = cyclopts.App(name="site2md")
 console = Console()
+
+
+@app.command(name="extract")
+def extract(
+    extractor_id: str,
+    input_source: Annotated[
+        str, cyclopts.Parameter(allow_leading_hyphen=True)
+    ],
+    *,
+    output: Path | None = None,
+) -> None:
+    """Extract structured records from a Markdown file or standard input."""
+    try:
+        if input_source == "-":
+            input_bytes = sys.stdin.buffer.read()
+        else:
+            input_bytes = Path(input_source).read_bytes()
+    except OSError as error:
+        _extract_failure(f"could not read Markdown input: {error}")
+    try:
+        markdown = input_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        _extract_failure("Markdown input is not valid UTF-8")
+    try:
+        with _discard_provider_output():
+            result = extract_markdown(markdown, extractor_id)
+    except ExtractionError as error:
+        for diagnostic in error.diagnostics:
+            print(
+                f"{diagnostic.severity}: {diagnostic.code}: {diagnostic.message}",
+                file=sys.stderr,
+            )
+        raise SystemExit(1) from None
+    except Exception as error:
+        _extract_failure(f"extraction failed: {error}")
+    try:
+        serialized = result.to_json().encode("utf-8")
+    except Exception as error:
+        _extract_failure(f"could not serialize extraction result: {error}")
+    try:
+        if output is None:
+            _write_standard_output(serialized)
+        else:
+            _write_atomic(output, serialized)
+    except OSError as error:
+        _extract_failure(f"could not write extraction result: {error}")
+    for diagnostic in result.payload["diagnostics"]:
+        print(
+            f"warning: {diagnostic['code']}: {diagnostic['message']}",
+            file=sys.stderr,
+        )
+
+
+def _extract_failure(message: str) -> NoReturn:
+    """Report one concise extraction-command failure."""
+    print(f"error: {message}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+@contextmanager
+def _discard_provider_output() -> Iterator[None]:
+    """Keep provider writes away from the command's public output streams."""
+    streams = (sys.stdout, sys.stderr)
+    for stream in streams:
+        stream.flush()
+
+    redirected: list[tuple[int, int]] = []
+    with tempfile.TemporaryFile() as sink:
+        try:
+            for stream in streams:
+                descriptor = stream.fileno()
+                saved_descriptor = os.dup(descriptor)
+                redirected.append((descriptor, saved_descriptor))
+                os.dup2(sink.fileno(), descriptor)
+            yield
+        finally:
+            try:
+                ctypes.CDLL(None).fflush(None)
+            except (AttributeError, OSError):
+                pass
+            for stream in streams:
+                try:
+                    stream.flush()
+                except (OSError, ValueError):
+                    pass
+            for descriptor, saved_descriptor in reversed(redirected):
+                os.dup2(saved_descriptor, descriptor)
+                os.close(saved_descriptor)
+
+
+def _write_standard_output(contents: bytes) -> None:
+    """Write complete bytes without deferring errors to interpreter shutdown."""
+    remaining = memoryview(contents)
+    while remaining:
+        written = os.write(sys.stdout.fileno(), remaining)
+        if written == 0:
+            raise OSError("standard output accepted no bytes")
+        remaining = remaining[written:]
+
+
+def _write_atomic(destination: Path, contents: bytes) -> None:
+    """Replace a destination only after writing and flushing complete contents."""
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary_file:
+            temporary_path = Path(temporary_file.name)
+            temporary_file.write(contents)
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+        os.replace(temporary_path, destination)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def main() -> int:
+    """Run the CLI with POSIX-compatible command-usage exit status."""
+    try:
+        app(exit_on_error=False)
+    except cyclopts.CycloptsError:
+        if sys.argv[1:2] == ["extract"]:
+            return 2
+        return 1
+    return 0
 
 
 @app.command(name="extractors")
@@ -163,4 +304,4 @@ def build(
 
 
 if __name__ == "__main__":
-    app()
+    raise SystemExit(main())

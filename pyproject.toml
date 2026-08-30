@@ -24,7 +24,7 @@ dependencies = [
 "site2md.scrapethissite.countries" = "site2md.extractors.countries:create_extractor"
 
 [project.scripts]
-site2md = "site2md.main:app"
+site2md = "site2md.main:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/site2md"]
