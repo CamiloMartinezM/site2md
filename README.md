@@ -142,8 +142,6 @@ This tool is for educational and personal archiving purposes. Please respect cop
 
 <div align="center">
 
-**Made with ❤️ with [Google Antigravity](https://antigravity.google/)**
-
 If this tool helped you, consider giving it a ⭐ on [GitHub](https://github.com/CamiloMartinezM/site2md)
 
 </div>
