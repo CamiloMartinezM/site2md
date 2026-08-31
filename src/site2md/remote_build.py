@@ -6,7 +6,6 @@ import json
 import os
 import shutil
 import tempfile
-import time
 import urllib.error
 import urllib.request
 import urllib.robotparser
@@ -25,6 +24,7 @@ from site2md.downloader import (
     RemoteFetchError,
     RemoteMode,
     RemotePage,
+    _TraversalRequestPolicy,
     fetch_remote,
 )
 
@@ -93,28 +93,38 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
     )
     workspace = Path(tempfile.mkdtemp(prefix="site2md_remote_"))
     staged_destination: Path | None = None
+    entry_path = workspace / "page.html"
+    index_pages: list[dict[str, object]] = [
+        {
+            "requested_url": request.entry_url,
+            "html": entry_path.name,
+            "status": "pending",
+        }
+    ]
 
     try:
+        _write_debugging_index(workspace, index_pages)
         try:
             page = fetch_remote(
                 request.entry_url,
                 request.mode,
                 max_page_size_mib=max_page_size_mib,
                 max_body_bytes=max_total_bytes,
-                content_path=workspace / "page.html",
+                content_path=entry_path,
             )
         except RemoteFetchError as error:
+            _record_fetch_failure(index_pages[0], entry_path, error)
+            _write_debugging_index(workspace, index_pages)
             raise RemoteBuildError(str(error), stage="fetch") from error
+        except BaseException as error:
+            _record_fatal_fetch(index_pages[0], entry_path, error)
+            _write_debugging_index(workspace, index_pages)
+            raise
 
-        index_pages: list[dict[str, object]] = [
-            {
-                "requested_url": request.entry_url,
-                "source_url": page.source_url,
-                "html": "page.html",
-                "body_bytes": page.body_bytes,
-                "status": "fetched",
-            }
-        ]
+        index_pages[0]["source_url"] = page.source_url
+        index_pages[0]["body_bytes"] = page.body_bytes
+        index_pages[0]["stored_bytes"] = _stored_bytes(entry_path)
+        index_pages[0]["status"] = "fetched"
         _write_debugging_index(workspace, index_pages)
 
         try:
@@ -152,22 +162,20 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
                 skipped += len(admitted_targets)
             elif policy is not None:
                 seen = {_normalize_url(page.source_url)}
-                fetched_children = 0
+                request_policy = _TraversalRequestPolicy(
+                    origin=_origin(page.source_url),
+                    robots=policy,
+                    delay_seconds=_request_delay(policy),
+                )
                 for index, target in enumerate(admitted_targets, start=1):
                     index_entry: dict[str, object] = {
                         "requested_url": target,
                         "status": "pending",
                     }
                     index_pages.append(index_entry)
-                    if not policy.can_fetch(USER_AGENT, target):
-                        skipped += 1
-                        warnings.append(f"Robots policy disallows {target}.")
-                        index_entry["status"] = "skipped"
-                        index_entry["detail"] = "robots policy disallowed the target"
-                        _write_debugging_index(workspace, index_pages)
-                        continue
                     remaining_bytes = max_total_bytes - total_received
                     if remaining_bytes <= 0:
+                        skipped += 1
                         index_entry["status"] = "skipped"
                         index_entry["detail"] = "aggregate content budget reached"
                         _write_debugging_index(workspace, index_pages)
@@ -175,10 +183,9 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
                             f"aggregate content ({max_total_size_mib} MiB)"
                         )
                         break
-                    if fetched_children:
-                        time.sleep(_request_delay(policy))
                     child_path = workspace / f"page-{index:04}.html"
                     index_entry["html"] = child_path.name
+                    _write_debugging_index(workspace, index_pages)
                     try:
                         child = fetch_remote(
                             target,
@@ -186,11 +193,18 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
                             max_page_size_mib=max_page_size_mib,
                             max_body_bytes=remaining_bytes,
                             content_path=child_path,
+                            _request_policy=request_policy,
                         )
                     except RemoteFetchError as error:
                         total_received += error.bytes_received
-                        fetched_children += 1
-                        index_entry["body_bytes"] = error.bytes_received
+                        _record_fetch_failure(index_entry, child_path, error)
+                        if error.policy_rejection is not None:
+                            skipped += 1
+                            index_entry["status"] = "skipped"
+                            index_entry["detail"] = str(error)
+                            warnings.append(str(error))
+                            _write_debugging_index(workspace, index_pages)
+                            continue
                         index_entry["status"] = "failed"
                         index_entry["detail"] = str(error)
                         _write_debugging_index(workspace, index_pages)
@@ -210,10 +224,14 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
                             )
                             break
                         continue
-                    fetched_children += 1
+                    except BaseException as error:
+                        _record_fatal_fetch(index_entry, child_path, error)
+                        _write_debugging_index(workspace, index_pages)
+                        raise
                     total_received += child.body_bytes
                     index_entry["source_url"] = child.source_url
                     index_entry["body_bytes"] = child.body_bytes
+                    index_entry["stored_bytes"] = _stored_bytes(child_path)
                     index_entry["status"] = "fetched"
                     final_url = _normalize_url(child.source_url)
                     if _origin(final_url) != _origin(page.source_url):
@@ -528,7 +546,7 @@ def _write_debugging_index(
     workspace: Path,
     pages: list[dict[str, object]],
 ) -> None:
-    """Write the human-readable, explicitly unstable workspace index."""
+    """Atomically write the human-readable, explicitly unstable workspace index."""
     payload = {
         "notice": (
             "Human-readable debugging artifact; this format has no compatibility "
@@ -536,7 +554,62 @@ def _write_debugging_index(
         ),
         "pages": pages,
     }
-    (workspace / "index.json").write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=workspace,
+            prefix=".index.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary_file:
+            temporary_path = Path(temporary_file.name)
+            temporary_file.write(
+                json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+            )
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+        temporary_path.rename(workspace / "index.json")
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def _record_fetch_failure(
+    index_entry: dict[str, object],
+    content_path: Path,
+    error: RemoteFetchError,
+) -> None:
+    """Record a completed retrieval failure and any retained partial data."""
+    index_entry["body_bytes"] = error.bytes_received
+    index_entry["stored_bytes"] = _stored_bytes(content_path)
+    index_entry["status"] = "failed"
+    index_entry["detail"] = str(error)
+
+
+def _record_fatal_fetch(
+    index_entry: dict[str, object],
+    content_path: Path,
+    error: BaseException,
+) -> None:
+    """Record interruption or unexpected retrieval failure before propagation."""
+    index_entry["stored_bytes"] = _stored_bytes(content_path)
+    if isinstance(error, KeyboardInterrupt):
+        index_entry["status"] = "interrupted"
+        index_entry["detail"] = "retrieval interrupted"
+    else:
+        index_entry["status"] = "failed"
+        index_entry["detail"] = f"unexpected retrieval failure: {error}"
+
+
+def _stored_bytes(content_path: Path) -> int:
+    """Return retained artifact size without obscuring its primary failure."""
+    try:
+        return content_path.stat().st_size
+    except OSError:
+        return 0
