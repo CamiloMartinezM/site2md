@@ -283,6 +283,11 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
                         continue
                     seen_sources.add(final_url)
                     admitted_urls.add(final_url)
+                    if request.mode == "site":
+                        admit_targets(
+                            _discover_site_targets(child, request.include_query),
+                            depth + 1,
+                        )
                     try:
                         child_markdown = convert_remote_page_to_markdown(child)
                     except Exception as error:
@@ -302,11 +307,6 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
                     _write_debugging_index(workspace, index_pages)
                     fragments.append(child_converted)
                     fetched += 1
-                    if request.mode == "site":
-                        admit_targets(
-                            _discover_site_targets(child, request.include_query),
-                            depth + 1,
-                        )
 
         document_path = workspace / "document.md"
         with document_path.open("wb") as document:

@@ -343,6 +343,83 @@ downloader.time.sleep = lambda _seconds: None
             self.assertIn("Reached limit: page count (6)", result.stdout)
             self.assertIn("Fetched 3; skipped 2; failed 1.", result.stdout)
 
+    def test_failed_intermediate_conversion_still_contributes_descendants(self) -> None:
+        routes: dict[str, Route] = {
+            "/entry": (
+                200,
+                {"Content-Type": "text/html"},
+                b'<a href="/bad-parent">Bad</a><a href="/sibling">Sibling</a>',
+            ),
+            "/robots.txt": (404, {"Content-Type": "text/plain"}, b"missing"),
+            "/bad-parent": (
+                200,
+                {"Content-Type": "text/html"},
+                b'<p>Bad parent</p><a href="/descendant">Descendant</a>',
+            ),
+            "/sibling": (200, {"Content-Type": "text/html"}, b"<p>Sibling</p>"),
+            "/descendant": (
+                200,
+                {"Content-Type": "text/html"},
+                b"<p>Descendant</p>",
+            ),
+        }
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            output = root / "conversion-failure.md"
+            environment = self.startup_hook_environment(
+                root,
+                """from site2md import downloader, remote_build
+
+downloader.time.sleep = lambda _seconds: None
+real_convert = remote_build.convert_remote_page_to_markdown
+
+def convert(page):
+    if page.source_url.endswith("/bad-parent"):
+        raise RuntimeError("forced intermediate conversion failure")
+    return real_convert(page)
+
+remote_build.convert_remote_page_to_markdown = convert
+""",
+            )
+
+            result = self.run_site2md(
+                "build",
+                f"{server.origin}/entry",
+                "--mode",
+                "site",
+                "--output",
+                output,
+                extra_environment=environment,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(
+                server.requests,
+                [
+                    "/entry",
+                    "/robots.txt",
+                    "/bad-parent",
+                    "/sibling",
+                    "/descendant",
+                ],
+            )
+            self.assertIn(
+                "forced intermediate conversion failure",
+                " ".join(result.stdout.split()),
+            )
+            self.assertIn("Fetched 3; skipped 0; failed 1.", result.stdout)
+            markdown = output.read_text(encoding="utf-8")
+            self.assertNotIn(
+                f"<!-- Source: {server.origin}/bad-parent -->",
+                markdown,
+            )
+            sources = [
+                f"<!-- Source: {server.origin}{path} -->"
+                for path in ("/entry", "/sibling", "/descendant")
+            ]
+            positions = [markdown.index(source) for source in sources]
+            self.assertEqual(positions, sorted(positions))
+
 
 if __name__ == "__main__":
     unittest.main()
