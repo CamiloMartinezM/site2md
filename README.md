@@ -11,7 +11,7 @@
 *Convert a local HTML tree or bounded remote web content into a Markdown document for LLM ingestion, offline reading, or archiving.*
 
 
-[Installation](#-installation) • [Features](#-features) • [Usage](#-usage) • [Examples](#-examples)
+[Installation](#-installation) • [Features](#-features) • [Usage](#-usage) • [Remote modes](#choose-a-remote-mode) • [Examples](#-examples)
 
 </div>
 
@@ -76,32 +76,127 @@ Remote conversion processes the HTML returned by the server. It doesn't run Java
 
 ## 🚀 Usage
 
-### Command Line Mode
+### Build Markdown
 
 ```bash
-# Fetch and convert one remote page (page mode is the default)
-site2md build https://yasa-sleep.org/index.html --output manual.md
-site2md build https://yasa-sleep.org/index.html --mode page --output manual.md
-
 # Convert a local directory
 site2md build ./input_folder --output manual.md
 
-# Limit the remote page response size (default: 25 MiB)
-site2md build https://example.com --max-page-size-mib 10 --output page.md
+# Fetch and convert one remote page
+site2md build https://example.com/article --output article.md
+```
 
-# Follow selected anchors from the entry page in document order
+If you omit `--output`, `site2md build` writes `complete_manual.md`.
+
+Remote input accepts three explicit modes. `page` is the default. `site2md` doesn't infer a broader mode from another option.
+
+### Choose a remote mode
+
+| Mode | Fetch scope | Use it for | Main boundary |
+| --- | --- | --- | --- |
+| `page` (default) | Only the requested page | An article, saved search, or other exact URL | No linked pages are fetched |
+| `follow` | The entry page and selected links from that page | A listing page plus chosen detail pages | One hop, same origin, and explicit CSS selectors |
+| `site` | The entry page and discovered links | A bounded documentation site or other small site | Same-origin breadth-first traversal with depth, page, and content limits |
+
+All modes process the HTML that the server returns. They don't run JavaScript or use a browser session, so client-rendered content isn't included.
+
+#### Use page mode
+
+Page mode fetches only the URL that you pass. You don't need to specify `--mode page` because it is the default.
+
+```bash
+site2md build https://example.com/article --output article.md
+site2md build https://example.com/article --mode page --output article.md
+
+# Override the default 25 MiB response limit
+site2md build https://example.com/article \
+  --max-page-size-mib 10 --output article.md
+```
+
+Use page mode when the URL already represents the content that you need. Links in the converted Markdown remain usable, but `site2md` doesn't fetch their destinations.
+
+#### Use follow mode
+
+Follow mode is designed for a listing or index page whose selected detail pages belong in the same Markdown document. Each `--follow-selector` value is a CSS selector that must match `<a href="...">` elements in the entry page's original HTML.
+
+```bash
 site2md build https://example.com/results --mode follow \
-  --follow-selector "a.result" --follow-selector "a.featured" \
-  --max-pages 20 --max-total-size-mib 100 --output results.md
+  --follow-selector "a.result" \
+  --follow-selector "a.featured" \
+  --max-pages 20 \
+  --max-total-size-mib 100 \
+  --output results.md
+```
 
-# Traverse a small same-origin site breadth first (queries excluded by default)
+Follow mode applies these rules:
+
+- At least one selector is required. Multiple selectors form one union in entry-document order.
+- Only unique same-origin HTTP and HTTPS links are eligible.
+- The entry page appears first, followed by successful matches in document order.
+- The traversal is one hop. Links on followed pages don't add more targets.
+- Explicitly selected query-bearing links and `rel="nofollow"` links remain eligible.
+- `--max-pages 20` counts the entry page, so the command admits at most 19 unique child targets.
+
+An invalid selector or a selection with no eligible links is fatal. `site2md` makes no child requests and preserves an existing output file.
+
+#### Use site mode
+
+Site mode discovers same-origin links breadth first. The entry page is depth zero, and links retain document order within each depth.
+
+```bash
 site2md build https://example.com/docs/ --mode site \
-  --max-pages 20 --max-depth 2 --output docs.md
+  --max-pages 20 \
+  --max-depth 2 \
+  --max-total-size-mib 100 \
+  --output docs.md
+```
 
-# Keep temporary remote page data after success or failure
-site2md build https://example.com --keep-temp
+Site mode skips query-bearing links by default. This blocks a common source of combinatorial expansion, including filters, sorting links, and calendars encoded in query strings. Page, depth, and content limits remain hard boundaries for other link patterns. If a site requires query-bearing pages, opt in explicitly and keep restrictive traversal budgets:
 
-# Inspect installed structured-data Extractors without running provider code
+```bash
+site2md build https://example.com/catalog --mode site \
+  --include-query --max-pages 10 --max-depth 1 \
+  --output catalog.md
+```
+
+Site mode also skips `rel="nofollow"` links. It doesn't discover forms, sitemaps, assets, or links created by JavaScript.
+
+### Control remote traversal
+
+The following options define the remote scope and resource limits:
+
+| Option | Modes | Default | Effect |
+| --- | --- | --- | --- |
+| `--follow-selector SELECTOR` | `follow` | Required | Selects entry-page anchors; repeat it to form a union |
+| `--max-pages COUNT` | `follow`, `site` | `50` | Limits the entry page plus every unique child admitted for processing |
+| `--max-depth DEPTH` | `site` | `3` | Limits breadth-first discovery; the entry page is depth zero |
+| `--include-query` | `site` | Off | Includes discovered URLs that contain query strings |
+| `--max-page-size-mib SIZE` | All remote modes | `25` | Limits each HTML page response |
+| `--max-total-size-mib SIZE` | `follow`, `site` | `250` | Limits all received page-body content, including partial or discarded responses |
+| `--keep-temp` | All remote modes | Off | Retains the remote-build workspace after success or failure |
+
+All numeric limits require positive integers. Page mode rejects traversal-only options. Follow mode rejects `--max-depth` and `--include-query`. Site mode rejects `--follow-selector`. Local input rejects remote-only options. Invalid combinations fail before a network request.
+
+Before requesting child pages, follow and site modes retrieve and enforce `robots.txt` with a separate 512 KiB limit. Child requests are sequential and spaced by at least one second, or by a longer applicable crawl delay or request-rate interval. A `4xx` response for `robots.txt` permits traversal. An unreachable or oversized policy stops child traversal and produces a warning.
+
+Remote fetches use a 30-second timeout, a versioned `site2md` user agent, and no automatic retries. They accept final, nonempty `text/html` or `application/xhtml+xml` responses with a `2xx` status. Redirects can use HTTP or HTTPS, but HTTPS-to-HTTP downgrades are rejected. Child redirects must remain on the traversal origin.
+
+Use traversal only when the website's robots policy and terms permit automated access. Policy denial is an expected boundary and isn't a reason to bypass the restriction.
+
+### Understand traversal output and failures
+
+Follow and site modes produce one Markdown document. The entry page appears first, followed by successful child pages in deterministic order. Source markers and section separators preserve each page's provenance. To extract structured data, pass the completed multi-source document to `site2md extract` in a separate command.
+
+Expected child failures produce warnings and don't discard pages that were already converted. Reaching a page, depth, or aggregate-content limit also completes successfully with a bounded partial document. Entry-page failures, invalid follow selections, interruptions, unexpected failures, and output failures are fatal and preserve an existing destination.
+
+With `--keep-temp`, the retained workspace contains fetched HTML, available partial child data, converted fragments, the assembled document, and `index.json`. The index maps attempted URLs to their status and available files for debugging. Its format is unstable and has no compatibility guarantees.
+
+By default, `site2md` removes temporary remote data after successful and failed conversions. See the [traversal policy](docs/traversal-policy.md) for the complete URL identity, ordering, resource-accounting, and failure contract.
+
+### Extract structured data
+
+```bash
+# Inspect installed Extractors without running provider code
 site2md extractors
 
 # Extract deterministic JSON from a converted document
@@ -139,32 +234,6 @@ site2md extractors
 ```
 
 The `private` directory controls what Git tracks. It does not add runtime isolation; private Extractors use the same trusted, in-process execution model as other providers.
-
-### Build Options
-
-- `--output`: Specify the output filename (default: `complete_manual.md`).
-- `--mode page`: Convert only the requested remote page. This remains the default.
-- `--mode follow`: Convert the entry page and one hop of explicitly selected same-origin anchors.
-- `--mode site`: Convert the entry page and same-origin pages discovered breadth first.
-- `--follow-selector`: Select anchors from the original entry HTML with a CSS selector. Repeat the option to form a union; output order follows document order, not option order. Follow mode requires at least one selector.
-- `--max-pages`: Set a positive traversal page budget, including the entry page and every unique child admitted for processing (default: 50).
-- `--max-depth`: Set a positive site-mode depth budget, with the entry page at depth zero (default: 3).
-- `--include-query`: Include query-bearing links discovered in site mode; they are excluded by default.
-- `--max-total-size-mib`: Set a positive traversal aggregate HTML body budget (default: 250 MiB).
-- `--max-page-size-mib`: Set a positive integer response-size limit for one remote page. This option applies only to remote URLs and defaults to 25 MiB.
-- `--keep-temp`: Preserve temporary remote page data after success or failure. The command prints the retained path.
-
-Remote fetches use a 30-second timeout, a `site2md/0.4.0` user agent, and no automatic retries. They accept only final, nonempty `text/html` or `application/xhtml+xml` responses with a `2xx` status code. The command follows HTTP and HTTPS redirects except for HTTPS-to-HTTP downgrades.
-
-Follow mode removes URL fragments for identity, normalizes origins and default ports, preserves path and query meaning, and honors an HTML `base` element. Explicitly selected query-bearing and `rel="nofollow"` anchors remain eligible. Child pages never contribute more targets. Before children are requested, follow mode retrieves `robots.txt` with a separate 512 KiB cap, enforces the policy, and spaces sequential child requests by at least one second or the greater applicable crawl delay or request-rate interval. A missing `4xx` robots policy permits following; an unreachable or oversized policy stops child requests and writes the bounded entry-page result with a warning.
-
-Site mode uses the same origin, robots, pacing, page-count, per-page, and aggregate-content boundaries. It discovers links breadth first to depth three by default and excludes query variants unless `--include-query` is supplied. Neither traversal mode fetches assets, sitemaps, forms, or browser-rendered links. See the [traversal policy](docs/traversal-policy.md) for URL identity, ordering, resource accounting, failures, and responsible-use guidance.
-
-Expected child failures and reached page or aggregate limits produce warnings and a successful bounded document containing the pages converted so far. Entry, selector, interruption, unexpected, and output failures preserve an existing destination. Successful pages keep ordered source markers. Build and extract remain separate workflows: the multi-source Markdown is the extractor input, and its source sections preserve record provenance.
-
-With `--keep-temp`, the retained workspace contains fetched HTML, incomplete child data when available, per-page converted fragments, the assembled document, and `index.json`. The index maps each attempted URL to its available files and status for human debugging. Its JSON format is intentionally unstable and has no compatibility guarantees.
-
-Remote fetch and validation failures preserve an existing output file. By default, the command removes temporary remote data after both successful and failed conversions.
 
 ---
 
