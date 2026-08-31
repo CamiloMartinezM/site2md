@@ -210,3 +210,9 @@ __marimo__/
 /AGENTS.md
 /CLAUDE.md
 /docs/agents/
+
+# Local research notes
+/docs/research/
+
+# Local Extractor implementations that must not be published
+/src/site2md/extractors/private/
