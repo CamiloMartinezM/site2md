@@ -61,7 +61,7 @@ Remote conversion processes the HTML returned by the server. It doesn't run Java
 - **Intelligent Cleaning** - Automatically strips navigation bars, footers, and scripts using `BeautifulSoup`.
 - **Markdownify Integration** - High-quality HTML-to-Markdown conversion.
 - **Concatenation** - Merges local HTML files into one document with page separators.
-- **Structured Extraction** - Runs an explicitly selected Extractor over a converted document and emits validated, deterministic JSON with source provenance.
+- **Structured Extraction** - Runs an explicitly selected plug-in parser, called an Extractor, over converted Markdown and emits schema-validated, deterministic JSON with source provenance.
 - **Progress Tracking** - Beautiful CLI with rich progress bars and status updates.
 - **Zero bloat** - No heavy browser engines required (unlike PDF converters).
 
@@ -107,6 +107,28 @@ Extractor IDs are exact and case-sensitive; `site2md` never guesses which Extrac
 
 Extraction is synchronous and whole-document based. It adds no Markdown size limit; memory use grows with the input document and extraction result.
 
+### Private Extractors
+
+To keep a local Extractor out of normal Git commits, create its standalone provider project in `src/site2md/extractors/private/`. Git ignores the entire directory, so normal commits and fresh clones do not include its contents.
+
+Use a flat package layout:
+
+```text
+src/site2md/extractors/private/
+├── pyproject.toml
+├── site2md_private_extractors/
+└── tests/
+```
+
+The private `pyproject.toml` defines the provider distribution, entry point, and static manifest without adding private metadata to the public project configuration. Install the provider in the same Python environment as `site2md`:
+
+```bash
+python -m pip install -e src/site2md/extractors/private
+site2md extractors
+```
+
+The `private` directory controls what Git tracks. It does not add runtime isolation; private Extractors use the same trusted, in-process execution model as other providers.
+
 ### Build Options
 
 - `--output`: Specify the output filename (default: `complete_manual.md`).
@@ -117,6 +139,44 @@ Extraction is synchronous and whole-document based. It adds no Markdown size lim
 Remote fetches use a 30-second timeout, a `site2md/0.3.0` user agent, and no automatic retries. They accept only final, nonempty `text/html` or `application/xhtml+xml` responses with a `2xx` status code. The command follows HTTP and HTTPS redirects except for HTTPS-to-HTTP downgrades.
 
 Remote fetch and validation failures preserve an existing output file. By default, the command removes temporary remote data after both successful and failed conversions.
+
+---
+
+## 💡 Examples
+
+### Parse Scrape This Site Country Data
+
+The built-in country Extractor turns repeated country sections from the [Scrape This Site countries practice page](https://www.scrapethissite.com/pages/simple/) into structured records.
+
+```bash
+site2md build https://www.scrapethissite.com/pages/simple/ --output countries.md
+site2md extract site2md.scrapethissite.countries countries.md --output countries.json
+```
+
+#### Raw Converted Markdown
+
+The converted Markdown keeps the page's readable headings and labels:
+
+```markdown
+### Andorra
+
+**Capital:** Andorra la Vella
+**Population:** 84000
+**Area (km2):** 468.0
+```
+
+#### Parsed JSON
+
+The Extractor converts numbers to JSON-native types, and `site2md` validates each record. `countries.json` also contains Extractor metadata, diagnostics, and source provenance. Its first record has this `value`:
+
+```json
+{
+  "name": "Andorra",
+  "capital": "Andorra la Vella",
+  "population": 84000,
+  "area_km2": 468.0
+}
+```
 
 ---
 
