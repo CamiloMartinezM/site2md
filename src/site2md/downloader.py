@@ -15,7 +15,7 @@ from http.client import HTTPMessage
 from pathlib import Path
 from typing import IO, Literal
 
-RemoteMode = Literal["page", "follow"]
+RemoteMode = Literal["page", "follow", "site"]
 DEFAULT_MAX_PAGE_SIZE_MIB = 25
 REQUEST_TIMEOUT_SECONDS = 30
 USER_AGENT = "site2md/0.3.0"
@@ -171,7 +171,7 @@ def fetch_remote(
     if content_path is None:
         content_path = Path(tempfile.mkdtemp(prefix="site2md_page_")) / "page.html"
     try:
-        if mode in {"page", "follow"}:
+        if mode in {"page", "follow", "site"}:
             return _fetch_page(
                 url,
                 max_page_size_mib=max_page_size_mib,

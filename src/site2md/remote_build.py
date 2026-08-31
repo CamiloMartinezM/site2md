@@ -38,6 +38,7 @@ RemoteBuildStage = Literal[
     "unexpected",
 ]
 DEFAULT_MAX_PAGES = 50
+DEFAULT_MAX_DEPTH = 3
 DEFAULT_MAX_TOTAL_SIZE_MIB = 250
 _BYTES_PER_MIB = 1024 * 1024
 
@@ -51,6 +52,8 @@ class RemoteBuildRequest:
     mode: RemoteMode = "page"
     follow_selectors: tuple[str, ...] = ()
     max_pages: int | None = None
+    max_depth: int | None = None
+    include_query: bool = False
     max_total_size_mib: int | None = None
     max_page_size_mib: int | None = None
     keep_temp: bool = False
@@ -85,10 +88,12 @@ class RemoteBuildError(RuntimeError):
 
 def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
     """Build one remote document and atomically replace its destination."""
-    max_page_size_mib, max_pages, max_total_size_mib = _validate_request(request)
+    max_page_size_mib, max_pages, max_depth, max_total_size_mib = (
+        _validate_request(request)
+    )
     max_total_bytes = (
         max_total_size_mib * _BYTES_PER_MIB
-        if request.mode == "follow"
+        if request.mode in {"follow", "site"}
         else None
     )
     workspace = Path(tempfile.mkdtemp(prefix="site2md_remote_"))
@@ -147,27 +152,54 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
         warnings: list[str] = []
         reached_limits: list[str] = []
         total_received = page.body_bytes
-        if request.mode == "follow":
+        if request.mode in {"follow", "site"}:
             assert max_total_bytes is not None
-            targets = _select_follow_targets(page, request.follow_selectors)
-            admitted_targets = targets[: max_pages - 1]
-            if len(admitted_targets) < len(targets):
-                reached_limits.append(f"page count ({max_pages})")
-            if admitted_targets:
+            seen_sources = {_normalize_url(page.source_url)}
+            admitted_urls = set(seen_sources)
+            admitted_count = 1
+            pending: list[tuple[str, int]] = []
+            page_limit_reached = False
+
+            def admit_targets(targets: list[str], depth: int) -> None:
+                """Admit unique targets without exceeding traversal budgets."""
+                nonlocal admitted_count, page_limit_reached
+                if page_limit_reached:
+                    return
+                for target in targets:
+                    if target in admitted_urls:
+                        continue
+                    if request.mode == "site" and depth > max_depth:
+                        limit = f"depth ({max_depth})"
+                        if limit not in reached_limits:
+                            reached_limits.append(limit)
+                        continue
+                    if admitted_count >= max_pages:
+                        reached_limits.append(f"page count ({max_pages})")
+                        page_limit_reached = True
+                        break
+                    admitted_urls.add(target)
+                    admitted_count += 1
+                    pending.append((target, depth))
+
+            if request.mode == "follow":
+                targets = _select_follow_targets(page, request.follow_selectors)
+            else:
+                targets = _discover_site_targets(page, request.include_query)
+            admit_targets(targets, 1)
+            if pending:
                 policy, policy_warning = _fetch_robots_policy(page.source_url)
             else:
                 policy, policy_warning = None, None
             if policy_warning is not None:
                 warnings.append(policy_warning)
-                skipped += len(admitted_targets)
+                skipped += len(pending)
             elif policy is not None:
-                seen = {_normalize_url(page.source_url)}
                 request_policy = _TraversalRequestPolicy(
                     origin=_origin(page.source_url),
                     robots=policy,
                     delay_seconds=_request_delay(policy),
                 )
-                for index, target in enumerate(admitted_targets, start=1):
+                for index, (target, depth) in enumerate(pending, start=1):
                     index_entry: dict[str, object] = {
                         "requested_url": target,
                         "status": "pending",
@@ -243,13 +275,14 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
                         index_entry["detail"] = "final URL left the traversal origin"
                         _write_debugging_index(workspace, index_pages)
                         continue
-                    if final_url in seen:
+                    if final_url in seen_sources:
                         skipped += 1
                         index_entry["status"] = "skipped"
                         index_entry["detail"] = "final URL duplicated an earlier source"
                         _write_debugging_index(workspace, index_pages)
                         continue
-                    seen.add(final_url)
+                    seen_sources.add(final_url)
+                    admitted_urls.add(final_url)
                     try:
                         child_markdown = convert_remote_page_to_markdown(child)
                     except Exception as error:
@@ -269,6 +302,11 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
                     _write_debugging_index(workspace, index_pages)
                     fragments.append(child_converted)
                     fetched += 1
+                    if request.mode == "site":
+                        admit_targets(
+                            _discover_site_targets(child, request.include_query),
+                            depth + 1,
+                        )
 
         document_path = workspace / "document.md"
         with document_path.open("wb") as document:
@@ -347,33 +385,43 @@ def _remote_build_failure(error: BaseException) -> RemoteBuildError:
     )
 
 
-def _validate_request(request: RemoteBuildRequest) -> tuple[int, int, int]:
-    """Validate page-mode options before creating storage or making a request."""
+def _validate_request(request: RemoteBuildRequest) -> tuple[int, int, int, int]:
+    """Validate remote-mode options before storage or network access."""
     parsed_url = urlsplit(request.entry_url)
     if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
         raise RemoteBuildError(
             "Remote input must be an HTTP(S) URL.",
             stage="validation",
         )
-    if request.mode not in {"page", "follow"}:
+    if request.mode not in {"page", "follow", "site"}:
         raise RemoteBuildError(
             f"Unsupported remote mode: {request.mode}",
             stage="validation",
         )
 
-    if request.mode == "page" and request.follow_selectors:
+    if request.mode != "follow" and request.follow_selectors:
         raise RemoteBuildError(
             "--follow-selector can only be used with --mode follow.",
             stage="validation",
         )
     if request.mode == "page" and request.max_pages is not None:
         raise RemoteBuildError(
-            "--max-pages can only be used with --mode follow.",
+            "--max-pages can only be used with --mode follow or --mode site.",
             stage="validation",
         )
     if request.mode == "page" and request.max_total_size_mib is not None:
         raise RemoteBuildError(
-            "--max-total-size-mib can only be used with --mode follow.",
+            "--max-total-size-mib can only be used with --mode follow or --mode site.",
+            stage="validation",
+        )
+    if request.mode != "site" and request.max_depth is not None:
+        raise RemoteBuildError(
+            "--max-depth can only be used with --mode site.",
+            stage="validation",
+        )
+    if request.mode != "site" and request.include_query:
+        raise RemoteBuildError(
+            "--include-query can only be used with --mode site.",
             stage="validation",
         )
     if request.mode == "follow" and not request.follow_selectors:
@@ -394,6 +442,12 @@ def _validate_request(request: RemoteBuildRequest) -> tuple[int, int, int]:
             "--max-pages must be a positive integer.",
             stage="validation",
         )
+    max_depth = request.max_depth or DEFAULT_MAX_DEPTH
+    if request.max_depth is not None and request.max_depth <= 0:
+        raise RemoteBuildError(
+            "--max-depth must be a positive integer.",
+            stage="validation",
+        )
     max_total_size_mib = (
         request.max_total_size_mib or DEFAULT_MAX_TOTAL_SIZE_MIB
     )
@@ -405,7 +459,7 @@ def _validate_request(request: RemoteBuildRequest) -> tuple[int, int, int]:
             "--max-total-size-mib must be a positive integer.",
             stage="validation",
         )
-    return max_page_size_mib, max_pages, max_total_size_mib
+    return max_page_size_mib, max_pages, max_depth, max_total_size_mib
 
 
 def _select_follow_targets(page: RemotePage, selectors: tuple[str, ...]) -> list[str]:
@@ -453,6 +507,44 @@ def _select_follow_targets(page: RemotePage, selectors: tuple[str, ...]) -> list
             "Follow selectors matched no eligible same-origin anchors.",
             stage="validation",
         )
+    return targets
+
+
+def _discover_site_targets(page: RemotePage, include_query: bool) -> list[str]:
+    """Discover unique eligible site targets in source-document order."""
+    soup = BeautifulSoup(
+        page.content_path.read_bytes(),
+        "html.parser",
+        from_encoding=page.encoding,
+    )
+    base_url = page.source_url
+    base_tag = soup.find("base", href=True)
+    if isinstance(base_tag, Tag):
+        base_href = base_tag.get("href")
+        if isinstance(base_href, str):
+            base_url = urljoin(page.source_url, base_href)
+
+    targets: list[str] = []
+    seen: set[str] = {_normalize_url(page.source_url)}
+    page_origin = _origin(page.source_url)
+    for anchor in soup.find_all("a", href=True):
+        rel = anchor.get("rel")
+        rel_values = rel if isinstance(rel, list) else str(rel or "").split()
+        if any(str(value).lower() == "nofollow" for value in rel_values):
+            continue
+        href = anchor.get("href")
+        if not isinstance(href, str) or not href:
+            continue
+        try:
+            target = _normalize_url(urljoin(base_url, href))
+        except ValueError:
+            continue
+        if urlsplit(target).query and not include_query:
+            continue
+        if _origin(target) != page_origin or target in seen:
+            continue
+        seen.add(target)
+        targets.append(target)
     return targets
 
 

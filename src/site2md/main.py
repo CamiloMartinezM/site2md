@@ -217,6 +217,8 @@ def build(
     mode: RemoteMode = "page",
     follow_selector: list[str] | None = None,
     max_pages: int | None = None,
+    max_depth: int | None = None,
+    include_query: bool = False,
     max_total_size_mib: int | None = None,
     max_page_size_mib: int | None = None,
 ) -> None:
@@ -228,8 +230,10 @@ def build(
         keep_temp: If True, temporary remote page data is not deleted.
         mode: Scope used to fetch remote content. Page mode is the default.
         follow_selector: CSS selector for anchors to follow; repeatable in follow mode.
-        max_pages: Positive page budget for follow mode (default: 50).
-        max_total_size_mib: Positive aggregate body budget for follow mode (default: 250).
+        max_pages: Positive traversal page budget (default: 50).
+        max_depth: Positive site-mode depth budget (default: 3).
+        include_query: Include query-bearing links discovered in site mode.
+        max_total_size_mib: Positive traversal body budget (default: 250).
         max_page_size_mib: Positive MiB limit for one remote page (default: 25).
     """
     markdown_contents: list[str] = []
@@ -239,6 +243,8 @@ def build(
         mode != "page"
         or follow_selector is not None
         or max_pages is not None
+        or max_depth is not None
+        or include_query
         or max_total_size_mib is not None
         or max_page_size_mib is not None
     ):
@@ -256,6 +262,8 @@ def build(
                         mode=mode,
                         follow_selectors=tuple(follow_selector or ()),
                         max_pages=max_pages,
+                        max_depth=max_depth,
+                        include_query=include_query,
                         max_total_size_mib=max_total_size_mib,
                         max_page_size_mib=max_page_size_mib,
                         keep_temp=keep_temp,

@@ -356,7 +356,6 @@ class FollowModeCliTests(unittest.TestCase):
                     "--max-total-size-mib",
                     "0",
                 ),
-                ("--mode", "site"),
                 ("--mode", "follow", "--follow-selector", "a", "--max-depth", "2"),
             )
             for arguments in cases:
