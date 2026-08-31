@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
-import subprocess
-import sys
 import tempfile
 import time
 import unittest
@@ -14,46 +11,11 @@ from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
-from tests.test_cli import RecordingServer, Route
+from tests.cli_test_support import InstalledCliTestCase, RecordingServer, Route
 
 
-class FollowModeCliTests(unittest.TestCase):
+class FollowModeCliTests(InstalledCliTestCase):
     """Exercise follow mode through the installed command and real HTTP."""
-
-    command: Path
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.command = Path(sys.executable).with_name("site2md")
-        if not cls.command.is_file():
-            raise RuntimeError(f"Installed site2md command not found at {cls.command}")
-
-    def run_site2md(
-        self,
-        *arguments: object,
-        extra_environment: dict[str, str] | None = None,
-    ) -> subprocess.CompletedProcess[str]:
-        """Run the installed command and capture its observable result."""
-        environment = os.environ.copy()
-        if extra_environment:
-            environment.update(extra_environment)
-        return subprocess.run(
-            [str(self.command), *map(str, arguments)],
-            check=False,
-            capture_output=True,
-            text=True,
-            env=environment,
-        )
-
-    @staticmethod
-    def startup_hook_environment(root: Path, source: str) -> dict[str, str]:
-        """Create a subprocess-only Python startup hook."""
-        hook_dir = root / "startup-hook"
-        hook_dir.mkdir()
-        (hook_dir / "sitecustomize.py").write_text(source, encoding="utf-8")
-        python_path = os.environ.get("PYTHONPATH")
-        hook_path = f"{hook_dir}{os.pathsep}{python_path}" if python_path else str(hook_dir)
-        return {"PYTHONPATH": hook_path}
 
     def test_follow_selector_converts_one_hop_in_document_order(self) -> None:
         entry = b"""<html><body><main>
@@ -226,6 +188,7 @@ class FollowModeCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(server.requests, ["/entry", "/robots.txt", "/large"])
             self.assertIn("Reached limit: aggregate content (1 MiB)", result.stdout)
+            self.assertIn("Fetched 1; skipped 2; failed 0.", result.stdout)
             markdown = output.read_text(encoding="utf-8")
             self.assertIn(f"<!-- Source: {server.origin}/entry -->", markdown)
             self.assertNotIn(f"<!-- Source: {server.origin}/large -->", markdown)
@@ -308,6 +271,7 @@ class FollowModeCliTests(unittest.TestCase):
                 ["/entry", "/robots.txt", "/per-page", "/aggregate"],
             )
             self.assertIn("Reached limit: aggregate content (2 MiB)", result.stdout)
+            self.assertIn("Fetched 1; skipped 1; failed 1.", result.stdout)
             self.assertNotIn("must be discarded", output.read_text(encoding="utf-8"))
 
     def test_follow_selection_failures_preserve_destination_before_child_requests(self) -> None:
@@ -440,6 +404,50 @@ Request-rate: 2/3
             self.assertIn("Robots policy disallows", result.stdout)
             self.assertIn("Fetched 3; skipped 1; failed 0.", result.stdout)
 
+    def test_robots_crawl_delay_controls_request_pacing(self) -> None:
+        entry = b'<html><body><a href="/first">First</a><a href="/second">Second</a></body></html>'
+        request_times: list[float] = []
+
+        def child(handler: BaseHTTPRequestHandler) -> None:
+            request_times.append(time.monotonic())
+            body = b"<html><body>allowed</body></html>"
+            handler.send_response(200)
+            handler.send_header("Content-Type", "text/html")
+            handler.send_header("Content-Length", str(len(body)))
+            handler.end_headers()
+            handler.wfile.write(body)
+
+        routes: dict[str, Route] = {
+            "/entry": (200, {"Content-Type": "text/html"}, entry),
+            "/robots.txt": (
+                200,
+                {"Content-Type": "text/plain"},
+                b"User-agent: *\nCrawl-delay: 2\n",
+            ),
+            "/first": child,
+            "/second": child,
+        }
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "crawl-delay.md"
+
+            result = self.run_site2md(
+                "build",
+                f"{server.origin}/entry",
+                "--mode",
+                "follow",
+                "--follow-selector",
+                "a",
+                "--output",
+                output,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(
+                server.requests,
+                ["/entry", "/robots.txt", "/first", "/second"],
+            )
+            self.assertGreaterEqual(request_times[1] - request_times[0], 1.9)
+
     def test_redirect_hop_body_is_counted_before_robots_rejects_its_target(self) -> None:
         entry = b'<html><body><a href="/redirect">Redirect</a></body></html>'
         redirect_body = b"non-empty redirect response"
@@ -563,6 +571,7 @@ Request-rate: 2/3
                 "1",
                 "--max-total-size-mib",
                 "3",
+                "--keep-temp",
                 "--output",
                 output,
             )
@@ -571,6 +580,63 @@ Request-rate: 2/3
             self.assertEqual(server.requests, ["/entry", "/robots.txt", "/redirect"])
             self.assertIn("Fetched 1; skipped 0; failed 1.", result.stdout)
             self.assertIn("1 MiB limit", result.stdout)
+            marker = "Temporary files kept at "
+            workspace = Path(result.stdout.split(marker, 1)[1].splitlines()[0].strip())
+            self.addCleanup(shutil.rmtree, workspace, ignore_errors=True)
+            index = json.loads((workspace / "index.json").read_text(encoding="utf-8"))
+            child = index["pages"][1]
+            retained = workspace / child["html"]
+            self.assertTrue(retained.is_file())
+            self.assertGreater(retained.stat().st_size, 0)
+            self.assertEqual(child["stored_bytes"], retained.stat().st_size)
+
+    def test_robots_redirect_chain_shares_one_policy_size_limit(self) -> None:
+        entry = b'<html><body><a href="/child">Child</a></body></html>'
+        redirect_body = b"#" * (300 * 1024)
+        routes: dict[str, Route] = {
+            "/entry": (200, {"Content-Type": "text/html"}, entry),
+            "/robots.txt": (
+                302,
+                {"Content-Type": "text/plain", "Location": "/robots-hop"},
+                redirect_body,
+            ),
+            "/robots-hop": (
+                302,
+                {"Content-Type": "text/plain", "Location": "/robots-final"},
+                redirect_body,
+            ),
+            "/robots-final": (
+                200,
+                {"Content-Type": "text/plain"},
+                b"User-agent: *\nAllow: /\n",
+            ),
+            "/child": (
+                200,
+                {"Content-Type": "text/html"},
+                b"<html><body>must not be requested</body></html>",
+            ),
+        }
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "robots-redirect.md"
+
+            result = self.run_site2md(
+                "build",
+                f"{server.origin}/entry",
+                "--mode",
+                "follow",
+                "--follow-selector",
+                "a",
+                "--output",
+                output,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(
+                server.requests,
+                ["/entry", "/robots.txt", "/robots-hop"],
+            )
+            self.assertIn("Robots policy exceeded the 512 KiB limit", result.stdout)
+            self.assertIn("Fetched 1; skipped 1; failed 0.", result.stdout)
 
     def test_unreachable_or_oversized_robots_policy_stops_children_successfully(self) -> None:
         entry = b'<html><body><a href="/child">Child</a></body></html>'

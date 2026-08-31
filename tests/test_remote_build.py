@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from site2md.remote_build import RemoteBuildRequest, build_remote
-from tests import test_cli
+from tests.cli_test_support import RecordingServer
 
 
 class RemoteBuildTests(unittest.TestCase):
@@ -22,7 +22,7 @@ class RemoteBuildTests(unittest.TestCase):
                 b"<html><body><main><p>remote</p></main></body></html>",
             )
         }
-        with test_cli.RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
             destination = Path(temp_dir) / "result.md"
 
             summary = build_remote(

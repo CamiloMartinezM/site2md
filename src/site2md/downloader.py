@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import shutil
 import tempfile
 import time
@@ -19,6 +20,7 @@ RemoteMode = Literal["page", "follow", "site"]
 DEFAULT_MAX_PAGE_SIZE_MIB = 25
 REQUEST_TIMEOUT_SECONDS = 30
 USER_AGENT = "site2md/0.4.0"
+ROBOTS_MAX_BYTES = 512 * 1024
 _BYTES_PER_MIB = 1024 * 1024
 _CHUNK_SIZE = 64 * 1024
 _ALLOWED_MEDIA_TYPES = {"text/html", "application/xhtml+xml"}
@@ -42,7 +44,7 @@ class RemoteFetchError(RuntimeError):
 
 
 @dataclass
-class _TraversalRequestPolicy:
+class TraversalRequestPolicy:
     """Enforce one concrete traversal origin, robots policy, and request delay."""
 
     origin: tuple[str, str, int]
@@ -50,9 +52,22 @@ class _TraversalRequestPolicy:
     delay_seconds: float
     last_request_at: float | None = None
 
+    @classmethod
+    def for_entry(
+        cls,
+        entry_url: str,
+        robots: urllib.robotparser.RobotFileParser,
+    ) -> TraversalRequestPolicy:
+        """Create the concrete request policy for one traversal origin."""
+        return cls(
+            origin=url_origin(entry_url),
+            robots=robots,
+            delay_seconds=_request_delay(robots),
+        )
+
     def prepare_request(self, url: str) -> None:
         """Reject an out-of-policy URL and pace an accepted network request."""
-        if _url_origin(url) != self.origin:
+        if url_origin(url) != self.origin:
             raise RemoteFetchError(
                 f"Child redirect left the traversal origin: {url}.",
                 policy_rejection="origin",
@@ -164,7 +179,7 @@ def fetch_remote(
     max_page_size_mib: int = DEFAULT_MAX_PAGE_SIZE_MIB,
     max_body_bytes: int | None = None,
     content_path: Path | None = None,
-    _request_policy: _TraversalRequestPolicy | None = None,
+    request_policy: TraversalRequestPolicy | None = None,
 ) -> RemotePage:
     """Fetch remote content using the selected implemented mode."""
     owns_workspace = content_path is None
@@ -177,7 +192,7 @@ def fetch_remote(
                 max_page_size_mib=max_page_size_mib,
                 max_body_bytes=max_body_bytes,
                 content_path=content_path,
-                request_policy=_request_policy,
+                request_policy=request_policy,
             )
         raise ValueError(f"Unsupported remote mode: {mode}")
     except BaseException:
@@ -192,11 +207,13 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
     def __init__(
         self,
         accounting: _ResponseAccounting,
-        request_policy: _TraversalRequestPolicy | None = None,
+        request_policy: TraversalRequestPolicy | None = None,
+        content_path: Path | None = None,
     ) -> None:
         super().__init__()
         self.accounting = accounting
         self.request_policy = request_policy
+        self.content_path = content_path
 
     def redirect_request(
         self,
@@ -207,7 +224,11 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
         headers: HTTPMessage,
         newurl: str,
     ) -> urllib.request.Request | None:
-        self.accounting.read(fp, headers)
+        if self.content_path is None:
+            self.accounting.read(fp, headers)
+        else:
+            with self.content_path.open("wb") as output:
+                self.accounting.read(fp, headers, output)
         old_scheme = urllib.parse.urlsplit(req.full_url).scheme.lower()
         new_scheme = urllib.parse.urlsplit(newurl).scheme.lower()
         if old_scheme == "https" and new_scheme == "http":
@@ -217,13 +238,75 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+class _RobotsRedirectHandler(_SafeRedirectHandler):
+    """Apply one bounded body budget across a robots redirect chain."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: HTTPMessage,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if self.accounting.bytes_received >= ROBOTS_MAX_BYTES:
+            raise RemoteFetchError(
+                "Robots policy exhausted its response-body budget during redirect.",
+                bytes_received=self.accounting.bytes_received,
+                reached_limit="aggregate",
+            )
+        return redirected
+
+
+def fetch_robots_policy(
+    entry_url: str,
+) -> tuple[urllib.robotparser.RobotFileParser | None, str | None]:
+    """Fetch one robots policy within a shared redirect-chain body budget."""
+    parsed = urllib.parse.urlsplit(entry_url)
+    robots_url = urllib.parse.urlunsplit(
+        (parsed.scheme, parsed.netloc, "/robots.txt", "", "")
+    )
+    accounting = _ResponseAccounting(ROBOTS_MAX_BYTES, ROBOTS_MAX_BYTES)
+    opener = urllib.request.build_opener(_RobotsRedirectHandler(accounting))
+    request = urllib.request.Request(robots_url, headers={"User-Agent": USER_AGENT})
+    try:
+        with opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+            body_buffer = io.BytesIO()
+            accounting.read(response, response.headers, body_buffer)
+            body = body_buffer.getvalue()
+    except RemoteFetchError as error:
+        if error.reached_limit is not None:
+            return None, (
+                "Robots policy exceeded the 512 KiB limit; child traversal stopped."
+            )
+        return None, f"Robots policy was unavailable ({error}); child traversal stopped."
+    except urllib.error.HTTPError as error:
+        if 400 <= error.code < 500:
+            body = b""
+        else:
+            return None, (
+                f"Robots policy was unavailable (HTTP {error.code}); "
+                "child traversal stopped."
+            )
+    except Exception as error:
+        return None, (
+            f"Robots policy was unavailable ({error}); child traversal stopped."
+        )
+
+    policy = urllib.robotparser.RobotFileParser(robots_url)
+    policy.parse(body.decode("utf-8", errors="replace").splitlines())
+    return policy, None
+
+
 def _fetch_page(
     url: str,
     *,
     max_page_size_mib: int,
     max_body_bytes: int | None,
     content_path: Path,
-    request_policy: _TraversalRequestPolicy | None,
+    request_policy: TraversalRequestPolicy | None,
 ) -> RemotePage:
     """Fetch one HTML document without following links from its content."""
     page_max_bytes = max_page_size_mib * _BYTES_PER_MIB
@@ -233,7 +316,7 @@ def _fetch_page(
         if request_policy is not None:
             request_policy.prepare_request(url)
         opener = urllib.request.build_opener(
-            _SafeRedirectHandler(accounting, request_policy)
+            _SafeRedirectHandler(accounting, request_policy, content_path)
         )
         request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         with opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
@@ -280,7 +363,7 @@ def _fetch_page(
         ) from error
 
 
-def _url_origin(url: str) -> tuple[str, str, int]:
+def url_origin(url: str) -> tuple[str, str, int]:
     """Return the normalized scheme, host, and effective port for one URL."""
     parsed = urllib.parse.urlsplit(url)
     scheme = parsed.scheme.lower()
@@ -288,3 +371,13 @@ def _url_origin(url: str) -> tuple[str, str, int]:
         raise RemoteFetchError(f"Redirect target is not an HTTP(S) URL: {url}.")
     default_port = 443 if scheme == "https" else 80
     return scheme, parsed.hostname.lower(), parsed.port or default_port
+
+
+def _request_delay(policy: urllib.robotparser.RobotFileParser) -> float:
+    """Return the greatest applicable publisher-aware child request delay."""
+    crawl_delay = policy.crawl_delay(USER_AGENT) or policy.crawl_delay("*") or 0
+    request_rate = policy.request_rate(USER_AGENT) or policy.request_rate("*")
+    rate_delay = 0.0
+    if request_rate is not None and request_rate.requests > 0:
+        rate_delay = request_rate.seconds / request_rate.requests
+    return max(1.0, float(crawl_delay), rate_delay)

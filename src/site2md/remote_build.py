@@ -6,9 +6,7 @@ import json
 import os
 import shutil
 import tempfile
-import urllib.error
-import urllib.request
-import urllib.robotparser
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -20,12 +18,13 @@ from bs4 import BeautifulSoup, Tag
 from site2md.converter import convert_remote_page_to_markdown
 from site2md.downloader import (
     DEFAULT_MAX_PAGE_SIZE_MIB,
-    USER_AGENT,
     RemoteFetchError,
     RemoteMode,
     RemotePage,
-    _TraversalRequestPolicy,
+    TraversalRequestPolicy,
     fetch_remote,
+    fetch_robots_policy,
+    url_origin,
 )
 
 RemoteBuildStage = Literal[
@@ -86,15 +85,52 @@ class RemoteBuildError(RuntimeError):
         self.retained_workspace = retained_workspace
 
 
+_TraversalControl = Literal["continue", "stop"]
+
+
+@dataclass(frozen=True)
+class _RemoteLimits:
+    """Validated effective limits for one remote build."""
+
+    max_page_size_mib: int
+    max_pages: int
+    max_depth: int
+    max_total_size_mib: int
+
+    @property
+    def max_total_bytes(self) -> int:
+        """Return the aggregate content budget in bytes."""
+        return self.max_total_size_mib * _BYTES_PER_MIB
+
+
+@dataclass
+class _TraversalState:
+    """Mutable state for one bounded follow or site traversal."""
+
+    request: RemoteBuildRequest
+    entry_page: RemotePage
+    workspace: Path
+    index_pages: list[dict[str, object]]
+    limits: _RemoteLimits
+    fragments: list[Path]
+    fetched: int
+    skipped: int
+    failed: int
+    warnings: list[str]
+    reached_limits: list[str]
+    total_received: int
+    seen_sources: set[str]
+    admitted_urls: set[str]
+    admitted_count: int
+    pending: list[tuple[str, int]]
+    page_limit_reached: bool
+
+
 def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
     """Build one remote document and atomically replace its destination."""
-    max_page_size_mib, max_pages, max_depth, max_total_size_mib = (
-        _validate_request(request)
-    )
+    limits = _validate_request(request)
     max_total_bytes = (
-        max_total_size_mib * _BYTES_PER_MIB
-        if request.mode in {"follow", "site"}
-        else None
+        limits.max_total_bytes if request.mode in {"follow", "site"} else None
     )
     workspace = Path(tempfile.mkdtemp(prefix="site2md_remote_"))
     staged_destination: Path | None = None
@@ -113,7 +149,7 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
             page = fetch_remote(
                 request.entry_url,
                 request.mode,
-                max_page_size_mib=max_page_size_mib,
+                max_page_size_mib=limits.max_page_size_mib,
                 max_body_bytes=max_total_bytes,
                 content_path=entry_path,
             )
@@ -151,162 +187,22 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
         failed = 0
         warnings: list[str] = []
         reached_limits: list[str] = []
-        total_received = page.body_bytes
         if request.mode in {"follow", "site"}:
             assert max_total_bytes is not None
-            seen_sources = {_normalize_url(page.source_url)}
-            admitted_urls = set(seen_sources)
-            admitted_count = 1
-            pending: list[tuple[str, int]] = []
-            page_limit_reached = False
-
-            def admit_targets(targets: list[str], depth: int) -> None:
-                """Admit unique targets without exceeding traversal budgets."""
-                nonlocal admitted_count, page_limit_reached
-                if page_limit_reached:
-                    return
-                for target in targets:
-                    if target in admitted_urls:
-                        continue
-                    if request.mode == "site" and depth > max_depth:
-                        limit = f"depth ({max_depth})"
-                        if limit not in reached_limits:
-                            reached_limits.append(limit)
-                        continue
-                    if admitted_count >= max_pages:
-                        reached_limits.append(f"page count ({max_pages})")
-                        page_limit_reached = True
-                        break
-                    admitted_urls.add(target)
-                    admitted_count += 1
-                    pending.append((target, depth))
-
-            if request.mode == "follow":
-                targets = _select_follow_targets(page, request.follow_selectors)
-            else:
-                targets = _discover_site_targets(page, request.include_query)
-            admit_targets(targets, 1)
-            if pending:
-                policy, policy_warning = _fetch_robots_policy(page.source_url)
-            else:
-                policy, policy_warning = None, None
-            if policy_warning is not None:
-                warnings.append(policy_warning)
-                skipped += len(pending)
-            elif policy is not None:
-                request_policy = _TraversalRequestPolicy(
-                    origin=_origin(page.source_url),
-                    robots=policy,
-                    delay_seconds=_request_delay(policy),
-                )
-                for index, (target, depth) in enumerate(pending, start=1):
-                    index_entry: dict[str, object] = {
-                        "requested_url": target,
-                        "status": "pending",
-                    }
-                    index_pages.append(index_entry)
-                    remaining_bytes = max_total_bytes - total_received
-                    if remaining_bytes <= 0:
-                        skipped += 1
-                        index_entry["status"] = "skipped"
-                        index_entry["detail"] = "aggregate content budget reached"
-                        _write_debugging_index(workspace, index_pages)
-                        reached_limits.append(
-                            f"aggregate content ({max_total_size_mib} MiB)"
-                        )
-                        break
-                    child_path = workspace / f"page-{index:04}.html"
-                    index_entry["html"] = child_path.name
-                    _write_debugging_index(workspace, index_pages)
-                    try:
-                        child = fetch_remote(
-                            target,
-                            request.mode,
-                            max_page_size_mib=max_page_size_mib,
-                            max_body_bytes=remaining_bytes,
-                            content_path=child_path,
-                            _request_policy=request_policy,
-                        )
-                    except RemoteFetchError as error:
-                        total_received += error.bytes_received
-                        _record_fetch_failure(index_entry, child_path, error)
-                        if error.policy_rejection is not None:
-                            skipped += 1
-                            index_entry["status"] = "skipped"
-                            index_entry["detail"] = str(error)
-                            warnings.append(str(error))
-                            _write_debugging_index(workspace, index_pages)
-                            continue
-                        index_entry["status"] = "failed"
-                        index_entry["detail"] = str(error)
-                        _write_debugging_index(workspace, index_pages)
-                        if error.reached_limit == "aggregate":
-                            reached_limits.append(
-                                f"aggregate content ({max_total_size_mib} MiB)"
-                            )
-                            warnings.append(
-                                f"Discarded incomplete child {target}: {error}"
-                            )
-                            break
-                        failed += 1
-                        warnings.append(f"Could not fetch {target}: {error}")
-                        if total_received >= max_total_bytes:
-                            reached_limits.append(
-                                f"aggregate content ({max_total_size_mib} MiB)"
-                            )
-                            break
-                        continue
-                    except BaseException as error:
-                        _record_fatal_fetch(index_entry, child_path, error)
-                        _write_debugging_index(workspace, index_pages)
-                        raise
-                    total_received += child.body_bytes
-                    index_entry["source_url"] = child.source_url
-                    index_entry["body_bytes"] = child.body_bytes
-                    index_entry["stored_bytes"] = _stored_bytes(child_path)
-                    index_entry["status"] = "fetched"
-                    final_url = _normalize_url(child.source_url)
-                    if _origin(final_url) != _origin(page.source_url):
-                        skipped += 1
-                        warnings.append(
-                            f"Child redirect left the traversal origin: {child.source_url}."
-                        )
-                        index_entry["status"] = "skipped"
-                        index_entry["detail"] = "final URL left the traversal origin"
-                        _write_debugging_index(workspace, index_pages)
-                        continue
-                    if final_url in seen_sources:
-                        skipped += 1
-                        index_entry["status"] = "skipped"
-                        index_entry["detail"] = "final URL duplicated an earlier source"
-                        _write_debugging_index(workspace, index_pages)
-                        continue
-                    seen_sources.add(final_url)
-                    admitted_urls.add(final_url)
-                    if request.mode == "site":
-                        admit_targets(
-                            _discover_site_targets(child, request.include_query),
-                            depth + 1,
-                        )
-                    try:
-                        child_markdown = convert_remote_page_to_markdown(child)
-                    except Exception as error:
-                        failed += 1
-                        warnings.append(f"Could not convert {target}: {error}")
-                        index_entry["status"] = "failed"
-                        index_entry["detail"] = f"conversion failed: {error}"
-                        _write_debugging_index(workspace, index_pages)
-                        continue
-                    child_converted = workspace / f"converted-{index:04}.md"
-                    child_converted.write_text(
-                        f"{child_markdown}\n\n---\n\n",
-                        encoding="utf-8",
-                    )
-                    index_entry["markdown"] = child_converted.name
-                    index_entry["status"] = "converted"
-                    _write_debugging_index(workspace, index_pages)
-                    fragments.append(child_converted)
-                    fetched += 1
+            traversal = _traverse_children(
+                request=request,
+                entry_page=page,
+                workspace=workspace,
+                index_pages=index_pages,
+                entry_fragment=converted_path,
+                limits=limits,
+            )
+            fragments = traversal.fragments
+            fetched = traversal.fetched
+            skipped = traversal.skipped
+            failed = traversal.failed
+            warnings = traversal.warnings
+            reached_limits = traversal.reached_limits
 
         document_path = workspace / "document.md"
         with document_path.open("wb") as document:
@@ -373,6 +269,260 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
                 pass
 
 
+def _traverse_children(
+    *,
+    request: RemoteBuildRequest,
+    entry_page: RemotePage,
+    workspace: Path,
+    index_pages: list[dict[str, object]],
+    entry_fragment: Path,
+    limits: _RemoteLimits,
+) -> _TraversalState:
+    """Run one bounded traversal and return its ordered document state."""
+    source_identity = _normalize_url(entry_page.source_url)
+    state = _TraversalState(
+        request=request,
+        entry_page=entry_page,
+        workspace=workspace,
+        index_pages=index_pages,
+        limits=limits,
+        fragments=[entry_fragment],
+        fetched=1,
+        skipped=0,
+        failed=0,
+        warnings=[],
+        reached_limits=[],
+        total_received=entry_page.body_bytes,
+        seen_sources={source_identity},
+        admitted_urls={source_identity},
+        admitted_count=1,
+        pending=[],
+        page_limit_reached=False,
+    )
+    if request.mode == "follow":
+        targets = _select_follow_targets(entry_page, request.follow_selectors)
+    else:
+        targets = _discover_site_targets(entry_page, request.include_query)
+    _admit_targets(state, targets, 1)
+    if not state.pending:
+        return state
+
+    policy, policy_warning = fetch_robots_policy(entry_page.source_url)
+    if policy_warning is not None:
+        state.warnings.append(policy_warning)
+        state.skipped += len(state.pending)
+        return state
+    assert policy is not None
+    request_policy = TraversalRequestPolicy.for_entry(
+        entry_page.source_url,
+        policy,
+    )
+    for index, (target, depth) in enumerate(state.pending, start=1):
+        if _process_child(state, index, target, depth, request_policy) == "stop":
+            break
+    return state
+
+
+def _admit_targets(
+    state: _TraversalState,
+    targets: list[str],
+    depth: int,
+) -> None:
+    """Admit unique targets without exceeding page or depth budgets."""
+    if state.page_limit_reached:
+        return
+    for target in targets:
+        if target in state.admitted_urls:
+            continue
+        if state.request.mode == "site" and depth > state.limits.max_depth:
+            _add_reached_limit(state, f"depth ({state.limits.max_depth})")
+            continue
+        if state.admitted_count >= state.limits.max_pages:
+            _add_reached_limit(state, f"page count ({state.limits.max_pages})")
+            state.page_limit_reached = True
+            break
+        state.admitted_urls.add(target)
+        state.admitted_count += 1
+        state.pending.append((target, depth))
+
+
+def _process_child(
+    state: _TraversalState,
+    index: int,
+    target: str,
+    depth: int,
+    request_policy: TraversalRequestPolicy,
+) -> _TraversalControl:
+    """Fetch one admitted child and route its observable outcome."""
+    index_entry: dict[str, object] = {
+        "requested_url": target,
+        "status": "pending",
+    }
+    state.index_pages.append(index_entry)
+    remaining_bytes = state.limits.max_total_bytes - state.total_received
+    if remaining_bytes <= 0:
+        state.skipped += len(state.pending) - index + 1
+        index_entry["status"] = "skipped"
+        index_entry["detail"] = "aggregate content budget reached"
+        _write_debugging_index(state.workspace, state.index_pages)
+        _add_reached_limit(
+            state,
+            f"aggregate content ({state.limits.max_total_size_mib} MiB)",
+        )
+        return "stop"
+
+    child_path = state.workspace / f"page-{index:04}.html"
+    index_entry["html"] = child_path.name
+    _write_debugging_index(state.workspace, state.index_pages)
+    try:
+        child = fetch_remote(
+            target,
+            state.request.mode,
+            max_page_size_mib=state.limits.max_page_size_mib,
+            max_body_bytes=remaining_bytes,
+            content_path=child_path,
+            request_policy=request_policy,
+        )
+    except RemoteFetchError as error:
+        return _handle_child_fetch_error(
+            state,
+            index,
+            target,
+            index_entry,
+            child_path,
+            error,
+        )
+    except BaseException as error:
+        _record_fatal_fetch(index_entry, child_path, error)
+        _write_debugging_index(state.workspace, state.index_pages)
+        raise
+
+    state.total_received += child.body_bytes
+    return _process_fetched_child(
+        state,
+        index,
+        target,
+        depth,
+        index_entry,
+        child_path,
+        child,
+    )
+
+
+def _handle_child_fetch_error(
+    state: _TraversalState,
+    index: int,
+    target: str,
+    index_entry: dict[str, object],
+    child_path: Path,
+    error: RemoteFetchError,
+) -> _TraversalControl:
+    """Classify one expected child retrieval outcome and update diagnostics."""
+    state.total_received += error.bytes_received
+    _record_fetch_failure(index_entry, child_path, error)
+    if error.policy_rejection is not None:
+        state.skipped += 1
+        index_entry["status"] = "skipped"
+        index_entry["detail"] = str(error)
+        state.warnings.append(str(error))
+        _write_debugging_index(state.workspace, state.index_pages)
+        return "continue"
+
+    if error.reached_limit == "aggregate":
+        state.skipped += len(state.pending) - index + 1
+        index_entry["status"] = "skipped"
+        index_entry["detail"] = f"aggregate content budget reached: {error}"
+        state.warnings.append(f"Discarded incomplete child {target}: {error}")
+        _add_reached_limit(
+            state,
+            f"aggregate content ({state.limits.max_total_size_mib} MiB)",
+        )
+        _write_debugging_index(state.workspace, state.index_pages)
+        return "stop"
+
+    state.failed += 1
+    index_entry["status"] = "failed"
+    index_entry["detail"] = str(error)
+    state.warnings.append(f"Could not fetch {target}: {error}")
+    _write_debugging_index(state.workspace, state.index_pages)
+    if state.total_received >= state.limits.max_total_bytes:
+        state.skipped += len(state.pending) - index
+        _add_reached_limit(
+            state,
+            f"aggregate content ({state.limits.max_total_size_mib} MiB)",
+        )
+        return "stop"
+    return "continue"
+
+
+def _process_fetched_child(
+    state: _TraversalState,
+    index: int,
+    target: str,
+    depth: int,
+    index_entry: dict[str, object],
+    child_path: Path,
+    child: RemotePage,
+) -> _TraversalControl:
+    """Deduplicate, discover from, and convert one fetched child page."""
+    index_entry["source_url"] = child.source_url
+    index_entry["body_bytes"] = child.body_bytes
+    index_entry["stored_bytes"] = _stored_bytes(child_path)
+    index_entry["status"] = "fetched"
+    final_url = _normalize_url(child.source_url)
+    if url_origin(final_url) != url_origin(state.entry_page.source_url):
+        state.skipped += 1
+        state.warnings.append(
+            f"Child redirect left the traversal origin: {child.source_url}."
+        )
+        index_entry["status"] = "skipped"
+        index_entry["detail"] = "final URL left the traversal origin"
+        _write_debugging_index(state.workspace, state.index_pages)
+        return "continue"
+    if final_url in state.seen_sources:
+        state.skipped += 1
+        index_entry["status"] = "skipped"
+        index_entry["detail"] = "final URL duplicated an earlier source"
+        _write_debugging_index(state.workspace, state.index_pages)
+        return "continue"
+
+    state.seen_sources.add(final_url)
+    state.admitted_urls.add(final_url)
+    if state.request.mode == "site":
+        _admit_targets(
+            state,
+            _discover_site_targets(child, state.request.include_query),
+            depth + 1,
+        )
+    try:
+        child_markdown = convert_remote_page_to_markdown(child)
+    except Exception as error:
+        state.failed += 1
+        state.warnings.append(f"Could not convert {target}: {error}")
+        index_entry["status"] = "failed"
+        index_entry["detail"] = f"conversion failed: {error}"
+        _write_debugging_index(state.workspace, state.index_pages)
+        return "continue"
+
+    child_converted = state.workspace / f"converted-{index:04}.md"
+    child_converted.write_text(
+        f"{child_markdown}\n\n---\n\n",
+        encoding="utf-8",
+    )
+    index_entry["markdown"] = child_converted.name
+    index_entry["status"] = "converted"
+    _write_debugging_index(state.workspace, state.index_pages)
+    state.fragments.append(child_converted)
+    state.fetched += 1
+    return "continue"
+
+
+def _add_reached_limit(state: _TraversalState, limit: str) -> None:
+    """Record one reached traversal limit without duplicate diagnostics."""
+    if limit not in state.reached_limits:
+        state.reached_limits.append(limit)
+
+
 def _remote_build_failure(error: BaseException) -> RemoteBuildError:
     """Normalize every post-workspace failure for cleanup and CLI reporting."""
     if isinstance(error, RemoteBuildError):
@@ -385,7 +535,7 @@ def _remote_build_failure(error: BaseException) -> RemoteBuildError:
     )
 
 
-def _validate_request(request: RemoteBuildRequest) -> tuple[int, int, int, int]:
+def _validate_request(request: RemoteBuildRequest) -> _RemoteLimits:
     """Validate remote-mode options before storage or network access."""
     parsed_url = urlsplit(request.entry_url)
     if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
@@ -459,7 +609,12 @@ def _validate_request(request: RemoteBuildRequest) -> tuple[int, int, int, int]:
             "--max-total-size-mib must be a positive integer.",
             stage="validation",
         )
-    return max_page_size_mib, max_pages, max_depth, max_total_size_mib
+    return _RemoteLimits(
+        max_page_size_mib=max_page_size_mib,
+        max_pages=max_pages,
+        max_depth=max_depth,
+        max_total_size_mib=max_total_size_mib,
+    )
 
 
 def _select_follow_targets(page: RemotePage, selectors: tuple[str, ...]) -> list[str]:
@@ -472,35 +627,10 @@ def _select_follow_targets(page: RemotePage, selectors: tuple[str, ...]) -> list
             stage="validation",
         ) from error
 
-    soup = BeautifulSoup(
-        page.content_path.read_bytes(),
-        "html.parser",
-        from_encoding=page.encoding,
-    )
-    base_url = page.source_url
-    base_tag = soup.find("base", href=True)
-    if isinstance(base_tag, Tag):
-        base_href = base_tag.get("href")
-        if isinstance(base_href, str):
-            base_url = urljoin(page.source_url, base_href)
+    def selected(anchor: Tag, _target: str) -> bool:
+        return any(selector.match(anchor) for selector in compiled)
 
-    targets: list[str] = []
-    seen: set[str] = {_normalize_url(page.source_url)}
-    entry_origin = _origin(page.source_url)
-    for anchor in soup.find_all("a", href=True):
-        if not any(selector.match(anchor) for selector in compiled):
-            continue
-        href = anchor.get("href")
-        if not isinstance(href, str) or not href:
-            continue
-        try:
-            target = _normalize_url(urljoin(base_url, href))
-        except ValueError:
-            continue
-        if _origin(target) != entry_origin or target in seen:
-            continue
-        seen.add(target)
-        targets.append(target)
+    targets = _ordered_anchor_targets(page, selected)
 
     if not targets:
         raise RemoteBuildError(
@@ -512,6 +642,21 @@ def _select_follow_targets(page: RemotePage, selectors: tuple[str, ...]) -> list
 
 def _discover_site_targets(page: RemotePage, include_query: bool) -> list[str]:
     """Discover unique eligible site targets in source-document order."""
+    def discoverable(anchor: Tag, target: str) -> bool:
+        rel = anchor.get("rel")
+        rel_values = rel if isinstance(rel, list) else str(rel or "").split()
+        if any(str(value).lower() == "nofollow" for value in rel_values):
+            return False
+        return include_query or not urlsplit(target).query
+
+    return _ordered_anchor_targets(page, discoverable)
+
+
+def _ordered_anchor_targets(
+    page: RemotePage,
+    include: Callable[[Tag, str], bool],
+) -> list[str]:
+    """Resolve and filter unique same-origin anchors in document order."""
     soup = BeautifulSoup(
         page.content_path.read_bytes(),
         "html.parser",
@@ -526,12 +671,8 @@ def _discover_site_targets(page: RemotePage, include_query: bool) -> list[str]:
 
     targets: list[str] = []
     seen: set[str] = {_normalize_url(page.source_url)}
-    page_origin = _origin(page.source_url)
+    source_origin = url_origin(page.source_url)
     for anchor in soup.find_all("a", href=True):
-        rel = anchor.get("rel")
-        rel_values = rel if isinstance(rel, list) else str(rel or "").split()
-        if any(str(value).lower() == "nofollow" for value in rel_values):
-            continue
         href = anchor.get("href")
         if not isinstance(href, str) or not href:
             continue
@@ -539,9 +680,9 @@ def _discover_site_targets(page: RemotePage, include_query: bool) -> list[str]:
             target = _normalize_url(urljoin(base_url, href))
         except ValueError:
             continue
-        if urlsplit(target).query and not include_query:
+        if url_origin(target) != source_origin or not include(anchor, target):
             continue
-        if _origin(target) != page_origin or target in seen:
+        if target in seen:
             continue
         seen.add(target)
         targets.append(target)
@@ -564,49 +705,6 @@ def _normalize_url(url: str) -> str:
     ):
         display_host = f"{display_host}:{port}"
     return urlunsplit((scheme, display_host, parsed.path or "/", parsed.query, ""))
-
-
-def _origin(url: str) -> tuple[str, str, int]:
-    """Return a normalized scheme, host, and effective port origin."""
-    parsed = urlsplit(_normalize_url(url))
-    default_port = 443 if parsed.scheme == "https" else 80
-    assert parsed.hostname is not None
-    return parsed.scheme, parsed.hostname, parsed.port or default_port
-
-
-def _fetch_robots_policy(
-    entry_url: str,
-) -> tuple[urllib.robotparser.RobotFileParser | None, str | None]:
-    """Fetch robots policy once before child traversal."""
-    parsed = urlsplit(_normalize_url(entry_url))
-    robots_url = urlunsplit((parsed.scheme, parsed.netloc, "/robots.txt", "", ""))
-    request = urllib.request.Request(robots_url, headers={"User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            body = response.read(512 * 1024 + 1)
-            if len(body) > 512 * 1024:
-                return None, "Robots policy exceeded the 512 KiB limit; child traversal stopped."
-    except urllib.error.HTTPError as error:
-        if 400 <= error.code < 500:
-            body = b""
-        else:
-            return None, f"Robots policy was unavailable (HTTP {error.code}); child traversal stopped."
-    except Exception as error:
-        return None, f"Robots policy was unavailable ({error}); child traversal stopped."
-
-    policy = urllib.robotparser.RobotFileParser(robots_url)
-    policy.parse(body.decode("utf-8", errors="replace").splitlines())
-    return policy, None
-
-
-def _request_delay(policy: urllib.robotparser.RobotFileParser) -> float:
-    """Return the greatest applicable publisher-aware child request delay."""
-    crawl_delay = policy.crawl_delay(USER_AGENT) or policy.crawl_delay("*") or 0
-    request_rate = policy.request_rate(USER_AGENT) or policy.request_rate("*")
-    rate_delay = 0.0
-    if request_rate is not None and request_rate.requests > 0:
-        rate_delay = request_rate.seconds / request_rate.requests
-    return max(1.0, float(crawl_delay), rate_delay)
 
 
 def _stage_destination(source: Path, destination: Path) -> Path:

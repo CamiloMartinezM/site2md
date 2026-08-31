@@ -2,55 +2,15 @@
 
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from tests.test_cli import RecordingServer, Route
+from tests.cli_test_support import InstalledCliTestCase, RecordingServer, Route
 
 
-class SiteModeCliTests(unittest.TestCase):
+class SiteModeCliTests(InstalledCliTestCase):
     """Exercise site mode through the installed command and real HTTP."""
-
-    command: Path
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.command = Path(sys.executable).with_name("site2md")
-        if not cls.command.is_file():
-            raise RuntimeError(f"Installed site2md command not found at {cls.command}")
-
-    def run_site2md(
-        self,
-        *arguments: object,
-        extra_environment: dict[str, str] | None = None,
-    ) -> subprocess.CompletedProcess[str]:
-        """Run the installed command and capture its observable result."""
-        environment = os.environ.copy()
-        if extra_environment:
-            environment.update(extra_environment)
-        return subprocess.run(
-            [str(self.command), *map(str, arguments)],
-            check=False,
-            capture_output=True,
-            text=True,
-            env=environment,
-        )
-
-    @staticmethod
-    def startup_hook_environment(root: Path, source: str) -> dict[str, str]:
-        """Create a subprocess-only Python startup hook."""
-        hook_dir = root / "startup-hook"
-        hook_dir.mkdir()
-        (hook_dir / "sitecustomize.py").write_text(source, encoding="utf-8")
-        python_path = os.environ.get("PYTHONPATH")
-        hook_path = (
-            f"{hook_dir}{os.pathsep}{python_path}" if python_path else str(hook_dir)
-        )
-        return {"PYTHONPATH": hook_path}
 
     def test_site_mode_discovers_same_origin_pages_in_breadth_first_order(self) -> None:
         entry = b"""<html><head>
