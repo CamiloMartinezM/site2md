@@ -215,6 +215,9 @@ def build(
     output: Path = Path("complete_manual.md"),
     keep_temp: bool = False,
     mode: RemoteMode = "page",
+    follow_selector: list[str] | None = None,
+    max_pages: int | None = None,
+    max_total_size_mib: int | None = None,
     max_page_size_mib: int | None = None,
 ) -> None:
     """Build a single Markdown file from a local HTML directory or remote page.
@@ -223,14 +226,23 @@ def build(
         input_source: Directory containing HTML files or an HTTP(S) URL.
         output: Path where the result Markdown should be saved.
         keep_temp: If True, temporary remote page data is not deleted.
-        mode: Scope used to fetch remote content. Only page mode is available.
+        mode: Scope used to fetch remote content. Page mode is the default.
+        follow_selector: CSS selector for anchors to follow; repeatable in follow mode.
+        max_pages: Positive page budget for follow mode (default: 50).
+        max_total_size_mib: Positive aggregate body budget for follow mode (default: 250).
         max_page_size_mib: Positive MiB limit for one remote page (default: 25).
     """
     markdown_contents: list[str] = []
     is_remote = input_source.startswith(("http://", "https://"))
 
-    if not is_remote and max_page_size_mib is not None:
-        console.print("[red]Error:[/red] --max-page-size-mib can only be used with remote URLs.")
+    if not is_remote and (
+        mode != "page"
+        or follow_selector is not None
+        or max_pages is not None
+        or max_total_size_mib is not None
+        or max_page_size_mib is not None
+    ):
+        console.print("[red]Error:[/red] Remote build options require an HTTP(S) URL.")
         sys.exit(1)
 
     if is_remote:
@@ -242,6 +254,9 @@ def build(
                         entry_url=input_source,
                         destination=output,
                         mode=mode,
+                        follow_selectors=tuple(follow_selector or ()),
+                        max_pages=max_pages,
+                        max_total_size_mib=max_total_size_mib,
                         max_page_size_mib=max_page_size_mib,
                         keep_temp=keep_temp,
                     )
@@ -264,15 +279,15 @@ def build(
                 sys.exit(1)
             progress.advance(task)
 
+        for warning in summary.warnings:
+            console.print(f"[yellow]Warning:[/yellow] {warning}")
+        for reached_limit in summary.reached_limits:
+            console.print(f"[yellow]Reached limit:[/yellow] {reached_limit}")
         console.print(
             f"Fetched [bold]{summary.fetched}[/bold]; "
             f"skipped [bold]{summary.skipped}[/bold]; "
             f"failed [bold]{summary.failed}[/bold]."
         )
-        for warning in summary.warnings:
-            console.print(f"[yellow]Warning:[/yellow] {warning}")
-        for reached_limit in summary.reached_limits:
-            console.print(f"[yellow]Reached limit:[/yellow] {reached_limit}")
         if summary.retained_workspace is not None:
             console.print(f"[dim]Temporary files kept at {summary.retained_workspace}[/dim]")
         console.print(

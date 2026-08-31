@@ -12,7 +12,7 @@ from http.client import HTTPMessage
 from pathlib import Path
 from typing import IO, Literal
 
-RemoteMode = Literal["page"]
+RemoteMode = Literal["page", "follow"]
 DEFAULT_MAX_PAGE_SIZE_MIB = 25
 REQUEST_TIMEOUT_SECONDS = 30
 USER_AGENT = "site2md/0.3.0"
@@ -24,6 +24,17 @@ _ALLOWED_MEDIA_TYPES = {"text/html", "application/xhtml+xml"}
 class RemoteFetchError(RuntimeError):
     """Raised when a remote page cannot be safely fetched."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        bytes_received: int = 0,
+        reached_limit: Literal["page", "aggregate"] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.bytes_received = bytes_received
+        self.reached_limit = reached_limit
+
 
 @dataclass(frozen=True)
 class RemotePage:
@@ -32,6 +43,7 @@ class RemotePage:
     content_path: Path
     source_url: str
     encoding: str | None
+    body_bytes: int
 
 
 def fetch_remote(
@@ -39,6 +51,7 @@ def fetch_remote(
     mode: RemoteMode = "page",
     *,
     max_page_size_mib: int = DEFAULT_MAX_PAGE_SIZE_MIB,
+    max_body_bytes: int | None = None,
     content_path: Path | None = None,
 ) -> RemotePage:
     """Fetch remote content using the selected implemented mode."""
@@ -46,10 +59,11 @@ def fetch_remote(
     if content_path is None:
         content_path = Path(tempfile.mkdtemp(prefix="site2md_page_")) / "page.html"
     try:
-        if mode == "page":
+        if mode in {"page", "follow"}:
             return _fetch_page(
                 url,
                 max_page_size_mib=max_page_size_mib,
+                max_body_bytes=max_body_bytes,
                 content_path=content_path,
             )
         raise ValueError(f"Unsupported remote mode: {mode}")
@@ -78,9 +92,21 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def _fetch_page(url: str, *, max_page_size_mib: int, content_path: Path) -> RemotePage:
+def _fetch_page(
+    url: str,
+    *,
+    max_page_size_mib: int,
+    max_body_bytes: int | None,
+    content_path: Path,
+) -> RemotePage:
     """Fetch one HTML document without following links from its content."""
-    max_bytes = max_page_size_mib * _BYTES_PER_MIB
+    page_max_bytes = max_page_size_mib * _BYTES_PER_MIB
+    max_bytes = page_max_bytes
+    reached_limit: Literal["page", "aggregate"] = "page"
+    if max_body_bytes is not None and max_body_bytes <= max_bytes:
+        max_bytes = max_body_bytes
+        reached_limit = "aggregate"
+    total = 0
 
     try:
         opener = urllib.request.build_opener(_SafeRedirectHandler)
@@ -104,12 +130,18 @@ def _fetch_page(url: str, *, max_page_size_mib: int, content_path: Path) -> Remo
                 except ValueError as error:
                     raise RemoteFetchError("Response Content-Length is malformed.") from error
                 if content_length > max_bytes:
+                    if reached_limit == "aggregate":
+                        message = "Response exceeds the remaining aggregate content budget."
+                    else:
+                        message = (
+                            f"Response declares {content_length} bytes, exceeding the "
+                            f"{max_page_size_mib} MiB limit."
+                        )
                     raise RemoteFetchError(
-                        f"Response declares {content_length} bytes, exceeding the "
-                        f"{max_page_size_mib} MiB limit."
+                        message,
+                        reached_limit=reached_limit,
                     )
 
-            total = 0
             with content_path.open("wb") as output:
                 while True:
                     chunk = response.read(_CHUNK_SIZE)
@@ -117,8 +149,17 @@ def _fetch_page(url: str, *, max_page_size_mib: int, content_path: Path) -> Remo
                         break
                     total += len(chunk)
                     if total > max_bytes:
+                        if reached_limit == "aggregate":
+                            message = "Response exceeded the aggregate content budget."
+                        else:
+                            message = (
+                                f"Response exceeded the {max_page_size_mib} MiB limit "
+                                "while streaming."
+                            )
                         raise RemoteFetchError(
-                            f"Response exceeded the {max_page_size_mib} MiB limit while streaming."
+                            message,
+                            bytes_received=total,
+                            reached_limit=reached_limit,
                         )
                     output.write(chunk)
 
@@ -129,10 +170,17 @@ def _fetch_page(url: str, *, max_page_size_mib: int, content_path: Path) -> Remo
                 content_path=content_path,
                 source_url=response.geturl(),
                 encoding=response.headers.get_content_charset(),
+                body_bytes=total,
             )
     except RemoteFetchError:
         raise
     except urllib.error.HTTPError as error:
-        raise RemoteFetchError(f"Final response returned HTTP {error.code}.") from error
+        raise RemoteFetchError(
+            f"Final response returned HTTP {error.code}.",
+            bytes_received=total,
+        ) from error
     except Exception as error:
-        raise RemoteFetchError(f"Malformed or unavailable response: {error}") from error
+        raise RemoteFetchError(
+            f"Malformed or unavailable response: {error}",
+            bytes_received=total,
+        ) from error

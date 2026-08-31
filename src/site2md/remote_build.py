@@ -2,19 +2,29 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import tempfile
+import time
+import urllib.error
+import urllib.request
+import urllib.robotparser
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
+
+import soupsieve
+from bs4 import BeautifulSoup, Tag
 
 from site2md.converter import convert_remote_page_to_markdown
 from site2md.downloader import (
     DEFAULT_MAX_PAGE_SIZE_MIB,
+    USER_AGENT,
     RemoteFetchError,
     RemoteMode,
+    RemotePage,
     fetch_remote,
 )
 
@@ -27,6 +37,9 @@ RemoteBuildStage = Literal[
     "interruption",
     "unexpected",
 ]
+DEFAULT_MAX_PAGES = 50
+DEFAULT_MAX_TOTAL_SIZE_MIB = 250
+_BYTES_PER_MIB = 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -36,6 +49,9 @@ class RemoteBuildRequest:
     entry_url: str
     destination: Path
     mode: RemoteMode = "page"
+    follow_selectors: tuple[str, ...] = ()
+    max_pages: int | None = None
+    max_total_size_mib: int | None = None
     max_page_size_mib: int | None = None
     keep_temp: bool = False
 
@@ -69,7 +85,12 @@ class RemoteBuildError(RuntimeError):
 
 def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
     """Build one remote document and atomically replace its destination."""
-    max_page_size_mib = _validate_request(request)
+    max_page_size_mib, max_pages, max_total_size_mib = _validate_request(request)
+    max_total_bytes = (
+        max_total_size_mib * _BYTES_PER_MIB
+        if request.mode == "follow"
+        else None
+    )
     workspace = Path(tempfile.mkdtemp(prefix="site2md_remote_"))
     staged_destination: Path | None = None
 
@@ -79,10 +100,22 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
                 request.entry_url,
                 request.mode,
                 max_page_size_mib=max_page_size_mib,
+                max_body_bytes=max_total_bytes,
                 content_path=workspace / "page.html",
             )
         except RemoteFetchError as error:
             raise RemoteBuildError(str(error), stage="fetch") from error
+
+        index_pages: list[dict[str, object]] = [
+            {
+                "requested_url": request.entry_url,
+                "source_url": page.source_url,
+                "html": "page.html",
+                "body_bytes": page.body_bytes,
+                "status": "fetched",
+            }
+        ]
+        _write_debugging_index(workspace, index_pages)
 
         try:
             markdown = convert_remote_page_to_markdown(page)
@@ -91,12 +124,143 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
                 f"{markdown}\n\n---\n\n",
                 encoding="utf-8",
             )
+            index_pages[0]["markdown"] = "converted.md"
+            index_pages[0]["status"] = "converted"
+            _write_debugging_index(workspace, index_pages)
         except Exception as error:
             raise RemoteBuildError(str(error), stage="conversion") from error
 
+        fragments = [converted_path]
+        fetched = 1
+        skipped = 0
+        failed = 0
+        warnings: list[str] = []
+        reached_limits: list[str] = []
+        total_received = page.body_bytes
+        if request.mode == "follow":
+            assert max_total_bytes is not None
+            targets = _select_follow_targets(page, request.follow_selectors)
+            admitted_targets = targets[: max_pages - 1]
+            if len(admitted_targets) < len(targets):
+                reached_limits.append(f"page count ({max_pages})")
+            if admitted_targets:
+                policy, policy_warning = _fetch_robots_policy(page.source_url)
+            else:
+                policy, policy_warning = None, None
+            if policy_warning is not None:
+                warnings.append(policy_warning)
+                skipped += len(admitted_targets)
+            elif policy is not None:
+                seen = {_normalize_url(page.source_url)}
+                fetched_children = 0
+                for index, target in enumerate(admitted_targets, start=1):
+                    index_entry: dict[str, object] = {
+                        "requested_url": target,
+                        "status": "pending",
+                    }
+                    index_pages.append(index_entry)
+                    if not policy.can_fetch(USER_AGENT, target):
+                        skipped += 1
+                        warnings.append(f"Robots policy disallows {target}.")
+                        index_entry["status"] = "skipped"
+                        index_entry["detail"] = "robots policy disallowed the target"
+                        _write_debugging_index(workspace, index_pages)
+                        continue
+                    remaining_bytes = max_total_bytes - total_received
+                    if remaining_bytes <= 0:
+                        index_entry["status"] = "skipped"
+                        index_entry["detail"] = "aggregate content budget reached"
+                        _write_debugging_index(workspace, index_pages)
+                        reached_limits.append(
+                            f"aggregate content ({max_total_size_mib} MiB)"
+                        )
+                        break
+                    if fetched_children:
+                        time.sleep(_request_delay(policy))
+                    child_path = workspace / f"page-{index:04}.html"
+                    index_entry["html"] = child_path.name
+                    try:
+                        child = fetch_remote(
+                            target,
+                            request.mode,
+                            max_page_size_mib=max_page_size_mib,
+                            max_body_bytes=remaining_bytes,
+                            content_path=child_path,
+                        )
+                    except RemoteFetchError as error:
+                        total_received += error.bytes_received
+                        fetched_children += 1
+                        index_entry["body_bytes"] = error.bytes_received
+                        index_entry["status"] = "failed"
+                        index_entry["detail"] = str(error)
+                        _write_debugging_index(workspace, index_pages)
+                        if error.reached_limit == "aggregate":
+                            reached_limits.append(
+                                f"aggregate content ({max_total_size_mib} MiB)"
+                            )
+                            warnings.append(
+                                f"Discarded incomplete child {target}: {error}"
+                            )
+                            break
+                        failed += 1
+                        warnings.append(f"Could not fetch {target}: {error}")
+                        if total_received >= max_total_bytes:
+                            reached_limits.append(
+                                f"aggregate content ({max_total_size_mib} MiB)"
+                            )
+                            break
+                        continue
+                    fetched_children += 1
+                    total_received += child.body_bytes
+                    index_entry["source_url"] = child.source_url
+                    index_entry["body_bytes"] = child.body_bytes
+                    index_entry["status"] = "fetched"
+                    final_url = _normalize_url(child.source_url)
+                    if _origin(final_url) != _origin(page.source_url):
+                        skipped += 1
+                        warnings.append(
+                            f"Child redirect left the traversal origin: {child.source_url}."
+                        )
+                        index_entry["status"] = "skipped"
+                        index_entry["detail"] = "final URL left the traversal origin"
+                        _write_debugging_index(workspace, index_pages)
+                        continue
+                    if final_url in seen:
+                        skipped += 1
+                        index_entry["status"] = "skipped"
+                        index_entry["detail"] = "final URL duplicated an earlier source"
+                        _write_debugging_index(workspace, index_pages)
+                        continue
+                    seen.add(final_url)
+                    try:
+                        child_markdown = convert_remote_page_to_markdown(child)
+                    except Exception as error:
+                        failed += 1
+                        warnings.append(f"Could not convert {target}: {error}")
+                        index_entry["status"] = "failed"
+                        index_entry["detail"] = f"conversion failed: {error}"
+                        _write_debugging_index(workspace, index_pages)
+                        continue
+                    child_converted = workspace / f"converted-{index:04}.md"
+                    child_converted.write_text(
+                        f"{child_markdown}\n\n---\n\n",
+                        encoding="utf-8",
+                    )
+                    index_entry["markdown"] = child_converted.name
+                    index_entry["status"] = "converted"
+                    _write_debugging_index(workspace, index_pages)
+                    fragments.append(child_converted)
+                    fetched += 1
+
+        document_path = workspace / "document.md"
+        with document_path.open("wb") as document:
+            for fragment in fragments:
+                with fragment.open("rb") as source:
+                    shutil.copyfileobj(source, document)
+
         try:
             staged_destination = _stage_destination(
-                converted_path,
+                document_path,
                 request.destination,
             )
         except OSError as error:
@@ -116,11 +280,11 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
         staged_destination = None
 
         return RemoteBuildSummary(
-            fetched=1,
-            skipped=0,
-            failed=0,
-            warnings=(),
-            reached_limits=(),
+            fetched=fetched,
+            skipped=skipped,
+            failed=failed,
+            warnings=tuple(warnings),
+            reached_limits=tuple(reached_limits),
             retained_workspace=workspace if request.keep_temp else None,
         )
     except BaseException as error:
@@ -165,7 +329,7 @@ def _remote_build_failure(error: BaseException) -> RemoteBuildError:
     )
 
 
-def _validate_request(request: RemoteBuildRequest) -> int:
+def _validate_request(request: RemoteBuildRequest) -> tuple[int, int, int]:
     """Validate page-mode options before creating storage or making a request."""
     parsed_url = urlsplit(request.entry_url)
     if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
@@ -173,9 +337,30 @@ def _validate_request(request: RemoteBuildRequest) -> int:
             "Remote input must be an HTTP(S) URL.",
             stage="validation",
         )
-    if request.mode != "page":
+    if request.mode not in {"page", "follow"}:
         raise RemoteBuildError(
             f"Unsupported remote mode: {request.mode}",
+            stage="validation",
+        )
+
+    if request.mode == "page" and request.follow_selectors:
+        raise RemoteBuildError(
+            "--follow-selector can only be used with --mode follow.",
+            stage="validation",
+        )
+    if request.mode == "page" and request.max_pages is not None:
+        raise RemoteBuildError(
+            "--max-pages can only be used with --mode follow.",
+            stage="validation",
+        )
+    if request.mode == "page" and request.max_total_size_mib is not None:
+        raise RemoteBuildError(
+            "--max-total-size-mib can only be used with --mode follow.",
+            stage="validation",
+        )
+    if request.mode == "follow" and not request.follow_selectors:
+        raise RemoteBuildError(
+            "--mode follow requires at least one --follow-selector.",
             stage="validation",
         )
 
@@ -185,7 +370,133 @@ def _validate_request(request: RemoteBuildRequest) -> int:
             "--max-page-size-mib must be a positive integer.",
             stage="validation",
         )
-    return max_page_size_mib
+    max_pages = request.max_pages or DEFAULT_MAX_PAGES
+    if request.max_pages is not None and request.max_pages <= 0:
+        raise RemoteBuildError(
+            "--max-pages must be a positive integer.",
+            stage="validation",
+        )
+    max_total_size_mib = (
+        request.max_total_size_mib or DEFAULT_MAX_TOTAL_SIZE_MIB
+    )
+    if (
+        request.max_total_size_mib is not None
+        and request.max_total_size_mib <= 0
+    ):
+        raise RemoteBuildError(
+            "--max-total-size-mib must be a positive integer.",
+            stage="validation",
+        )
+    return max_page_size_mib, max_pages, max_total_size_mib
+
+
+def _select_follow_targets(page: RemotePage, selectors: tuple[str, ...]) -> list[str]:
+    """Select unique eligible anchors in entry-document order."""
+    try:
+        compiled = tuple(soupsieve.compile(selector) for selector in selectors)
+    except soupsieve.SelectorSyntaxError as error:
+        raise RemoteBuildError(
+            f"Invalid follow selector: {error}",
+            stage="validation",
+        ) from error
+
+    soup = BeautifulSoup(
+        page.content_path.read_bytes(),
+        "html.parser",
+        from_encoding=page.encoding,
+    )
+    base_url = page.source_url
+    base_tag = soup.find("base", href=True)
+    if isinstance(base_tag, Tag):
+        base_href = base_tag.get("href")
+        if isinstance(base_href, str):
+            base_url = urljoin(page.source_url, base_href)
+
+    targets: list[str] = []
+    seen: set[str] = {_normalize_url(page.source_url)}
+    entry_origin = _origin(page.source_url)
+    for anchor in soup.find_all("a", href=True):
+        if not any(selector.match(anchor) for selector in compiled):
+            continue
+        href = anchor.get("href")
+        if not isinstance(href, str) or not href:
+            continue
+        try:
+            target = _normalize_url(urljoin(base_url, href))
+        except ValueError:
+            continue
+        if _origin(target) != entry_origin or target in seen:
+            continue
+        seen.add(target)
+        targets.append(target)
+
+    if not targets:
+        raise RemoteBuildError(
+            "Follow selectors matched no eligible same-origin anchors.",
+            stage="validation",
+        )
+    return targets
+
+
+def _normalize_url(url: str) -> str:
+    """Return deterministic HTTP(S) fetch identity for one URL."""
+    parsed = urlsplit(url)
+    scheme = parsed.scheme.lower()
+    if scheme not in {"http", "https"} or parsed.hostname is None:
+        raise ValueError("URL is not HTTP(S)")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("authenticated URLs are not supported")
+    port = parsed.port
+    host = parsed.hostname.lower()
+    display_host = f"[{host}]" if ":" in host else host
+    if port is not None and not (
+        (scheme == "http" and port == 80) or (scheme == "https" and port == 443)
+    ):
+        display_host = f"{display_host}:{port}"
+    return urlunsplit((scheme, display_host, parsed.path or "/", parsed.query, ""))
+
+
+def _origin(url: str) -> tuple[str, str, int]:
+    """Return a normalized scheme, host, and effective port origin."""
+    parsed = urlsplit(_normalize_url(url))
+    default_port = 443 if parsed.scheme == "https" else 80
+    assert parsed.hostname is not None
+    return parsed.scheme, parsed.hostname, parsed.port or default_port
+
+
+def _fetch_robots_policy(
+    entry_url: str,
+) -> tuple[urllib.robotparser.RobotFileParser | None, str | None]:
+    """Fetch robots policy once before child traversal."""
+    parsed = urlsplit(_normalize_url(entry_url))
+    robots_url = urlunsplit((parsed.scheme, parsed.netloc, "/robots.txt", "", ""))
+    request = urllib.request.Request(robots_url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            body = response.read(512 * 1024 + 1)
+            if len(body) > 512 * 1024:
+                return None, "Robots policy exceeded the 512 KiB limit; child traversal stopped."
+    except urllib.error.HTTPError as error:
+        if 400 <= error.code < 500:
+            body = b""
+        else:
+            return None, f"Robots policy was unavailable (HTTP {error.code}); child traversal stopped."
+    except Exception as error:
+        return None, f"Robots policy was unavailable ({error}); child traversal stopped."
+
+    policy = urllib.robotparser.RobotFileParser(robots_url)
+    policy.parse(body.decode("utf-8", errors="replace").splitlines())
+    return policy, None
+
+
+def _request_delay(policy: urllib.robotparser.RobotFileParser) -> float:
+    """Return the greatest applicable publisher-aware child request delay."""
+    crawl_delay = policy.crawl_delay(USER_AGENT) or policy.crawl_delay("*") or 0
+    request_rate = policy.request_rate(USER_AGENT) or policy.request_rate("*")
+    rate_delay = 0.0
+    if request_rate is not None and request_rate.requests > 0:
+        rate_delay = request_rate.seconds / request_rate.requests
+    return max(1.0, float(crawl_delay), rate_delay)
 
 
 def _stage_destination(source: Path, destination: Path) -> Path:
@@ -211,3 +522,21 @@ def _stage_destination(source: Path, destination: Path) -> Path:
             except OSError:
                 pass
         raise
+
+
+def _write_debugging_index(
+    workspace: Path,
+    pages: list[dict[str, object]],
+) -> None:
+    """Write the human-readable, explicitly unstable workspace index."""
+    payload = {
+        "notice": (
+            "Human-readable debugging artifact; this format has no compatibility "
+            "guarantees."
+        ),
+        "pages": pages,
+    }
+    (workspace / "index.json").write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )

@@ -47,7 +47,7 @@ pip install -e .
 ## 🌐 Supported Inputs
 
 - **Local Directories** - Convert and concatenate a folder of HTML files you already have.
-- **Remote URLs** - Fetch and convert one server-rendered HTML page without following its links.
+- **Remote URLs** - Convert one server-rendered HTML page, or explicitly follow selected same-origin links by one hop.
 
 Remote conversion processes the HTML returned by the server. It doesn't run JavaScript, so it doesn't include content that requires client-side rendering.
 
@@ -58,6 +58,7 @@ Remote conversion processes the HTML returned by the server. It doesn't run Java
 ### Core Features
 - **One-Command Conversion** - From URL to single `.md` file in one go.
 - **Safe Page Mode** - Fetches only the requested remote page and keeps its links usable.
+- **Explicit Follow Mode** - Converts a page plus a bounded, selector-chosen set of same-origin child pages without recursive discovery.
 - **Intelligent Cleaning** - Automatically strips navigation bars, footers, and scripts using `BeautifulSoup`.
 - **Markdownify Integration** - High-quality HTML-to-Markdown conversion.
 - **Concatenation** - Merges local HTML files into one document with page separators.
@@ -86,6 +87,11 @@ site2md build ./input_folder --output manual.md
 
 # Limit the remote page response size (default: 25 MiB)
 site2md build https://example.com --max-page-size-mib 10 --output page.md
+
+# Follow selected anchors from the entry page in document order
+site2md build https://example.com/results --mode follow \
+  --follow-selector "a.result" --follow-selector "a.featured" \
+  --max-pages 20 --max-total-size-mib 100 --output results.md
 
 # Keep temporary remote page data after success or failure
 site2md build https://example.com --keep-temp
@@ -132,11 +138,21 @@ The `private` directory controls what Git tracks. It does not add runtime isolat
 ### Build Options
 
 - `--output`: Specify the output filename (default: `complete_manual.md`).
-- `--mode page`: Explicitly select page mode for a remote URL. Page mode is the default and only available remote mode.
+- `--mode page`: Convert only the requested remote page. This remains the default.
+- `--mode follow`: Convert the entry page and one hop of explicitly selected same-origin anchors.
+- `--follow-selector`: Select anchors from the original entry HTML with a CSS selector. Repeat the option to form a union; output order follows document order, not option order. Follow mode requires at least one selector.
+- `--max-pages`: Set a positive follow-mode page budget, including the entry page and every unique child admitted for processing (default: 50).
+- `--max-total-size-mib`: Set a positive follow-mode aggregate HTML body budget (default: 250 MiB).
 - `--max-page-size-mib`: Set a positive integer response-size limit for one remote page. This option applies only to remote URLs and defaults to 25 MiB.
 - `--keep-temp`: Preserve temporary remote page data after success or failure. The command prints the retained path.
 
 Remote fetches use a 30-second timeout, a `site2md/0.3.0` user agent, and no automatic retries. They accept only final, nonempty `text/html` or `application/xhtml+xml` responses with a `2xx` status code. The command follows HTTP and HTTPS redirects except for HTTPS-to-HTTP downgrades.
+
+Follow mode removes URL fragments for identity, normalizes origins and default ports, preserves path and query meaning, and honors an HTML `base` element. Explicitly selected query-bearing and `rel="nofollow"` anchors remain eligible. Child pages never contribute more targets. Before children are requested, follow mode retrieves `robots.txt` with a separate 512 KiB cap, enforces the policy, and spaces sequential child requests by at least one second or the greater applicable crawl delay or request-rate interval. A missing `4xx` robots policy permits following; an unreachable or oversized policy stops child requests and writes the bounded entry-page result with a warning.
+
+Expected child failures and reached page or aggregate limits produce warnings and a successful bounded document containing the pages converted so far. Entry, selector, interruption, unexpected, and output failures preserve an existing destination. Successful pages keep their source markers and remain valid input to `site2md extract`.
+
+With `--keep-temp`, the retained workspace contains fetched HTML, incomplete child data when available, per-page converted fragments, the assembled document, and `index.json`. The index maps each attempted URL to its available files and status for human debugging. Its JSON format is intentionally unstable and has no compatibility guarantees.
 
 Remote fetch and validation failures preserve an existing output file. By default, the command removes temporary remote data after both successful and failed conversions.
 
