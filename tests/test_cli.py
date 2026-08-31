@@ -173,7 +173,7 @@ class Site2mdCliTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(server.requests, ["/results"])
-            self.assertEqual(server.user_agents, ["site2md/0.3.0"])
+            self.assertEqual(server.user_agents, ["site2md/0.4.0"])
             self.assertTrue(output.is_file())
             self.assert_link_rich_page(output.read_text(encoding="utf-8"), server.origin)
 

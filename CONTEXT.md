@@ -9,12 +9,32 @@ A remote conversion scope containing only the HTML document returned for the req
 _Avoid_: Single-page crawl, mirror
 
 **Follow mode**:
-A future remote conversion scope containing an initial page and an explicitly selected set of linked pages.
+A remote conversion scope containing an entry page and the unique same-origin HTTP(S) pages explicitly selected from its links. Selection is one hop; followed pages do not contribute further targets.
 _Avoid_: Detail mode, recursive mode
 
 **Site mode**:
-A future remote conversion scope containing pages discovered through a bounded traversal of a website.
+A remote conversion scope containing an entry page and unique same-origin pages discovered from its links through a bounded traversal. Discovered query variants are excluded unless explicitly included.
 _Avoid_: Mirror mode, unlimited crawl
+
+**Entry page**:
+The remote page requested to begin follow mode or site mode. Its final URL establishes the traversal origin and its source section appears first in the converted document.
+_Avoid_: Initial page, root page, seed page
+
+**Traversal origin**:
+The scheme, host, and port of the entry page's final URL. Follow mode and site mode do not include child pages outside this boundary.
+_Avoid_: Domain, host scope, crawl domain
+
+**Link selector**:
+A CSS selection rule that identifies entry-page anchors whose destinations become traversal targets in follow mode.
+_Avoid_: Scraper selector, extraction selector
+
+**Traversal target**:
+A unique, eligible child URL admitted for processing by follow mode or site mode.
+_Avoid_: Crawled link, queued page
+
+**Traversal budget**:
+The combined page-count, traversal-depth, and aggregate-content limits that bound one follow-mode or site-mode run.
+_Avoid_: Crawl quota, download allowance
 
 **Remote page**:
 An HTML document fetched from a URL together with its final source URL, which provides the base for resolving relative links.

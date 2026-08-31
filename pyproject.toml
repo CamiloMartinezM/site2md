@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "site2md"
-version = "0.3.0"
-description = "A CLI tool that converts a local HTML tree or one remote web page to Markdown."
+version = "0.4.0"
+description = "A CLI tool that converts local HTML or bounded remote web content to Markdown."
 authors = [{ name = "Camilo Martínez M.", email = "cama00005@uni-saarland.de" }]
 license = { text = "MIT" }
 readme = "README.md"
@@ -14,6 +14,8 @@ dependencies = [
     "cyclopts>=2.0.0",
     "markdownify>=0.11.6",
     "beautifulsoup4>=4.12.0",
+    "soupsieve>=2.0",
+    "rich>=13.6.0",
     "marko>=2.2.4,<3",
     "packaging>=20",
     "jsonschema>=4.18,<4.25; python_version < '3.10'",
@@ -36,7 +38,7 @@ packages = ["src/site2md"]
 include = [
     "/LICENSE",
     "/README.md",
-    "/docs/*.md",
+    "/docs",
     "/install.sh",
     "/pyproject.toml",
     "/src",

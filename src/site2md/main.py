@@ -208,7 +208,16 @@ def extractors() -> None:
     console.print("\n".join(lines), markup=False, soft_wrap=True)
 
 
-@app.command(name="build")
+@app.command(
+    name="build",
+    help_epilogue=(
+        "Page mode rejects traversal-only options. Follow mode requires at least "
+        "one --follow-selector. Follow mode rejects --max-depth and --include-query. "
+        "Site mode rejects --follow-selector. Local input rejects every remote-only "
+        "option. Incompatible options and non-positive budgets fail before any "
+        "network request."
+    ),
+)
 def build(
     input_source: str,
     *,

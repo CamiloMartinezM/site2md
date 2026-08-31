@@ -2,13 +2,13 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)
+![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.9+-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 **HTML to Markdown Converter** ✨
 
-*Convert a local HTML tree or one remote web page into a Markdown document for LLM ingestion, offline reading, or archiving.*
+*Convert a local HTML tree or bounded remote web content into a Markdown document for LLM ingestion, offline reading, or archiving.*
 
 
 [Installation](#-installation) • [Features](#-features) • [Usage](#-usage) • [Examples](#-examples)
@@ -47,7 +47,7 @@ pip install -e .
 ## 🌐 Supported Inputs
 
 - **Local Directories** - Convert and concatenate a folder of HTML files you already have.
-- **Remote URLs** - Convert one server-rendered HTML page, or explicitly follow selected same-origin links by one hop.
+- **Remote URLs** - Convert one server-rendered HTML page, explicitly follow selected same-origin links by one hop, or traverse a bounded same-origin site.
 
 Remote conversion processes the HTML returned by the server. It doesn't run JavaScript, so it doesn't include content that requires client-side rendering.
 
@@ -59,6 +59,7 @@ Remote conversion processes the HTML returned by the server. It doesn't run Java
 - **One-Command Conversion** - From URL to single `.md` file in one go.
 - **Safe Page Mode** - Fetches only the requested remote page and keeps its links usable.
 - **Explicit Follow Mode** - Converts a page plus a bounded, selector-chosen set of same-origin child pages without recursive discovery.
+- **Bounded Site Mode** - Discovers same-origin pages breadth first under explicit depth, page-count, content, query, robots, and pacing limits.
 - **Intelligent Cleaning** - Automatically strips navigation bars, footers, and scripts using `BeautifulSoup`.
 - **Markdownify Integration** - High-quality HTML-to-Markdown conversion.
 - **Concatenation** - Merges local HTML files into one document with page separators.
@@ -92,6 +93,10 @@ site2md build https://example.com --max-page-size-mib 10 --output page.md
 site2md build https://example.com/results --mode follow \
   --follow-selector "a.result" --follow-selector "a.featured" \
   --max-pages 20 --max-total-size-mib 100 --output results.md
+
+# Traverse a small same-origin site breadth first (queries excluded by default)
+site2md build https://example.com/docs/ --mode site \
+  --max-pages 20 --max-depth 2 --output docs.md
 
 # Keep temporary remote page data after success or failure
 site2md build https://example.com --keep-temp
@@ -140,17 +145,22 @@ The `private` directory controls what Git tracks. It does not add runtime isolat
 - `--output`: Specify the output filename (default: `complete_manual.md`).
 - `--mode page`: Convert only the requested remote page. This remains the default.
 - `--mode follow`: Convert the entry page and one hop of explicitly selected same-origin anchors.
+- `--mode site`: Convert the entry page and same-origin pages discovered breadth first.
 - `--follow-selector`: Select anchors from the original entry HTML with a CSS selector. Repeat the option to form a union; output order follows document order, not option order. Follow mode requires at least one selector.
-- `--max-pages`: Set a positive follow-mode page budget, including the entry page and every unique child admitted for processing (default: 50).
-- `--max-total-size-mib`: Set a positive follow-mode aggregate HTML body budget (default: 250 MiB).
+- `--max-pages`: Set a positive traversal page budget, including the entry page and every unique child admitted for processing (default: 50).
+- `--max-depth`: Set a positive site-mode depth budget, with the entry page at depth zero (default: 3).
+- `--include-query`: Include query-bearing links discovered in site mode; they are excluded by default.
+- `--max-total-size-mib`: Set a positive traversal aggregate HTML body budget (default: 250 MiB).
 - `--max-page-size-mib`: Set a positive integer response-size limit for one remote page. This option applies only to remote URLs and defaults to 25 MiB.
 - `--keep-temp`: Preserve temporary remote page data after success or failure. The command prints the retained path.
 
-Remote fetches use a 30-second timeout, a `site2md/0.3.0` user agent, and no automatic retries. They accept only final, nonempty `text/html` or `application/xhtml+xml` responses with a `2xx` status code. The command follows HTTP and HTTPS redirects except for HTTPS-to-HTTP downgrades.
+Remote fetches use a 30-second timeout, a `site2md/0.4.0` user agent, and no automatic retries. They accept only final, nonempty `text/html` or `application/xhtml+xml` responses with a `2xx` status code. The command follows HTTP and HTTPS redirects except for HTTPS-to-HTTP downgrades.
 
 Follow mode removes URL fragments for identity, normalizes origins and default ports, preserves path and query meaning, and honors an HTML `base` element. Explicitly selected query-bearing and `rel="nofollow"` anchors remain eligible. Child pages never contribute more targets. Before children are requested, follow mode retrieves `robots.txt` with a separate 512 KiB cap, enforces the policy, and spaces sequential child requests by at least one second or the greater applicable crawl delay or request-rate interval. A missing `4xx` robots policy permits following; an unreachable or oversized policy stops child requests and writes the bounded entry-page result with a warning.
 
-Expected child failures and reached page or aggregate limits produce warnings and a successful bounded document containing the pages converted so far. Entry, selector, interruption, unexpected, and output failures preserve an existing destination. Successful pages keep their source markers and remain valid input to `site2md extract`.
+Site mode uses the same origin, robots, pacing, page-count, per-page, and aggregate-content boundaries. It discovers links breadth first to depth three by default and excludes query variants unless `--include-query` is supplied. Neither traversal mode fetches assets, sitemaps, forms, or browser-rendered links. See the [traversal policy](docs/traversal-policy.md) for URL identity, ordering, resource accounting, failures, and responsible-use guidance.
+
+Expected child failures and reached page or aggregate limits produce warnings and a successful bounded document containing the pages converted so far. Entry, selector, interruption, unexpected, and output failures preserve an existing destination. Successful pages keep ordered source markers. Build and extract remain separate workflows: the multi-source Markdown is the extractor input, and its source sections preserve record provenance.
 
 With `--keep-temp`, the retained workspace contains fetched HTML, incomplete child data when available, per-page converted fragments, the assembled document, and `index.json`. The index maps each attempted URL to its available files and status for human debugging. Its JSON format is intentionally unstable and has no compatibility guarantees.
 
@@ -198,7 +208,7 @@ The Extractor converts numbers to JSON-native types, and `site2md` validates eac
 
 ## 📚 Documentation
 
-The tool is self-documenting via the CLI.
+The tool is self-documenting via the CLI. Release-specific behavior and limits are recorded in the [0.4.0 release notes](docs/release-0.4.0.md).
 
 ```bash
 site2md --help
@@ -220,6 +230,7 @@ Remote page conversion doesn't require `wget` or a browser engine.
 - `cyclopts` - For the CLI interface
 - `markdownify` - For conversion
 - `beautifulsoup4` - For HTML parsing
+- `soupsieve` - For CSS follow-selector matching
 - `rich` - For terminal output
 - `marko` - For interpreting converted documents behind the provider interface
 - `jsonschema` - For validating provider schemas and extracted records

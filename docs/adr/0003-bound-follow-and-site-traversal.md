@@ -1,0 +1,3 @@
+# Bound follow and site traversal by selection and origin
+
+Follow mode expands one hop from an entry page through explicit link selectors, while site mode performs sequential same-origin breadth-first traversal within page-count, depth, and aggregate-content limits; both honor robots policy and leave page mode as the default. These boundaries replace path-prefix or unrestricted crawling because path prefixes can exclude relevant pages, while unrestricted link and query traversal can recreate combinatorial expansion; expected child failures therefore produce a bounded partial result with visible diagnostics.
