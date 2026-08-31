@@ -39,12 +39,24 @@ def fetch_remote(
     mode: RemoteMode = "page",
     *,
     max_page_size_mib: int = DEFAULT_MAX_PAGE_SIZE_MIB,
-    keep_temp: bool = False,
+    content_path: Path | None = None,
 ) -> RemotePage:
     """Fetch remote content using the selected implemented mode."""
-    if mode == "page":
-        return _fetch_page(url, max_page_size_mib=max_page_size_mib, keep_temp=keep_temp)
-    raise ValueError(f"Unsupported remote mode: {mode}")
+    owns_workspace = content_path is None
+    if content_path is None:
+        content_path = Path(tempfile.mkdtemp(prefix="site2md_page_")) / "page.html"
+    try:
+        if mode == "page":
+            return _fetch_page(
+                url,
+                max_page_size_mib=max_page_size_mib,
+                content_path=content_path,
+            )
+        raise ValueError(f"Unsupported remote mode: {mode}")
+    except BaseException:
+        if owns_workspace:
+            shutil.rmtree(content_path.parent, ignore_errors=True)
+        raise
 
 
 class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -66,10 +78,8 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def _fetch_page(url: str, *, max_page_size_mib: int, keep_temp: bool) -> RemotePage:
+def _fetch_page(url: str, *, max_page_size_mib: int, content_path: Path) -> RemotePage:
     """Fetch one HTML document without following links from its content."""
-    temp_dir = Path(tempfile.mkdtemp(prefix="site2md_page_"))
-    content_path = temp_dir / "page.html"
     max_bytes = max_page_size_mib * _BYTES_PER_MIB
 
     try:
@@ -120,21 +130,9 @@ def _fetch_page(url: str, *, max_page_size_mib: int, keep_temp: bool) -> RemoteP
                 source_url=response.geturl(),
                 encoding=response.headers.get_content_charset(),
             )
-    except RemoteFetchError as error:
-        _handle_fetch_failure(error, temp_dir, keep_temp)
+    except RemoteFetchError:
+        raise
     except urllib.error.HTTPError as error:
-        fetch_error = RemoteFetchError(f"Final response returned HTTP {error.code}.")
-        _handle_fetch_failure(fetch_error, temp_dir, keep_temp)
+        raise RemoteFetchError(f"Final response returned HTTP {error.code}.") from error
     except Exception as error:
-        fetch_error = RemoteFetchError(f"Malformed or unavailable response: {error}")
-        _handle_fetch_failure(fetch_error, temp_dir, keep_temp)
-
-    raise AssertionError("unreachable")
-
-
-def _handle_fetch_failure(error: RemoteFetchError, temp_dir: Path, keep_temp: bool) -> None:
-    """Clean or retain temporary fetch data, then raise an actionable error."""
-    if keep_temp:
-        raise RemoteFetchError(f"{error} Temporary files kept at {temp_dir}") from error
-    shutil.rmtree(temp_dir)
-    raise error
+        raise RemoteFetchError(f"Malformed or unavailable response: {error}") from error

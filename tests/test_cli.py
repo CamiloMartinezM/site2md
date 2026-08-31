@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -189,6 +190,34 @@ class Site2mdCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(server.requests, ["/results"])
             self.assert_link_rich_page(output.read_text(encoding="utf-8"), server.origin)
+
+    def test_default_and_explicit_page_modes_produce_identical_content(self) -> None:
+        routes = {
+            "/results": (
+                200,
+                {"Content-Type": "text/html; charset=utf-8"},
+                self.link_rich_html(),
+            )
+        }
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            default_output = Path(temp_dir) / "default.md"
+            explicit_output = Path(temp_dir) / "explicit.md"
+
+            default_result = self.run_site2md(
+                "build", f"{server.origin}/results", "--output", default_output
+            )
+            explicit_result = self.run_site2md(
+                "build",
+                f"{server.origin}/results",
+                "--mode",
+                "page",
+                "--output",
+                explicit_output,
+            )
+
+            self.assertEqual(default_result.returncode, 0, default_result.stderr)
+            self.assertEqual(explicit_result.returncode, 0, explicit_result.stderr)
+            self.assertEqual(default_output.read_bytes(), explicit_output.read_bytes())
 
     def test_page_mode_converts_the_complete_cleaned_body(self) -> None:
         html = b"""<html><body>
@@ -481,6 +510,102 @@ urllib.request.HTTPSHandler = RedirectingHTTPSHandler
             kept_dir = Path(kept_result.stdout.split(marker, 1)[1].splitlines()[0].strip())
             self.assertTrue(kept_dir.is_dir())
             self.assertGreater((kept_dir / "page.html").stat().st_size, 0)
+
+    def test_keep_temp_reports_successful_remote_build_artifacts(self) -> None:
+        routes = {"/page": (200, {"Content-Type": "text/html"}, self.valid_html())}
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "out.md"
+
+            result = self.run_site2md(
+                "build", f"{server.origin}/page", "--output", output, "--keep-temp"
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            marker = "Temporary files kept at "
+            self.assertIn(marker, result.stdout)
+            kept_dir = Path(result.stdout.split(marker, 1)[1].splitlines()[0].strip())
+            self.addCleanup(shutil.rmtree, kept_dir, ignore_errors=True)
+            self.assertTrue((kept_dir / "page.html").is_file())
+            self.assertTrue((kept_dir / "converted.md").is_file())
+
+    def test_default_success_removes_remote_workspace(self) -> None:
+        routes = {"/page": (200, {"Content-Type": "text/html"}, self.valid_html())}
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            workspace_root = temp_root / "workspaces"
+            workspace_root.mkdir()
+            output = temp_root / "out.md"
+
+            result = self.run_site2md(
+                "build",
+                f"{server.origin}/page",
+                "--output",
+                output,
+                extra_environment={"TMPDIR": str(workspace_root)},
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(list(workspace_root.iterdir()), [])
+
+    def test_destination_write_failure_preserves_existing_output(self) -> None:
+        routes = {"/page": (200, {"Content-Type": "text/html"}, self.valid_html())}
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            output = temp_root / "out.md"
+            output.write_text("previous", encoding="utf-8")
+            environment = self.startup_hook_environment(
+                temp_root,
+                """from site2md import remote_build
+
+def fail_destination_replace(*args, **kwargs):
+    raise OSError("forced destination failure")
+
+remote_build.os.replace = fail_destination_replace
+""",
+            )
+
+            result = self.run_site2md(
+                "build",
+                f"{server.origin}/page",
+                "--output",
+                output,
+                extra_environment=environment,
+            )
+
+            self.assert_failed_without_replacing_output(result, output)
+            self.assertIn("forced destination failure", result.stdout)
+            self.assertNotIn("Traceback", result.stderr)
+
+    def test_interruption_preserves_existing_output_and_cleans_workspace(self) -> None:
+        routes = {"/page": (200, {"Content-Type": "text/html"}, self.valid_html())}
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            workspace_root = temp_root / "workspaces"
+            workspace_root.mkdir()
+            output = temp_root / "out.md"
+            output.write_text("previous", encoding="utf-8")
+            environment = self.startup_hook_environment(
+                temp_root,
+                """from site2md import converter
+
+def interrupt_conversion(*args, **kwargs):
+    raise KeyboardInterrupt()
+
+converter.md = interrupt_conversion
+""",
+            )
+            environment["TMPDIR"] = str(workspace_root)
+
+            result = self.run_site2md(
+                "build",
+                f"{server.origin}/page",
+                "--output",
+                output,
+                extra_environment=environment,
+            )
+
+            self.assert_failed_without_replacing_output(result, output)
+            self.assertEqual(list(workspace_root.iterdir()), [])
 
     def test_response_and_document_encoding_metadata_are_honored(self) -> None:
         http_declared = "<html><body><main><p>caf\u00e9</p></main></body></html>".encode("iso-8859-1")

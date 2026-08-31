@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ctypes
 import os
-import shutil
 import sys
 import tempfile
 from collections.abc import Iterator
@@ -16,17 +15,13 @@ import cyclopts
 from rich.console import Console
 from rich.progress import Progress
 
-from site2md.converter import convert_html_to_markdown, convert_remote_page_to_markdown
-from site2md.downloader import (
-    DEFAULT_MAX_PAGE_SIZE_MIB,
-    RemoteFetchError,
-    RemoteMode,
-    fetch_remote,
-)
+from site2md.converter import convert_html_to_markdown
+from site2md.downloader import RemoteMode
 from site2md.extraction import ExtractionError, list_extractors
 from site2md.extraction import extract as extract_markdown
 from site2md.finder import find_html_files
 from site2md.merger import merge_markdowns
+from site2md.remote_build import RemoteBuildError, RemoteBuildRequest, build_remote
 
 app = cyclopts.App(name="site2md")
 console = Console()
@@ -231,79 +226,85 @@ def build(
         mode: Scope used to fetch remote content. Only page mode is available.
         max_page_size_mib: Positive MiB limit for one remote page (default: 25).
     """
-    temp_download_dir: Path | None = None
     markdown_contents: list[str] = []
     is_remote = input_source.startswith(("http://", "https://"))
 
-    try:
-        if max_page_size_mib is not None and max_page_size_mib <= 0:
-            console.print("[red]Error:[/red] --max-page-size-mib must be a positive integer.")
-            sys.exit(1)
+    if not is_remote and max_page_size_mib is not None:
+        console.print("[red]Error:[/red] --max-page-size-mib can only be used with remote URLs.")
+        sys.exit(1)
 
-        if not is_remote and max_page_size_mib is not None:
-            console.print("[red]Error:[/red] --max-page-size-mib can only be used with remote URLs.")
-            sys.exit(1)
-
-        effective_max_page_size_mib = max_page_size_mib or DEFAULT_MAX_PAGE_SIZE_MIB
-
-        if is_remote:
-            console.print(f"[cyan]Fetching page {input_source}...[/cyan]")
+    if is_remote:
+        with Progress() as progress:
+            task = progress.add_task("[cyan]Building remote page...", total=1)
             try:
-                remote_page = fetch_remote(
-                    input_source,
-                    mode,
-                    max_page_size_mib=effective_max_page_size_mib,
-                    keep_temp=keep_temp,
+                summary = build_remote(
+                    RemoteBuildRequest(
+                        entry_url=input_source,
+                        destination=output,
+                        mode=mode,
+                        max_page_size_mib=max_page_size_mib,
+                        keep_temp=keep_temp,
+                    )
                 )
-            except (RemoteFetchError, ValueError) as error:
-                console.print(f"[red]Error fetching remote page:[/red] {error}")
+            except RemoteBuildError as error:
+                labels = {
+                    "validation": "Error:",
+                    "fetch": "Error fetching remote page:",
+                    "conversion": "Error converting remote page:",
+                    "destination": "Error writing remote output:",
+                    "cleanup": "Error cleaning remote workspace:",
+                }
+                console.print(f"[red]{labels[error.stage]}[/red] {error}")
+                if error.retained_workspace is not None:
+                    console.print(
+                        f"[dim]Temporary files kept at {error.retained_workspace}[/dim]"
+                    )
                 sys.exit(1)
-
-            temp_download_dir = remote_page.content_path.parent
-            console.print("Found [bold]1[/bold] HTML file.")
-            with Progress() as progress:
-                task = progress.add_task("[cyan]Converting HTML to Markdown...", total=1)
-                try:
-                    markdown = convert_remote_page_to_markdown(remote_page)
-                except Exception as error:
-                    console.print(f"[red]Error converting remote page:[/red] {error}")
-                    sys.exit(1)
-                markdown_contents.append(markdown)
-                progress.advance(task)
-        else:
-            input_dir = Path(input_source)
-            if not input_dir.exists():
-                console.print(f"[red]Error:[/red] Input '{input_dir}' does not exist.")
-                sys.exit(1)
-
-            console.print(f"[bold green]Scanning[/bold green] {input_dir} for HTML files...")
-            html_files = find_html_files(input_dir)
-            if not html_files:
-                console.print("[yellow]No HTML files found.[/yellow]")
-                sys.exit(0)
-
-            console.print(f"Found [bold]{len(html_files)}[/bold] HTML files.")
-            with Progress() as progress:
-                task = progress.add_task(
-                    "[cyan]Converting HTML to Markdown...", total=len(html_files)
-                )
-                for html_file in html_files:
-                    markdown_contents.append(convert_html_to_markdown(html_file))
-                    progress.advance(task)
+            progress.advance(task)
 
         console.print(
-            f"[bold green]Merging[/bold green] {len(markdown_contents)} files into {output}..."
+            f"Fetched [bold]{summary.fetched}[/bold]; "
+            f"skipped [bold]{summary.skipped}[/bold]; "
+            f"failed [bold]{summary.failed}[/bold]."
         )
-        merge_markdowns(markdown_contents, output)
+        for warning in summary.warnings:
+            console.print(f"[yellow]Warning:[/yellow] {warning}")
+        for reached_limit in summary.reached_limits:
+            console.print(f"[yellow]Reached limit:[/yellow] {reached_limit}")
+        if summary.retained_workspace is not None:
+            console.print(f"[dim]Temporary files kept at {summary.retained_workspace}[/dim]")
         console.print(
             f"[bold white on green]Success![/bold white on green] Markdown created at {output}"
         )
-    finally:
-        if temp_download_dir and not keep_temp:
-            console.print(f"[dim]Cleaning up temporary files at {temp_download_dir} ...[/dim]")
-            shutil.rmtree(temp_download_dir)
-        elif temp_download_dir:
-            console.print(f"[dim]Temporary files kept at {temp_download_dir}[/dim]")
+        return
+
+    input_dir = Path(input_source)
+    if not input_dir.exists():
+        console.print(f"[red]Error:[/red] Input '{input_dir}' does not exist.")
+        sys.exit(1)
+
+    console.print(f"[bold green]Scanning[/bold green] {input_dir} for HTML files...")
+    html_files = find_html_files(input_dir)
+    if not html_files:
+        console.print("[yellow]No HTML files found.[/yellow]")
+        sys.exit(0)
+
+    console.print(f"Found [bold]{len(html_files)}[/bold] HTML files.")
+    with Progress() as progress:
+        task = progress.add_task(
+            "[cyan]Converting HTML to Markdown...", total=len(html_files)
+        )
+        for html_file in html_files:
+            markdown_contents.append(convert_html_to_markdown(html_file))
+            progress.advance(task)
+
+    console.print(
+        f"[bold green]Merging[/bold green] {len(markdown_contents)} files into {output}..."
+    )
+    merge_markdowns(markdown_contents, output)
+    console.print(
+        f"[bold white on green]Success![/bold white on green] Markdown created at {output}"
+    )
 
 
 if __name__ == "__main__":
