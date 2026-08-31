@@ -607,6 +607,83 @@ converter.md = interrupt_conversion
             self.assert_failed_without_replacing_output(result, output)
             self.assertEqual(list(workspace_root.iterdir()), [])
 
+    def test_keep_temp_reports_interrupted_workspace(self) -> None:
+        routes = {"/page": (200, {"Content-Type": "text/html"}, self.valid_html())}
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            workspace_root = temp_root / "workspaces"
+            workspace_root.mkdir()
+            output = temp_root / "out.md"
+            output.write_text("previous", encoding="utf-8")
+            environment = self.startup_hook_environment(
+                temp_root,
+                """from site2md import converter
+
+def interrupt_conversion(*args, **kwargs):
+    raise KeyboardInterrupt()
+
+converter.md = interrupt_conversion
+""",
+            )
+            environment["TMPDIR"] = str(workspace_root)
+
+            result = self.run_site2md(
+                "build",
+                f"{server.origin}/page",
+                "--output",
+                output,
+                "--keep-temp",
+                extra_environment=environment,
+            )
+
+            self.assert_failed_without_replacing_output(result, output)
+            marker = "Temporary files kept at "
+            self.assertIn(marker, result.stdout)
+            kept_dir = Path(result.stdout.split(marker, 1)[1].splitlines()[0].strip())
+            self.assertTrue((kept_dir / "page.html").is_file())
+            self.assertNotIn("Traceback", result.stderr)
+
+    def test_failed_cleanup_reports_leaked_workspace(self) -> None:
+        routes = {"/page": (200, {"Content-Type": "text/html"}, self.valid_html())}
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            workspace_root = temp_root / "workspaces"
+            workspace_root.mkdir()
+            output = temp_root / "out.md"
+            output.write_text("previous", encoding="utf-8")
+            environment = self.startup_hook_environment(
+                temp_root,
+                """from site2md import converter, remote_build
+
+def fail_conversion(*args, **kwargs):
+    raise RuntimeError("forced conversion failure")
+
+def fail_cleanup(*args, **kwargs):
+    raise OSError("forced cleanup failure")
+
+converter.md = fail_conversion
+remote_build.shutil.rmtree = fail_cleanup
+""",
+            )
+            environment["TMPDIR"] = str(workspace_root)
+
+            result = self.run_site2md(
+                "build",
+                f"{server.origin}/page",
+                "--output",
+                output,
+                extra_environment=environment,
+            )
+
+            self.assert_failed_without_replacing_output(result, output)
+            self.assertIn("forced conversion failure", result.stdout)
+            self.assertIn("forced cleanup failure", result.stdout)
+            marker = "Temporary files kept at "
+            self.assertIn(marker, result.stdout)
+            leaked_dir = Path(result.stdout.split(marker, 1)[1].splitlines()[0].strip())
+            self.assertTrue(leaked_dir.is_dir())
+            self.assertNotIn("Traceback", result.stderr)
+
     def test_response_and_document_encoding_metadata_are_honored(self) -> None:
         http_declared = "<html><body><main><p>caf\u00e9</p></main></body></html>".encode("iso-8859-1")
         meta_declared = (

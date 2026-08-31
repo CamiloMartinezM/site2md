@@ -253,6 +253,8 @@ def build(
                     "conversion": "Error converting remote page:",
                     "destination": "Error writing remote output:",
                     "cleanup": "Error cleaning remote workspace:",
+                    "interruption": "Remote build interrupted:",
+                    "unexpected": "Unexpected remote build error:",
                 }
                 console.print(f"[red]{labels[error.stage]}[/red] {error}")
                 if error.retained_workspace is not None:

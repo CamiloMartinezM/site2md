@@ -24,6 +24,8 @@ RemoteBuildStage = Literal[
     "conversion",
     "destination",
     "cleanup",
+    "interruption",
+    "unexpected",
 ]
 
 
@@ -121,18 +123,46 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
             reached_limits=(),
             retained_workspace=workspace if request.keep_temp else None,
         )
-    except RemoteBuildError as error:
-        if request.keep_temp:
-            error.retained_workspace = workspace
-        raise
+    except BaseException as error:
+        failure = _remote_build_failure(error)
+        if request.keep_temp or (
+            workspace.exists() and failure.stage == "cleanup"
+        ):
+            failure.retained_workspace = workspace
+        elif workspace.exists():
+            try:
+                shutil.rmtree(workspace)
+            except OSError as cleanup_error:
+                message = (
+                    f"{failure} Additionally, could not remove temporary workspace: "
+                    f"{cleanup_error}"
+                )
+                failure = RemoteBuildError(
+                    message,
+                    stage="cleanup",
+                    retained_workspace=workspace,
+                )
+        if failure is error:
+            raise
+        raise failure from error
     finally:
         if staged_destination is not None:
             try:
                 staged_destination.unlink(missing_ok=True)
             except OSError:
                 pass
-        if not request.keep_temp and workspace.exists():
-            shutil.rmtree(workspace, ignore_errors=True)
+
+
+def _remote_build_failure(error: BaseException) -> RemoteBuildError:
+    """Normalize every post-workspace failure for cleanup and CLI reporting."""
+    if isinstance(error, RemoteBuildError):
+        return error
+    if isinstance(error, KeyboardInterrupt):
+        return RemoteBuildError("Remote build interrupted.", stage="interruption")
+    return RemoteBuildError(
+        f"Unexpected remote build failure: {error}",
+        stage="unexpected",
+    )
 
 
 def _validate_request(request: RemoteBuildRequest) -> int:
