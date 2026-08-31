@@ -1,0 +1,3 @@
+# Use converted Markdown as the extractor plug-in seam
+
+Structured extraction operates only on a converted document derived from saved Markdown, using an explicitly selected trusted extractor through a versioned plug-in seam. The extraction module owns Markdown interpretation, plug-in discovery, provenance, record-schema validation, and the extraction-result envelope behind two caller operations, while each extractor owns only source-specific record candidates and diagnostics behind one `extract(document)` method. This keeps extraction reproducible from archived Markdown and gives third-party authors a small interface, at the cost of being unable to recover HTML semantics that site conversion discarded.
