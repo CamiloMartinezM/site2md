@@ -58,7 +58,8 @@ class RecordingServer:
     @property
     def origin(self) -> str:
         """Return this server's HTTP origin."""
-        return f"http://{self.httpd.server_name}:{self.httpd.server_port}"
+        # server_name comes from getfqdn(), which names the LAN host on Windows.
+        return f"http://127.0.0.1:{self.httpd.server_port}"
 
     def __enter__(self) -> Self:
         self.thread.start()
