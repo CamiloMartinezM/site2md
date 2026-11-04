@@ -760,7 +760,7 @@ def _write_debugging_index(
             )
             temporary_file.flush()
             os.fsync(temporary_file.fileno())
-        temporary_path.rename(workspace / "index.json")
+        temporary_path.replace(workspace / "index.json")
         temporary_path = None
     finally:
         if temporary_path is not None:

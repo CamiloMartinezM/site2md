@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import tempfile
 import unittest
@@ -44,6 +45,8 @@ class RemoteBuildTests(unittest.TestCase):
             self.addCleanup(shutil.rmtree, workspace, ignore_errors=True)
             self.assertEqual((workspace / "page.html").read_bytes(), routes["/page"][2])
             self.assertTrue((workspace / "converted.md").is_file())
+            index = json.loads((workspace / "index.json").read_text(encoding="utf-8"))
+            self.assertEqual([page["status"] for page in index["pages"]], ["converted"])
             self.assertIn("remote", destination.read_text(encoding="utf-8"))
 
 
