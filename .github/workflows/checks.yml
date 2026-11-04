@@ -1,0 +1,64 @@
+name: Checks
+
+on:
+    push:
+        branches:
+            - main
+    pull_request:
+        branches:
+            - main
+
+permissions:
+    contents: read
+
+jobs:
+    lint:
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            # mypy can't target 3.9, and the 3.12 and 3.13 stubs reject read_text(encoding=...)
+            # on importlib.metadata paths, so type checking uses the newest supported Python.
+            - name: Set up uv
+              uses: astral-sh/setup-uv@v10.3.0
+              with:
+                  python-version: "3.14"
+                  activate-environment: true
+
+            - name: Install dependencies
+              run: uv pip install -e . ruff mypy
+
+            - name: Ruff check
+              run: ruff check
+
+            - name: Mypy
+              run: mypy src tests
+
+    tests:
+        runs-on: ubuntu-latest
+        # A hung test would otherwise hold the runner for the six-hour default.
+        timeout-minutes: 30
+        strategy:
+            fail-fast: false
+            matrix:
+                # The oldest and newest Python versions that pyproject.toml supports.
+                python-version: ["3.9", "3.14"]
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Set up uv
+              uses: astral-sh/setup-uv@v10.3.0
+              with:
+                  python-version: ${{ matrix.python-version }}
+                  activate-environment: true
+
+            - name: Install the package
+              run: uv pip install -e .
+
+            - name: Unittest
+              run: python -m unittest discover -s tests

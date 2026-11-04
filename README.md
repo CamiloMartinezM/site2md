@@ -2,6 +2,8 @@
 
 <div align="center">
 
+![Tests](./docs/tests.svg)
+![Coverage](./docs/coverage.svg)
 ![Version](https://img.shields.io/badge/version-0.4.1-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.9+-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
