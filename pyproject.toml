@@ -73,3 +73,8 @@ ignore = [
     "PLR0911", # Too many return statements
     "UP047",   # Generic function should use type parameters
 ]
+
+[tool.coverage.run]
+source_pkgs = ["site2md"]
+# Measure the installed site2md commands that the CLI tests run as subprocesses.
+patch = ["subprocess"]
