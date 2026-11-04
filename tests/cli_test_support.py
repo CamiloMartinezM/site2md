@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -103,6 +104,18 @@ class InstalledCliTestCase(unittest.TestCase):
             env=environment,
             timeout=timeout,
         )
+
+    def retained_workspace(self, stdout: str) -> Path:
+        """Return the reported retained workspace and remove it after the test."""
+        marker = "Temporary files kept at "
+        self.assertIn(marker, stdout)
+        workspace = Path(stdout.split(marker, 1)[1].splitlines()[0].strip())
+        # A misparsed path must fail here, never reach rmtree: Path("") is the current directory.
+        self.assertTrue(workspace.is_absolute(), f"not an absolute path: {str(workspace)!r}")
+        self.assertTrue(workspace.name.startswith("site2md_remote_"), workspace)
+        self.assertTrue(workspace.is_dir(), workspace)
+        self.addCleanup(shutil.rmtree, workspace, ignore_errors=True)
+        return workspace
 
     @staticmethod
     def startup_hook_environment(root: Path, source: str) -> dict[str, str]:

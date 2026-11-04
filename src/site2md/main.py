@@ -288,10 +288,12 @@ def build(
                     "interruption": "Remote build interrupted:",
                     "unexpected": "Unexpected remote build error:",
                 }
-                console.print(f"[red]{labels[error.stage]}[/red] {error}")
+                # soft_wrap keeps messages and paths on one line, whole and copyable.
+                console.print(f"[red]{labels[error.stage]}[/red] {error}", soft_wrap=True)
                 if error.retained_workspace is not None:
                     console.print(
-                        f"[dim]Temporary files kept at {error.retained_workspace}[/dim]"
+                        f"[dim]Temporary files kept at {error.retained_workspace}[/dim]",
+                        soft_wrap=True,
                     )
                 sys.exit(1)
             progress.advance(task)
@@ -306,7 +308,10 @@ def build(
             f"failed [bold]{summary.failed}[/bold]."
         )
         if summary.retained_workspace is not None:
-            console.print(f"[dim]Temporary files kept at {summary.retained_workspace}[/dim]")
+            console.print(
+                f"[dim]Temporary files kept at {summary.retained_workspace}[/dim]",
+                soft_wrap=True,
+            )
         console.print(
             f"[bold white on green]Success![/bold white on green] Markdown created at {output}"
         )
