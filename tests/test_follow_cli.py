@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 import tempfile
 import time
 import unittest
@@ -480,9 +479,7 @@ Request-rate: 2/3
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(server.requests, ["/entry", "/robots.txt", "/redirect"])
             self.assertIn("Robots policy disallows", result.stdout)
-            marker = "Temporary files kept at "
-            workspace = Path(result.stdout.split(marker, 1)[1].splitlines()[0].strip())
-            self.addCleanup(shutil.rmtree, workspace, ignore_errors=True)
+            workspace = self.retained_workspace(result.stdout)
             index = json.loads((workspace / "index.json").read_text(encoding="utf-8"))
             self.assertEqual(index["pages"][1]["body_bytes"], len(redirect_body))
 
@@ -580,9 +577,7 @@ Request-rate: 2/3
             self.assertEqual(server.requests, ["/entry", "/robots.txt", "/redirect"])
             self.assertIn("Fetched 1; skipped 0; failed 1.", result.stdout)
             self.assertIn("1 MiB limit", result.stdout)
-            marker = "Temporary files kept at "
-            workspace = Path(result.stdout.split(marker, 1)[1].splitlines()[0].strip())
-            self.addCleanup(shutil.rmtree, workspace, ignore_errors=True)
+            workspace = self.retained_workspace(result.stdout)
             index = json.loads((workspace / "index.json").read_text(encoding="utf-8"))
             child = index["pages"][1]
             retained = workspace / child["html"]
@@ -720,9 +715,7 @@ Request-rate: 2/3
             )
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            marker = "Temporary files kept at "
-            workspace = Path(result.stdout.split(marker, 1)[1].splitlines()[0].strip())
-            self.addCleanup(shutil.rmtree, workspace, ignore_errors=True)
+            workspace = self.retained_workspace(result.stdout)
             for filename in (
                 "page.html",
                 "converted.md",
@@ -782,9 +775,7 @@ Request-rate: 2/3
 
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(output.read_text(encoding="utf-8"), "previous")
-            marker = "Temporary files kept at "
-            workspace = Path(result.stdout.split(marker, 1)[1].splitlines()[0].strip())
-            self.addCleanup(shutil.rmtree, workspace, ignore_errors=True)
+            workspace = self.retained_workspace(result.stdout)
             self.assertGreater((workspace / "page.html").stat().st_size, 0)
             index = json.loads((workspace / "index.json").read_text(encoding="utf-8"))
             self.assertEqual(index["pages"][0]["requested_url"], f"{server.origin}/entry")
@@ -838,9 +829,7 @@ remote_build.fetch_remote = interrupt_child
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(server.requests, ["/entry", "/robots.txt"])
             self.assertEqual(output.read_text(encoding="utf-8"), "previous")
-            marker = "Temporary files kept at "
-            workspace = Path(result.stdout.split(marker, 1)[1].splitlines()[0].strip())
-            self.addCleanup(shutil.rmtree, workspace, ignore_errors=True)
+            workspace = self.retained_workspace(result.stdout)
             index = json.loads((workspace / "index.json").read_text(encoding="utf-8"))
             self.assertEqual(len(index["pages"]), 2)
             self.assertEqual(index["pages"][1]["requested_url"], f"{server.origin}/child")

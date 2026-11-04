@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 import socket
 import subprocess
 import tempfile
@@ -402,10 +401,7 @@ urllib.request.HTTPSHandler = RedirectingHTTPSHandler
             )
 
             self.assert_failed_without_replacing_output(kept_result, output)
-            marker = "Temporary files kept at "
-            self.assertIn(marker, kept_result.stdout)
-            kept_dir = Path(kept_result.stdout.split(marker, 1)[1].splitlines()[0].strip())
-            self.assertTrue(kept_dir.is_dir())
+            kept_dir = self.retained_workspace(kept_result.stdout)
             self.assertGreater((kept_dir / "page.html").stat().st_size, 0)
 
     def test_keep_temp_reports_successful_remote_build_artifacts(self) -> None:
@@ -418,12 +414,34 @@ urllib.request.HTTPSHandler = RedirectingHTTPSHandler
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            marker = "Temporary files kept at "
-            self.assertIn(marker, result.stdout)
-            kept_dir = Path(result.stdout.split(marker, 1)[1].splitlines()[0].strip())
-            self.addCleanup(shutil.rmtree, kept_dir, ignore_errors=True)
+            kept_dir = self.retained_workspace(result.stdout)
             self.assertTrue((kept_dir / "page.html").is_file())
             self.assertTrue((kept_dir / "converted.md").is_file())
+
+    def test_keep_temp_reports_a_long_workspace_path_on_one_line(self) -> None:
+        routes = {"/page": (200, {"Content-Type": "text/html"}, self.valid_html())}
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            # Long enough that "Temporary files kept at <path>" exceeds Rich's 80 columns.
+            long_temp = Path(temp_dir) / ("long-temporary-directory-" * 3)
+            long_temp.mkdir()
+            output = Path(temp_dir) / "out.md"
+
+            result = self.run_site2md(
+                "build",
+                f"{server.origin}/page",
+                "--output",
+                output,
+                "--keep-temp",
+                extra_environment={
+                    "COLUMNS": "80",
+                    "TEMP": str(long_temp),
+                    "TMP": str(long_temp),
+                    "TMPDIR": str(long_temp),
+                },
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self.retained_workspace(result.stdout).parent, long_temp)
 
     def test_default_success_removes_remote_workspace(self) -> None:
         routes = {"/page": (200, {"Content-Type": "text/html"}, self.valid_html())}
@@ -534,9 +552,7 @@ converter.md = interrupt_conversion
             )
 
             self.assert_failed_without_replacing_output(result, output)
-            marker = "Temporary files kept at "
-            self.assertIn(marker, result.stdout)
-            kept_dir = Path(result.stdout.split(marker, 1)[1].splitlines()[0].strip())
+            kept_dir = self.retained_workspace(result.stdout)
             self.assertTrue((kept_dir / "page.html").is_file())
             self.assertNotIn("Traceback", result.stderr)
 
@@ -575,10 +591,7 @@ remote_build.shutil.rmtree = fail_cleanup
             self.assert_failed_without_replacing_output(result, output)
             self.assertIn("forced conversion failure", result.stdout)
             self.assertIn("forced cleanup failure", result.stdout)
-            marker = "Temporary files kept at "
-            self.assertIn(marker, result.stdout)
-            leaked_dir = Path(result.stdout.split(marker, 1)[1].splitlines()[0].strip())
-            self.assertTrue(leaked_dir.is_dir())
+            self.retained_workspace(result.stdout)
             self.assertNotIn("Traceback", result.stderr)
 
     def test_response_and_document_encoding_metadata_are_honored(self) -> None:
