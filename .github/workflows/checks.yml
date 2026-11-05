@@ -20,8 +20,8 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v4
 
-            # mypy can't target 3.9, and the 3.12 and 3.13 stubs reject read_text(encoding=...)
-            # on importlib.metadata paths, so type checking uses the newest supported Python.
+            # The importlib.metadata stubs for 3.10 to 3.13 are narrower than the runtime objects
+            # (PackageMetadata.get, read_text(encoding=...)), so type checking uses Python 3.14.
             - name: Set up uv
               uses: astral-sh/setup-uv@v10.3.0
               with:
@@ -44,8 +44,13 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                # The oldest and newest Python versions that pyproject.toml supports.
-                python-version: ["3.9", "3.14"]
+                include:
+                    # The oldest supported Python with the lowest declared dependency versions,
+                    # so a floor in pyproject.toml that the code has outgrown fails here.
+                    - python-version: "3.10"
+                      resolution: lowest-direct
+                    - python-version: "3.14"
+                      resolution: highest
 
         steps:
             - name: Checkout code
@@ -58,7 +63,7 @@ jobs:
                   activate-environment: true
 
             - name: Install the package
-              run: uv pip install -e .
+              run: uv pip install --resolution ${{ matrix.resolution }} -e .
 
             - name: Unittest
               run: python -m unittest discover -s tests
