@@ -11,13 +11,13 @@ import unittest
 from collections.abc import Callable, Mapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from typing_extensions import Self
 
 Response = tuple[int, dict[str, str], bytes]
-Route = Union[Response, Callable[[BaseHTTPRequestHandler], None]]
+Route = Response | Callable[[BaseHTTPRequestHandler], None]
 
 
 class RecordingServer:

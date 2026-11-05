@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import socket
 import subprocess
 import tempfile
 import time
@@ -256,7 +255,7 @@ converter.md = fail_markdown_conversion
                 handler.send_header("Content-Type", "text/html")
                 handler.end_headers()
                 handler.wfile.write(self.valid_html("late"))
-            except (BrokenPipeError, ConnectionResetError, socket.timeout):
+            except (TimeoutError, BrokenPipeError, ConnectionResetError):
                 pass
 
         with RecordingServer({"/slow": slow}) as server, tempfile.TemporaryDirectory() as temp_dir:

@@ -5,10 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal, Protocol, Union
+from typing import Literal, Protocol
 
-JsonScalar = Union[None, bool, int, float, str]
-JsonValue = Union[JsonScalar, Sequence["JsonValue"], Mapping[str, "JsonValue"]]
+JsonScalar = None | bool | int | float | str
+JsonValue = JsonScalar | Sequence["JsonValue"] | Mapping[str, "JsonValue"]
 
 
 @dataclass(frozen=True)
