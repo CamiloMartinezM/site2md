@@ -70,7 +70,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         )
 
         # Strip the whole box-drawing block: Rich's corners differ by platform (╭ or ┌).
-        help_text = " ".join(re.sub(r"[─-╿]+", " ", result.stdout).split())
+        help_text = " ".join(re.sub(r"[\u2500-\u257f]+", " ", result.stdout).split())
         self.assertEqual(result.returncode, 0, result.stderr)
         for expected in (
             "Page mode is the default",
