@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+from tests.cli_test_support import installed_command
 
 
 class ExtractCliTests(unittest.TestCase):
@@ -18,7 +19,7 @@ class ExtractCliTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.command = Path(sys.executable).with_name("site2md")
+        cls.command = installed_command()
         if not cls.command.is_file():
             raise RuntimeError(f"Installed site2md command not found at {cls.command}")
 
@@ -316,9 +317,10 @@ countries.create_extractor = lambda: WarningExtractor()
             )
 
         self.assertEqual(result.returncode, 0, result.stderr.decode())
+        # splitlines: Windows text streams end lines with \r\n.
         self.assertEqual(
-            result.stderr,
-            b"warning: site2md.scrapethissite.countries.warning: command warning\n",
+            result.stderr.decode().splitlines(),
+            ["warning: site2md.scrapethissite.countries.warning: command warning"],
         )
         payload = json.loads(result.stdout)
         self.assertEqual(payload["diagnostics"][0]["message"], "command warning")

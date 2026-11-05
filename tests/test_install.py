@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 
+@unittest.skipIf(sys.platform == "win32", "install.sh is the Linux and macOS installer")
 class InstallerTests(unittest.TestCase):
     """Exercise the public installer at its process boundary."""
 
