@@ -5,7 +5,7 @@
 ![Tests](./docs/tests.svg)
 ![Coverage](./docs/coverage.svg)
 ![Version](https://img.shields.io/badge/version-0.4.1-blue.svg)
-![Python](https://img.shields.io/badge/python-3.9+-brightgreen.svg)
+![Python](https://img.shields.io/badge/python-3.10+-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 **HTML to Markdown Converter** ✨
@@ -293,7 +293,7 @@ site2md extractors --help
 ## 🔧 Requirements
 
 ### Required
-- **Python 3.9** or higher
+- **Python 3.10** or higher
 
 Remote page conversion doesn't require `wget` or a browser engine.
 

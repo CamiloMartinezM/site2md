@@ -39,7 +39,7 @@ class ReleaseMetadataTests(unittest.TestCase):
             if requirement.name == "jsonschema"
         ]
 
-        self.assertEqual(package_metadata["Requires-Python"], ">=3.9")
+        self.assertEqual(package_metadata["Requires-Python"], ">=3.10")
         self.assertEqual(
             {requirement.name for requirement in requirements},
             {
@@ -54,13 +54,7 @@ class ReleaseMetadataTests(unittest.TestCase):
             },
         )
         self.assertEqual([str(requirement.specifier) for requirement in marko], ["<3,>=2.2.4"])
-        self.assertEqual(
-            {(str(requirement.specifier), str(requirement.marker)) for requirement in jsonschema},
-            {
-                ("<4.25,>=4.18", 'python_version < "3.10"'),
-                ("<5,>=4.18", 'python_version >= "3.10"'),
-            },
-        )
+        self.assertEqual([str(requirement) for requirement in jsonschema], ["jsonschema<5,>=4.18"])
 
     def test_build_help_documents_traversal_contract(self) -> None:
         command = Path(sys.executable).with_name("site2md")
