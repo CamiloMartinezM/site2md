@@ -38,7 +38,7 @@ jobs:
               run: mypy src tests
 
     tests:
-        runs-on: ubuntu-latest
+        runs-on: ${{ matrix.os }}
         # A hung test would otherwise hold the runner for the six-hour default.
         timeout-minutes: 30
         strategy:
@@ -47,9 +47,15 @@ jobs:
                 include:
                     # The oldest supported Python with the lowest declared dependency versions,
                     # so a floor in pyproject.toml that the code has outgrown fails here.
-                    - python-version: "3.10"
+                    - os: ubuntu-latest
+                      python-version: "3.10"
                       resolution: lowest-direct
-                    - python-version: "3.14"
+                    - os: ubuntu-latest
+                      python-version: "3.14"
+                      resolution: highest
+                    # Windows-only failures (#19, #23) shipped in releases before this job existed.
+                    - os: windows-latest
+                      python-version: "3.14"
                       resolution: highest
 
         steps:
