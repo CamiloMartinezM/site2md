@@ -402,7 +402,7 @@ class NoisyExtractor:
         print("provider standard error", file=sys.stderr)
         os.write(1, b"provider descriptor output\\n")
         os.write(2, b"provider descriptor error\\n")
-        ctypes.CDLL(None).printf(b"provider native output\\n")
+        ctypes.CDLL("ucrtbase" if sys.platform == "win32" else None).puts(b"provider native output")
         return real_create_extractor().extract(document)
 
 countries.create_extractor = lambda: NoisyExtractor()
@@ -421,7 +421,7 @@ class NoisyExtractor:
         print("provider standard error", file=sys.stderr)
         os.write(1, b"provider descriptor output\\n")
         os.write(2, b"provider descriptor error\\n")
-        ctypes.CDLL(None).printf(b"provider native output\\n")
+        ctypes.CDLL("ucrtbase" if sys.platform == "win32" else None).puts(b"provider native output")
         raise RuntimeError("forced provider failure")
 
 countries.create_extractor = lambda: NoisyExtractor()
@@ -463,6 +463,62 @@ countries.create_extractor = lambda: NoisyExtractor()
                     else:
                         self.assertEqual(result.stdout, b"")
                         self.assertIn(b"forced provider failure", result.stderr)
+
+    def test_extract_writes_its_result_when_the_c_runtime_cannot_be_loaded(self) -> None:
+        # ctypes.CDLL(None) raises this TypeError on Windows; simulate it on any platform.
+        startup_hook = """import ctypes
+
+def unavailable(*args, **kwargs):
+    raise TypeError("argument of type 'NoneType' is not iterable")
+
+ctypes.CDLL = unavailable
+"""
+        markdown = b"""### Quiet
+
+**Capital:** Quiet City
+**Population:** 9
+**Area (km2):** 10
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = self.run_site2md(
+                "extract",
+                "site2md.scrapethissite.countries",
+                "-",
+                input_bytes=markdown,
+                extra_environment=self.startup_hook_environment(Path(temp_dir), startup_hook),
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        payload = json.loads(result.stdout)
+        self.assertEqual([record["value"]["name"] for record in payload["records"]], ["Quiet"])
+
+    def test_extract_reports_a_failing_native_flush_instead_of_exiting_silently(self) -> None:
+        startup_hook = """import ctypes
+
+class BrokenRuntime:
+    def fflush(self, stream):
+        raise RuntimeError("forced native flush failure")
+
+ctypes.CDLL = lambda *args, **kwargs: BrokenRuntime()
+"""
+        markdown = b"""### Quiet
+
+**Capital:** Quiet City
+**Population:** 9
+**Area (km2):** 10
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = self.run_site2md(
+                "extract",
+                "site2md.scrapethissite.countries",
+                "-",
+                input_bytes=markdown,
+                extra_environment=self.startup_hook_environment(Path(temp_dir), startup_hook),
+            )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, b"")
+        self.assertIn(b"error: extraction failed: forced native flush failure", result.stderr)
 
     def test_extract_reports_pre_emission_stdout_failure_without_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

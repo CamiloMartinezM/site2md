@@ -102,17 +102,22 @@ def _discard_provider_output() -> Iterator[None]:
             yield
         finally:
             try:
-                ctypes.CDLL(None).fflush(None)
-            except (AttributeError, OSError):
-                pass
-            for stream in streams:
                 try:
-                    stream.flush()
-                except (OSError, ValueError):
+                    # Windows has no CDLL(None); Python and its extensions share the UCRT there.
+                    c_runtime = ctypes.CDLL("ucrtbase" if sys.platform == "win32" else None)
+                    c_runtime.fflush(None)
+                except (AttributeError, OSError, TypeError):  # no loadable C runtime: best effort
                     pass
-            for descriptor, saved_descriptor in reversed(redirected):
-                os.dup2(saved_descriptor, descriptor)
-                os.close(saved_descriptor)
+                for stream in streams:
+                    try:
+                        stream.flush()
+                    except (OSError, ValueError):
+                        pass
+            finally:
+                # Restore even if flushing failed, or later errors would vanish into the sink.
+                for descriptor, saved_descriptor in reversed(redirected):
+                    os.dup2(saved_descriptor, descriptor)
+                    os.close(saved_descriptor)
 
 
 def _write_standard_output(contents: bytes) -> None:
