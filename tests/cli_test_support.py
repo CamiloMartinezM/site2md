@@ -20,6 +20,12 @@ Response = tuple[int, dict[str, str], bytes]
 Route = Response | Callable[[BaseHTTPRequestHandler], None]
 
 
+def installed_command() -> Path:
+    """Return the site2md console script installed next to the running Python."""
+    name = "site2md.exe" if sys.platform == "win32" else "site2md"
+    return Path(sys.executable).with_name(name)
+
+
 class RecordingServer:
     """Serve fixed responses and record every requested path."""
 
@@ -79,7 +85,7 @@ class InstalledCliTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.command = Path(sys.executable).with_name("site2md")
+        cls.command = installed_command()
         if not cls.command.is_file():
             raise RuntimeError(f"Installed site2md command not found at {cls.command}")
 

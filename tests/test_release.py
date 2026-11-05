@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -59,14 +60,17 @@ class ReleaseMetadataTests(unittest.TestCase):
     def test_build_help_documents_traversal_contract(self) -> None:
         command = Path(sys.executable).with_name("site2md")
 
+        # Rich draws ASCII borders on non-UTF-8 output, such as cp1252 pipes on Windows.
         result = subprocess.run(
             [str(command), "build", "--help"],
             check=False,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         )
 
-        help_text = " ".join(re.sub(r"[│╭╮╰╯─]+", " ", result.stdout).split())
+        # Strip the whole box-drawing block: Rich's corners differ by platform (╭ or ┌).
+        help_text = " ".join(re.sub(r"[─-╿]+", " ", result.stdout).split())
         self.assertEqual(result.returncode, 0, result.stderr)
         for expected in (
             "Page mode is the default",
