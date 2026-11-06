@@ -227,6 +227,11 @@ class ShortestGapTests(unittest.TestCase):
         log = [(0.0, "/"), (1.0, "/a"), (1.02, "/")]
         self.assertAlmostEqual(shortest_gap(log) or 0.0, 0.02)
 
+    def test_requests_logged_out_of_time_order_are_paired_by_time(self) -> None:
+        # Concurrent handler threads can append a later request before an earlier one.
+        log = [(0.0, "/"), (5.0, "/b"), (4.0, "/a"), (6.5, "/c")]
+        self.assertEqual(shortest_gap(log), 1.0)
+
     def test_there_is_no_gap_with_fewer_than_two_child_requests(self) -> None:
         self.assertIsNone(shortest_gap([]))
         self.assertIsNone(shortest_gap([(0.0, "/robots.txt"), (0.1, "/")]))

@@ -23,7 +23,8 @@ class FixtureServer:
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:
-                requests.append((time.monotonic(), self.path))
+                # perf_counter: time.monotonic() ticks every 15.6 ms on Windows under Python 3.10 to 3.12.
+                requests.append((time.perf_counter(), self.path))
                 content_type = "text/html; charset=utf-8"
                 body = pages.get(self.path)
                 if body is None and self.path == "/robots.txt":

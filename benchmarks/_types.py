@@ -13,7 +13,7 @@ SourceKind = Literal["python", "json", "toml"]
 ChartMeasure = Literal["time", "size"]
 ChartTheme = Literal["light", "dark"]
 PythonFormatter = Callable[[str], str]
-# What the fixture server records: the time (monotonic seconds) and path of each request, in order.
+# What the fixture server records: the time (perf_counter seconds) and path of each request, in the order logged.
 RequestLog = Sequence[tuple[float, str]]
 
 

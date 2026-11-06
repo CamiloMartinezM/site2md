@@ -103,5 +103,6 @@ def shortest_gap(requests: RequestLog) -> float | None:
 
     The first page request is the entry page, so the children are the page requests after it.
     """
-    children = [moment for moment, _ in _page_requests(requests)[1:]]
+    # Handler threads can log a later request first, so the times are sorted before they are paired.
+    children = sorted(moment for moment, _ in _page_requests(requests)[1:])
     return min((later - earlier for earlier, later in itertools.pairwise(children)), default=None)

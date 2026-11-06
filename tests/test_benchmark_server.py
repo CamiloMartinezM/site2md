@@ -46,6 +46,14 @@ class FixtureServerTests(unittest.TestCase):
         times = [time for time, _ in server.requests]
         self.assertEqual(times, sorted(times))
 
+    def test_requests_in_quick_succession_get_different_times(self) -> None:
+        # time.monotonic() ticks every 15.6 ms on Windows under Python 3.12, so quick requests would share a time.
+        with FixtureServer({"/a": b"a"}) as server:
+            for _ in range(30):
+                _get(server.origin + "/a")
+        times = [time for time, _ in server.requests]
+        self.assertEqual(len(set(times)), 30)
+
     def test_servers_running_at_the_same_time_use_different_ports(self) -> None:
         with FixtureServer({}) as first, FixtureServer({}) as second:
             self.assertNotEqual(first.origin, second.origin)
