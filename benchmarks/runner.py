@@ -71,28 +71,15 @@ def _read_output(work: Path, solution: Solution) -> str:
     return output.read_text(encoding="utf-8")
 
 
-def _run_crawl(
-    tool: Tool, environment: Environment, page: Path, reference: JsonValue, format_python: PythonFormatter
-) -> tuple[CrawlResult, str | None]:
-    """Run the crawl task once, untimed, and check its output and the server's request log."""
-    solution = tool.tasks["crawl"]
-    site = build_site(page.read_text(encoding="utf-8"))
-    work = _prepare_work(tool, solution, f"{tool.id}-crawl")
-    with FixtureServer(site.pages) as server:
-        run_shell_command(
-            build_command(solution, server.origin + START_PATH), variables=environment.variables, cwd=work
-        )
-    difference = unordered_difference(_read_output(work, solution), reference)
-    lines = count_solution(tool, "crawl", format_python=format_python)
-    gap = shortest_gap(server.requests)
-    result: CrawlResult = {
-        "matches": difference is None,
-        "extra_pages": extra_pages(server.requests, site.expected),
-        # Microseconds, like the times: finer than the server's clock.
-        "shortest_gap": None if gap is None else round(gap, 6),
-        "lines": {"counted": lines.counted, "local_only": list(lines.local_only)},
-    }
-    return result, difference
+def _crawl_difference(status: int, work: Path, solution: Solution, reference: JsonValue) -> str | None:
+    """Return why a crawl doesn't count as working, or None when its output matches the reference."""
+    if status != 0:
+        return f"the solution exited with status {status}, so it does not count as working"
+    try:
+        output = _read_output(work, solution)
+    except HarnessError as error:
+        return str(error)
+    return unordered_difference(output, reference)
 
 
 def build_command(solution: Solution, url: str) -> str:
@@ -104,6 +91,30 @@ def build_command(solution: Solution, url: str) -> str:
     if solution.output_file is None:
         commands[-1] += f" > {OUTPUT_FILE}"
     return " && ".join(commands)
+
+
+def run_crawl(
+    tool: Tool, environment: Environment, page: Path, reference: JsonValue, format_python: PythonFormatter
+) -> tuple[CrawlResult, str | None]:
+    """Run the crawl task once, untimed, and check its output and the server's request log."""
+    solution = tool.tasks["crawl"]
+    site = build_site(page.read_text(encoding="utf-8"))
+    work = _prepare_work(tool, solution, f"{tool.id}-crawl")
+    with FixtureServer(site.pages) as server:
+        status = run_shell_command(
+            build_command(solution, server.origin + START_PATH), variables=environment.variables, cwd=work
+        )
+    difference = _crawl_difference(status, work, solution, reference)
+    lines = count_solution(tool, "crawl", format_python=format_python)
+    gap = shortest_gap(server.requests)
+    result: CrawlResult = {
+        "matches": difference is None,
+        "extra_pages": extra_pages(server.requests, site.expected),
+        # Microseconds, like the times: finer than the server's clock.
+        "shortest_gap": None if gap is None else round(gap, 6),
+        "lines": {"counted": lines.counted, "local_only": list(lines.local_only)},
+    }
+    return result, difference
 
 
 def run_tool(tool: Tool) -> tuple[ToolResult, list[str]]:
@@ -153,7 +164,7 @@ def run_tool(tool: Tool) -> tuple[ToolResult, list[str]]:
     differences = [] if page_difference is None else [f"page task: {page_difference}"]
     if "crawl" in tool.tasks:
         print("Running the crawl task once. It isn't timed, and it waits as long as the tool's own delays.")
-        result["crawl"], crawl_difference = _run_crawl(tool, environment, page, reference, format_python)
+        result["crawl"], crawl_difference = run_crawl(tool, environment, page, reference, format_python)
         if crawl_difference is not None:
             differences.append(f"crawl task: {crawl_difference}")
     return result, differences

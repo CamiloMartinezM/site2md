@@ -13,59 +13,13 @@ from benchmarks.crawl import (
     shortest_gap,
 )
 from benchmarks.errors import HarnessError
+from tests.benchmark_test_support import make_page
 
-COUNTRY_COUNT = 43
 EXPECTED_PAGES = 20
 DECOY_PAGES = 5
 BLOCK = re.compile(r'<div class="col-md-4 country">.*?</div><!--\.col-->', re.DOTALL)
 NAME = re.compile(r'<h3 class="country-name">.*?</i>\s*(.*?)\s*</h3>', re.DOTALL)
 ANCHOR = re.compile(r'<a\s[^>]*href="([^"]*)"')
-
-
-def _block(number: int) -> str:
-    """Write one country block as the page copy does."""
-    return f"""
-                    <div class="col-md-4 country">
-                        <h3 class="country-name">
-                            <i class="flag-icon flag-icon-xx"></i>
-                            Country {number}
-                        </h3>
-                        <div class="country-info">
-                            <strong>Capital:</strong> <span class="country-capital">Capital {number}</span><br>
-                            <strong>Population:</strong> <span class="country-population">{number}00</span><br>
-                            <strong>Area (km<sup>2</sup>):</strong> <span class="country-area">{number}.5</span><br>
-                        </div>
-                    </div><!--.col-->
-"""
-
-
-def _page(count: int = COUNTRY_COUNT) -> str:
-    """Write a page copy with a menu, an attribution link and `count` countries."""
-    return f"""<!doctype html>
-<html><head><title>Countries</title><link href="/static/css/styles.css" rel="stylesheet"></head>
-<body>
-<nav id="site-nav"><ul>
-<li><a href="/" class="nav-link hidden-sm">
-    <img src="/static/images/icon.png"> Scrape This Site
-</a></li>
-<li><a href="/pages/" class="nav-link">Sandbox</a></li>
-<li><a href="/faq/">FAQ</a></li>
-</ul></nav>
-<div id="page">
-<section id="countries">
-<div class="container">
-<h1>Countries <small>{count} items</small></h1>
-<p>There are <a href="/lessons/">4 video lessons</a>. Data via
-<a href="http://peric.github.io/GetCountries/" class="data-attribution">peric</a></p>
-<div class="row">
-{"".join(_block(number) for number in range(1, count + 1))}
-</div>
-</div>
-</section>
-</div>
-<footer>Footer</footer>
-</body></html>
-"""
 
 
 def _html(site: CrawlSite, path: str) -> str:
@@ -89,7 +43,7 @@ class BuildSiteTests(unittest.TestCase):
     """Check the layout, the countries and the links of the generated site."""
 
     def setUp(self) -> None:
-        self.page = _page()
+        self.page = make_page()
         self.site = build_site(self.page)
 
     def test_the_site_has_twenty_expected_pages_and_five_decoy_pages(self) -> None:
