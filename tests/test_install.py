@@ -46,6 +46,7 @@ class InstallerTests(unittest.TestCase):
                 check=False,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 env=environment,
                 timeout=30,
             )

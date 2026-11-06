@@ -394,10 +394,12 @@ Evidence.
                 ),
             )
 
-        observer.extract = extract_with_warning  # type: ignore[method-assign]
-        with patch(
-            "site2md.extractors.countries.create_extractor",
-            return_value=observer,
+        with (
+            patch.object(observer, "extract", extract_with_warning),
+            patch(
+                "site2md.extractors.countries.create_extractor",
+                return_value=observer,
+            ),
         ):
             result = extract(markdown, "site2md.scrapethissite.countries")
 
@@ -539,11 +541,11 @@ Evidence.
 
         with self.assertRaises(TypeError):
             result.payload["format_version"] = 2  # type: ignore[index]
-        record = result.payload["records"][0]  # type: ignore[index]
+        record = result.payload["records"][0]
         with self.assertRaises(TypeError):
-            record["value"]["name"] = "changed"  # type: ignore[index]
+            record["value"]["name"] = "changed"
         with self.assertRaises(AttributeError):
-            result.payload["records"].append(record)  # type: ignore[union-attr]
+            result.payload["records"].append(record)
 
     def test_shared_result_schema_validates_the_fixed_envelope(self) -> None:
         markdown = "# One country\n\n### Åland\n\n**Capital:** Mariehamn  \n**Population:** 1  \n**Area (km2):** 2\n"

@@ -11,6 +11,14 @@ JsonScalar = None | bool | int | float | str
 JsonValue = JsonScalar | Sequence["JsonValue"] | Mapping[str, "JsonValue"]
 
 
+class Extractor(Protocol):
+    """Interpret one complete converted document."""
+
+    def extract(self, document: ConvertedDocument) -> Extraction:
+        """Return record candidates from the complete document."""
+        ...
+
+
 @dataclass(frozen=True)
 class SourceSpan:
     """Locate content within one source section of a converted document."""
@@ -142,14 +150,6 @@ class Extraction:
         """Freeze ordered provider output collections."""
         object.__setattr__(self, "records", tuple(self.records))
         object.__setattr__(self, "diagnostics", tuple(self.diagnostics))
-
-
-class Extractor(Protocol):
-    """Interpret one complete converted document."""
-
-    def extract(self, document: ConvertedDocument) -> Extraction:
-        """Return record candidates from the complete document."""
-        ...
 
 
 def _immutable_mapping(values: Mapping[str, JsonValue]) -> Mapping[str, JsonValue]:

@@ -15,8 +15,8 @@ import cyclopts
 from rich.console import Console
 from rich.progress import Progress
 
+from site2md._types import RemoteMode
 from site2md.converter import convert_html_to_markdown
-from site2md.downloader import RemoteMode
 from site2md.extraction import ExtractionError, list_extractors
 from site2md.extraction import extract as extract_markdown
 from site2md.finder import find_html_files
@@ -25,59 +25,6 @@ from site2md.remote_build import RemoteBuildError, RemoteBuildRequest, build_rem
 
 app = cyclopts.App(name="site2md")
 console = Console()
-
-
-@app.command(name="extract")
-def extract(
-    extractor_id: str,
-    input_source: Annotated[
-        str, cyclopts.Parameter(allow_leading_hyphen=True)
-    ],
-    *,
-    output: Path | None = None,
-) -> None:
-    """Extract structured records from a Markdown file or standard input."""
-    if output is not None and not output.parent.is_dir():
-        _extract_failure(f"output folder does not exist: {output.parent}")
-    try:
-        if input_source == "-":
-            input_bytes = sys.stdin.buffer.read()
-        else:
-            input_bytes = Path(input_source).read_bytes()
-    except OSError as error:
-        _extract_failure(f"could not read Markdown input: {error}")
-    try:
-        markdown = input_bytes.decode("utf-8")
-    except UnicodeDecodeError:
-        _extract_failure("Markdown input is not valid UTF-8")
-    try:
-        with _discard_provider_output():
-            result = extract_markdown(markdown, extractor_id)
-    except ExtractionError as error:
-        for diagnostic in error.diagnostics:
-            print(
-                f"{diagnostic.severity}: {diagnostic.code}: {diagnostic.message}",
-                file=sys.stderr,
-            )
-        raise SystemExit(1) from None
-    except Exception as error:
-        _extract_failure(f"extraction failed: {error}")
-    try:
-        serialized = result.to_json().encode("utf-8")
-    except Exception as error:
-        _extract_failure(f"could not serialize extraction result: {error}")
-    try:
-        if output is None:
-            _write_standard_output(serialized)
-        else:
-            _write_atomic(output, serialized)
-    except OSError as error:
-        _extract_failure(f"could not write extraction result: {error}")
-    for diagnostic in result.payload["diagnostics"]:
-        print(
-            f"warning: {diagnostic['code']}: {diagnostic['message']}",
-            file=sys.stderr,
-        )
 
 
 def _extract_failure(message: str) -> NoReturn:
@@ -158,6 +105,59 @@ def _write_atomic(destination: Path, contents: bytes) -> None:
                 temporary_path.unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+@app.command(name="extract")
+def extract(
+    extractor_id: str,
+    input_source: Annotated[
+        str, cyclopts.Parameter(allow_leading_hyphen=True)
+    ],
+    *,
+    output: Path | None = None,
+) -> None:
+    """Extract structured records from a Markdown file or standard input."""
+    if output is not None and not output.parent.is_dir():
+        _extract_failure(f"output folder does not exist: {output.parent}")
+    try:
+        if input_source == "-":
+            input_bytes = sys.stdin.buffer.read()
+        else:
+            input_bytes = Path(input_source).read_bytes()
+    except OSError as error:
+        _extract_failure(f"could not read Markdown input: {error}")
+    try:
+        markdown = input_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        _extract_failure("Markdown input is not valid UTF-8")
+    try:
+        with _discard_provider_output():
+            result = extract_markdown(markdown, extractor_id)
+    except ExtractionError as error:
+        for diagnostic in error.diagnostics:
+            print(
+                f"{diagnostic.severity}: {diagnostic.code}: {diagnostic.message}",
+                file=sys.stderr,
+            )
+        raise SystemExit(1) from None
+    except Exception as error:
+        _extract_failure(f"extraction failed: {error}")
+    try:
+        serialized = result.to_json().encode("utf-8")
+    except Exception as error:
+        _extract_failure(f"could not serialize extraction result: {error}")
+    try:
+        if output is None:
+            _write_standard_output(serialized)
+        else:
+            _write_atomic(output, serialized)
+    except OSError as error:
+        _extract_failure(f"could not write extraction result: {error}")
+    for diagnostic in result.payload["diagnostics"]:
+        print(
+            f"warning: {diagnostic['code']}: {diagnostic['message']}",
+            file=sys.stderr,
+        )
 
 
 def main() -> int:

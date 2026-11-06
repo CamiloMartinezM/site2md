@@ -10,10 +10,10 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from html.entities import html5
-from importlib.metadata import Distribution, EntryPoint, distributions
+from importlib.metadata import Distribution, EntryPoint, PackagePath, distributions
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal, Protocol, cast
+from typing import Any, Literal, cast
 from urllib.parse import unquote, urlsplit
 
 import marko
@@ -23,6 +23,7 @@ from jsonschema import (  # type: ignore[import-untyped]
 )
 from packaging.version import InvalidVersion, Version
 
+from site2md._types import PositionedMarkoNode
 from site2md.extractors.v1 import (
     ConvertedDocument,
     Diagnostic,
@@ -102,10 +103,6 @@ NODE_KINDS = {
 }
 
 
-class _PositionedMarkoNode(Protocol):
-    """Internal typing view of Marko's source-mapped nodes."""
-
-    source_span: tuple[int, int]
 
 
 class ExtractionError(Exception):
@@ -173,108 +170,6 @@ class ExtractionResult:
         ) + "\n"
 
 
-def list_extractors() -> tuple[ExtractorInfo, ...]:
-    """Return deterministic static information about installed Extractors."""
-    return tuple(item.info for item in _discover_extractors())
-
-
-def extract(markdown: str, extractor_id: str) -> ExtractionResult:
-    """Extract validated records from Markdown using one exact Extractor ID."""
-    selected = _selected_extractor(extractor_id)
-    provider = selected.provider
-    declaration = selected.declaration
-    entry_point = selected.entry_point
-    if declaration is None or entry_point is None:
-        raise AssertionError("Available Extractor lacks static discovery metadata")
-    schema = declaration["record_schema"]["schema"]
-
-    try:
-        factory = entry_point.load()
-    except Exception as cause:
-        raise ExtractionError(
-            "site2md.extractor_import_failed",
-            f"Could not import Extractor {extractor_id}: {cause}",
-        ) from cause
-    if not callable(factory):
-        interface_cause = TypeError("Extractor entry point is not a callable factory")
-        raise ExtractionError(
-            "site2md.extractor_interface_invalid",
-            f"Extractor {extractor_id} does not expose a callable factory",
-        ) from interface_cause
-    try:
-        extractor: Extractor = factory()
-    except Exception as cause:
-        raise ExtractionError(
-            "site2md.extractor_factory_failed",
-            f"Extractor factory {extractor_id} failed: {cause}",
-        ) from cause
-    if not callable(getattr(extractor, "extract", None)):
-        interface_cause = TypeError(
-            "Extractor factory result has no callable extract method"
-        )
-        raise ExtractionError(
-            "site2md.extractor_interface_invalid",
-            f"Extractor factory {extractor_id} returned an incompatible object",
-        ) from interface_cause
-    document = _converted_document(markdown)
-    try:
-        provider_result = extractor.extract(document)
-    except Exception as cause:
-        raise ExtractionError(
-            "site2md.extractor_execution_failed",
-            f"Extractor {extractor_id} failed: {cause}",
-        ) from cause
-    if not isinstance(provider_result, Extraction):
-        raise ExtractionError(
-            "site2md.extractor_output_invalid",
-            f"Extractor {extractor_id} returned an invalid extraction object",
-        )
-    diagnostics = _validated_diagnostics(
-        provider_result.diagnostics,
-        extractor_id,
-        document,
-    )
-    if any(diagnostic.severity == "error" for diagnostic in diagnostics):
-        raise ExtractionError(
-            "site2md.extractor_reported_error",
-            f"Extractor {extractor_id} reported an error",
-            diagnostics=diagnostics,
-        )
-    records, values = _validated_records(provider_result.records, document)
-    validation_errors = sorted(
-        Draft202012Validator(schema).iter_errors(values),
-        key=lambda error: (
-            tuple(str(part) for part in error.absolute_path),
-            tuple(str(part) for part in error.absolute_schema_path),
-            error.message,
-        ),
-    )
-    if validation_errors:
-        schema_diagnostics = tuple(
-            Diagnostic(
-                severity="error",
-                code="site2md.record_schema_validation_failed",
-                message=_schema_validation_message(error),
-            )
-            for error in validation_errors
-        )
-        raise ExtractionError(
-            "site2md.record_schema_validation_failed",
-            f"Extractor {extractor_id} returned records that do not match its schema",
-            diagnostics=schema_diagnostics,
-        )
-
-    payload = _result_payload(
-        markdown=markdown,
-        document=document,
-        records=records,
-        diagnostics=diagnostics,
-        provider=provider,
-        declaration=declaration,
-    )
-    return ExtractionResult(payload=payload)
-
-
 def _selected_extractor(extractor_id: str) -> _DiscoveredExtractor:
     """Resolve one exact, statically valid, unambiguous Extractor."""
     if EXTRACTOR_ID.fullmatch(extractor_id) is None:
@@ -282,17 +177,21 @@ def _selected_extractor(extractor_id: str) -> _DiscoveredExtractor:
             "site2md.extractor_unknown",
             f"Unknown Extractor ID: {extractor_id}",
         )
-    matches = [item for item in _discover_extractors() if item.info.id == extractor_id]
-    if not matches:
+    claimants = [
+        extractor
+        for extractor in _discover_extractors()
+        if extractor.info.id == extractor_id
+    ]
+    if not claimants:
         raise ExtractionError(
             "site2md.extractor_unknown",
             f"Unknown Extractor ID: {extractor_id}",
         )
-    selected = matches[0]
+    selected = claimants[0]
     if selected.info.status == "conflict":
         providers = tuple(
-            f"{item.info.provider_distribution} {item.info.provider_version}"
-            for item in matches
+            f"{extractor.info.provider_distribution} {extractor.info.provider_version}"
+            for extractor in claimants
         )
         provider_list = ", ".join(providers)
         raise ExtractionError(
@@ -343,8 +242,8 @@ def _discover_extractors() -> tuple[_DiscoveredExtractor, ...]:
         )
 
     by_id: dict[str, list[int]] = {}
-    for index, item in enumerate(discovered):
-        by_id.setdefault(item.info.id, []).append(index)
+    for index, extractor in enumerate(discovered):
+        by_id.setdefault(extractor.info.id, []).append(index)
     for indexes in by_id.values():
         if len(indexes) < 2:
             continue
@@ -358,10 +257,10 @@ def _discover_extractors() -> tuple[_DiscoveredExtractor, ...]:
         )
         detail = f"claimed by multiple providers: {', '.join(providers)}"
         for index in indexes:
-            item = discovered[index]
+            extractor = discovered[index]
             discovered[index] = replace(
-                item,
-                info=replace(item.info, status="conflict", detail=detail),
+                extractor,
+                info=replace(extractor.info, status="conflict", detail=detail),
                 failure_code="site2md.extractor_conflict",
             )
     return tuple(sorted(discovered, key=_discovery_sort_key))
@@ -370,7 +269,7 @@ def _discover_extractors() -> tuple[_DiscoveredExtractor, ...]:
 def _inspect_provider(
     provider: Distribution,
     entry_points: tuple[EntryPoint, ...],
-    manifest_files: tuple[object, ...],
+    manifest_files: tuple[PackagePath, ...],
     metadata_errors: list[str],
 ) -> list[_DiscoveredExtractor]:
     """Validate one provider's static manifest against its entry points."""
@@ -397,7 +296,7 @@ def _inspect_provider(
         errors.append(f"provider must contain exactly one {MANIFEST_NAME}")
     else:
         try:
-            manifest_path = provider.locate_file(manifest_files[0])  # type: ignore[arg-type]
+            manifest_path = provider.locate_file(manifest_files[0])
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError) as cause:
             errors.append(f"provider manifest could not be read: {cause}")
@@ -437,9 +336,9 @@ def _inspect_provider(
         ids = ["<unknown>"]
     results: list[_DiscoveredExtractor] = []
     for extractor_id in ids:
-        item_errors = list(errors)
+        extractor_errors = list(errors)
         if EXTRACTOR_ID.fullmatch(extractor_id) is None:
-            item_errors.append(
+            extractor_errors.append(
                 "Extractor ID must be lowercase and provider-qualified"
             )
         matching_declarations = [
@@ -461,17 +360,19 @@ def _inspect_provider(
         failure_code = "site2md.extractor_unavailable"
         if declaration is not None:
             declaration_errors, unsupported = _declaration_errors(declaration)
-            item_errors.extend(declaration_errors)
+            extractor_errors.extend(declaration_errors)
             if unsupported and len(declaration_errors) == 1 and not errors:
                 failure_code = "site2md.extractor_unsupported"
         if entry_point is None:
-            item_errors.append("Extractor must have exactly one matching entry point")
+            extractor_errors.append(
+                "Extractor must have exactly one matching entry point"
+            )
 
         implementation_version, schema_id, schema_version, schema = (
             _declaration_information(declaration)
         )
         status: Literal["available", "unavailable"] = (
-            "unavailable" if item_errors else "available"
+            "unavailable" if extractor_errors else "available"
         )
         info = ExtractorInfo(
             id=extractor_id,
@@ -482,7 +383,7 @@ def _inspect_provider(
             record_schema_id=schema_id,
             record_schema_version=schema_version,
             record_schema=schema,
-            detail="; ".join(dict.fromkeys(item_errors)),
+            detail="; ".join(dict.fromkeys(extractor_errors)),
         )
         results.append(
             _DiscoveredExtractor(
@@ -490,7 +391,7 @@ def _inspect_provider(
                 provider=provider,
                 entry_point=entry_point,
                 declaration=declaration,
-                failure_code=failure_code if item_errors else None,
+                failure_code=failure_code if extractor_errors else None,
             )
         )
     return results
@@ -676,12 +577,12 @@ def _declaration_information(
     )
 
 
-def _discovery_sort_key(item: _DiscoveredExtractor) -> tuple[str, str, str]:
+def _discovery_sort_key(extractor: _DiscoveredExtractor) -> tuple[str, str, str]:
     """Return the stable ordering key for public Extractor information."""
     return (
-        item.info.id,
-        item.info.provider_distribution.casefold(),
-        item.info.provider_version,
+        extractor.info.id,
+        extractor.info.provider_distribution.casefold(),
+        extractor.info.provider_version,
     )
 
 
@@ -745,7 +646,7 @@ def _source_marker(
     """Return a standalone source marker's attributed source, if present."""
     if type(marko_node).__name__ != "HTMLBlock":
         return None
-    start, end = cast(_PositionedMarkoNode, marko_node).source_span
+    start, end = cast(PositionedMarkoNode, marko_node).source_span
     match = SOURCE_MARKER.fullmatch(
         markdown[original_offsets[start] : original_offsets[end]]
     )
@@ -814,7 +715,7 @@ def _owned_node(
         alignment = getattr(marko_node, "align", None)
         if isinstance(alignment, str):
             attributes["alignment"] = alignment
-    start, end = cast(_PositionedMarkoNode, marko_node).source_span
+    start, end = cast(PositionedMarkoNode, marko_node).source_span
     return Node(
         kind=kind,
         text=text,
@@ -1193,3 +1094,105 @@ def _span_payload(
         "start_line": span.start_line,
         "end_line": span.end_line,
     }
+
+
+def list_extractors() -> tuple[ExtractorInfo, ...]:
+    """Return deterministic static information about installed Extractors."""
+    return tuple(extractor.info for extractor in _discover_extractors())
+
+
+def extract(markdown: str, extractor_id: str) -> ExtractionResult:
+    """Extract validated records from Markdown using one exact Extractor ID."""
+    selected = _selected_extractor(extractor_id)
+    provider = selected.provider
+    declaration = selected.declaration
+    entry_point = selected.entry_point
+    if declaration is None or entry_point is None:
+        raise AssertionError("Available Extractor lacks static discovery metadata")
+    schema = declaration["record_schema"]["schema"]
+
+    try:
+        factory = entry_point.load()
+    except Exception as cause:
+        raise ExtractionError(
+            "site2md.extractor_import_failed",
+            f"Could not import Extractor {extractor_id}: {cause}",
+        ) from cause
+    if not callable(factory):
+        interface_cause = TypeError("Extractor entry point is not a callable factory")
+        raise ExtractionError(
+            "site2md.extractor_interface_invalid",
+            f"Extractor {extractor_id} does not expose a callable factory",
+        ) from interface_cause
+    try:
+        extractor: Extractor = factory()
+    except Exception as cause:
+        raise ExtractionError(
+            "site2md.extractor_factory_failed",
+            f"Extractor factory {extractor_id} failed: {cause}",
+        ) from cause
+    if not callable(getattr(extractor, "extract", None)):
+        interface_cause = TypeError(
+            "Extractor factory result has no callable extract method"
+        )
+        raise ExtractionError(
+            "site2md.extractor_interface_invalid",
+            f"Extractor factory {extractor_id} returned an incompatible object",
+        ) from interface_cause
+    document = _converted_document(markdown)
+    try:
+        provider_result = extractor.extract(document)
+    except Exception as cause:
+        raise ExtractionError(
+            "site2md.extractor_execution_failed",
+            f"Extractor {extractor_id} failed: {cause}",
+        ) from cause
+    if not isinstance(provider_result, Extraction):
+        raise ExtractionError(
+            "site2md.extractor_output_invalid",
+            f"Extractor {extractor_id} returned an invalid extraction object",
+        )
+    diagnostics = _validated_diagnostics(
+        provider_result.diagnostics,
+        extractor_id,
+        document,
+    )
+    if any(diagnostic.severity == "error" for diagnostic in diagnostics):
+        raise ExtractionError(
+            "site2md.extractor_reported_error",
+            f"Extractor {extractor_id} reported an error",
+            diagnostics=diagnostics,
+        )
+    records, values = _validated_records(provider_result.records, document)
+    validation_errors = sorted(
+        Draft202012Validator(schema).iter_errors(values),
+        key=lambda error: (
+            tuple(str(part) for part in error.absolute_path),
+            tuple(str(part) for part in error.absolute_schema_path),
+            error.message,
+        ),
+    )
+    if validation_errors:
+        schema_diagnostics = tuple(
+            Diagnostic(
+                severity="error",
+                code="site2md.record_schema_validation_failed",
+                message=_schema_validation_message(error),
+            )
+            for error in validation_errors
+        )
+        raise ExtractionError(
+            "site2md.record_schema_validation_failed",
+            f"Extractor {extractor_id} returned records that do not match its schema",
+            diagnostics=schema_diagnostics,
+        )
+
+    payload = _result_payload(
+        markdown=markdown,
+        document=document,
+        records=records,
+        diagnostics=diagnostics,
+        provider=provider,
+        declaration=declaration,
+    )
+    return ExtractionResult(payload=payload)

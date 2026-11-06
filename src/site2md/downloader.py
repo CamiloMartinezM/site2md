@@ -16,7 +16,8 @@ from http.client import HTTPMessage
 from pathlib import Path
 from typing import IO, Literal
 
-RemoteMode = Literal["page", "follow", "site"]
+from site2md._types import RemoteMode
+
 DEFAULT_MAX_PAGE_SIZE_MIB = 25
 REQUEST_TIMEOUT_SECONDS = 30
 USER_AGENT = "site2md/0.4.3"
@@ -172,35 +173,6 @@ class RemotePage:
     body_bytes: int
 
 
-def fetch_remote(
-    url: str,
-    mode: RemoteMode = "page",
-    *,
-    max_page_size_mib: int = DEFAULT_MAX_PAGE_SIZE_MIB,
-    max_body_bytes: int | None = None,
-    content_path: Path | None = None,
-    request_policy: TraversalRequestPolicy | None = None,
-) -> RemotePage:
-    """Fetch remote content using the selected implemented mode."""
-    owns_workspace = content_path is None
-    if content_path is None:
-        content_path = Path(tempfile.mkdtemp(prefix="site2md_page_")) / "page.html"
-    try:
-        if mode in {"page", "follow", "site"}:
-            return _fetch_page(
-                url,
-                max_page_size_mib=max_page_size_mib,
-                max_body_bytes=max_body_bytes,
-                content_path=content_path,
-                request_policy=request_policy,
-            )
-        raise ValueError(f"Unsupported remote mode: {mode}")
-    except BaseException:
-        if owns_workspace:
-            shutil.rmtree(content_path.parent, ignore_errors=True)
-        raise
-
-
 class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
     """Account and authorize each redirect before making its next request."""
 
@@ -258,46 +230,6 @@ class _RobotsRedirectHandler(_SafeRedirectHandler):
                 reached_limit="aggregate",
             )
         return redirected
-
-
-def fetch_robots_policy(
-    entry_url: str,
-) -> tuple[urllib.robotparser.RobotFileParser | None, str | None]:
-    """Fetch one robots policy within a shared redirect-chain body budget."""
-    parsed = urllib.parse.urlsplit(entry_url)
-    robots_url = urllib.parse.urlunsplit(
-        (parsed.scheme, parsed.netloc, "/robots.txt", "", "")
-    )
-    accounting = _ResponseAccounting(ROBOTS_MAX_BYTES, ROBOTS_MAX_BYTES)
-    opener = urllib.request.build_opener(_RobotsRedirectHandler(accounting))
-    request = urllib.request.Request(robots_url, headers={"User-Agent": USER_AGENT})
-    try:
-        with opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-            body_buffer = io.BytesIO()
-            accounting.read(response, response.headers, body_buffer)
-            body = body_buffer.getvalue()
-    except RemoteFetchError as error:
-        if error.reached_limit is not None:
-            return None, (
-                "Robots policy exceeded the 512 KiB limit; child traversal stopped."
-            )
-        return None, f"Robots policy was unavailable ({error}); child traversal stopped."
-    except urllib.error.HTTPError as error:
-        if 400 <= error.code < 500:
-            body = b""
-        else:
-            return None, (
-                f"Robots policy was unavailable (HTTP {error.code}); "
-                "child traversal stopped."
-            )
-    except Exception as error:
-        return None, (
-            f"Robots policy was unavailable ({error}); child traversal stopped."
-        )
-
-    policy = urllib.robotparser.RobotFileParser(robots_url)
-    policy.parse(body.decode("utf-8", errors="replace").splitlines())
-    return policy, None
 
 
 def _fetch_page(
@@ -363,16 +295,6 @@ def _fetch_page(
         ) from error
 
 
-def url_origin(url: str) -> tuple[str, str, int]:
-    """Return the normalized scheme, host, and effective port for one URL."""
-    parsed = urllib.parse.urlsplit(url)
-    scheme = parsed.scheme.lower()
-    if scheme not in {"http", "https"} or parsed.hostname is None:
-        raise RemoteFetchError(f"Redirect target is not an HTTP(S) URL: {url}.")
-    default_port = 443 if scheme == "https" else 80
-    return scheme, parsed.hostname.lower(), parsed.port or default_port
-
-
 def _request_delay(policy: urllib.robotparser.RobotFileParser) -> float:
     """Return the greatest applicable publisher-aware child request delay."""
     crawl_delay = policy.crawl_delay(USER_AGENT) or policy.crawl_delay("*") or 0
@@ -381,3 +303,82 @@ def _request_delay(policy: urllib.robotparser.RobotFileParser) -> float:
     if request_rate is not None and request_rate.requests > 0:
         rate_delay = request_rate.seconds / request_rate.requests
     return max(1.0, float(crawl_delay), rate_delay)
+
+
+def fetch_remote(
+    url: str,
+    mode: RemoteMode = "page",
+    *,
+    max_page_size_mib: int = DEFAULT_MAX_PAGE_SIZE_MIB,
+    max_body_bytes: int | None = None,
+    content_path: Path | None = None,
+    request_policy: TraversalRequestPolicy | None = None,
+) -> RemotePage:
+    """Fetch remote content using the selected implemented mode."""
+    owns_workspace = content_path is None
+    if content_path is None:
+        content_path = Path(tempfile.mkdtemp(prefix="site2md_page_")) / "page.html"
+    try:
+        if mode in {"page", "follow", "site"}:
+            return _fetch_page(
+                url,
+                max_page_size_mib=max_page_size_mib,
+                max_body_bytes=max_body_bytes,
+                content_path=content_path,
+                request_policy=request_policy,
+            )
+        raise ValueError(f"Unsupported remote mode: {mode}")
+    except BaseException:
+        if owns_workspace:
+            shutil.rmtree(content_path.parent, ignore_errors=True)
+        raise
+
+
+def fetch_robots_policy(
+    entry_url: str,
+) -> tuple[urllib.robotparser.RobotFileParser | None, str | None]:
+    """Fetch one robots policy within a shared redirect-chain body budget."""
+    parsed = urllib.parse.urlsplit(entry_url)
+    robots_url = urllib.parse.urlunsplit(
+        (parsed.scheme, parsed.netloc, "/robots.txt", "", "")
+    )
+    accounting = _ResponseAccounting(ROBOTS_MAX_BYTES, ROBOTS_MAX_BYTES)
+    opener = urllib.request.build_opener(_RobotsRedirectHandler(accounting))
+    request = urllib.request.Request(robots_url, headers={"User-Agent": USER_AGENT})
+    try:
+        with opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+            body_buffer = io.BytesIO()
+            accounting.read(response, response.headers, body_buffer)
+            body = body_buffer.getvalue()
+    except RemoteFetchError as error:
+        if error.reached_limit is not None:
+            return None, (
+                "Robots policy exceeded the 512 KiB limit; child traversal stopped."
+            )
+        return None, f"Robots policy was unavailable ({error}); child traversal stopped."
+    except urllib.error.HTTPError as error:
+        if 400 <= error.code < 500:
+            body = b""
+        else:
+            return None, (
+                f"Robots policy was unavailable (HTTP {error.code}); "
+                "child traversal stopped."
+            )
+    except Exception as error:
+        return None, (
+            f"Robots policy was unavailable ({error}); child traversal stopped."
+        )
+
+    policy = urllib.robotparser.RobotFileParser(robots_url)
+    policy.parse(body.decode("utf-8", errors="replace").splitlines())
+    return policy, None
+
+
+def url_origin(url: str) -> tuple[str, str, int]:
+    """Return the normalized scheme, host, and effective port for one URL."""
+    parsed = urllib.parse.urlsplit(url)
+    scheme = parsed.scheme.lower()
+    if scheme not in {"http", "https"} or parsed.hostname is None:
+        raise RemoteFetchError(f"Redirect target is not an HTTP(S) URL: {url}.")
+    default_port = 443 if scheme == "https" else 80
+    return scheme, parsed.hostname.lower(), parsed.port or default_port

@@ -73,11 +73,6 @@ class CountriesExtractor:
         return Extraction(records=tuple(records), diagnostics=tuple(diagnostics))
 
 
-def create_extractor() -> Extractor:
-    """Return a fresh version-one country Extractor."""
-    return CountriesExtractor()
-
-
 def _is_country_start(heading: Node, paragraph: Node) -> bool:
     """Return whether two adjacent nodes begin a country record."""
     if heading.kind != "heading" or heading.attributes.get("level") != 3:
@@ -171,3 +166,8 @@ def _validate_declared_counts(document: ConvertedDocument, record_count: int) ->
                     "Declared country count "
                     f"{declared_count} does not match {record_count} candidates"
                 )
+
+
+def create_extractor() -> Extractor:
+    """Return a fresh version-one country Extractor."""
+    return CountriesExtractor()

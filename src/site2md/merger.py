@@ -1,5 +1,7 @@
 """Module for merging multiple Markdown contents into a single file"""
 
+from __future__ import annotations
+
 from pathlib import Path
 
 

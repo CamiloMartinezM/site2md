@@ -24,6 +24,8 @@ class ReleaseMetadataTests(unittest.TestCase):
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         )
 
         self.assertEqual(version("site2md"), "0.4.3")

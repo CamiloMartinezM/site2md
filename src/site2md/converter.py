@@ -1,5 +1,7 @@
 """Module for converting HTML content to Markdown."""
 
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
@@ -8,30 +10,6 @@ from bs4 import BeautifulSoup
 from markdownify import markdownify as md
 
 from site2md.downloader import RemotePage
-
-
-def convert_html_to_markdown(html_path: Path) -> str:
-    """Convert a local HTML file to a Markdown string."""
-    try:
-        html_content = html_path.read_text(encoding="utf-8")
-        soup = BeautifulSoup(html_content, "html.parser")
-        return _convert_soup_to_markdown(soup, html_path.name)
-    except Exception as error:
-        print(f"Error converting {html_path}: {error}", file=sys.stderr)
-        return f"\n\n<!-- Error converting {html_path.name} -->\n\n"
-
-
-def convert_remote_page_to_markdown(page: RemotePage) -> str:
-    """Convert a remote page while retaining usable remote references."""
-    soup = BeautifulSoup(
-        page.content_path.read_bytes(),
-        "html.parser",
-        from_encoding=page.encoding,
-    )
-    _resolve_remote_references(soup, page.source_url)
-    _clean_soup(soup)
-    content = soup.body or soup
-    return _render_markdown(str(content), page.source_url)
 
 
 def _resolve_remote_references(soup: BeautifulSoup, source_url: str) -> None:
@@ -97,3 +75,27 @@ def _render_markdown(content: str, source: str) -> str:
     """Convert cleaned HTML and prepend its source attribution."""
     markdown = md(content, heading_style="atx")
     return f"\n\n<!-- Source: {source} -->\n\n" + markdown
+
+
+def convert_html_to_markdown(html_path: Path) -> str:
+    """Convert a local HTML file to a Markdown string."""
+    try:
+        html_content = html_path.read_text(encoding="utf-8")
+        soup = BeautifulSoup(html_content, "html.parser")
+        return _convert_soup_to_markdown(soup, html_path.name)
+    except Exception as error:
+        print(f"Error converting {html_path}: {error}", file=sys.stderr)
+        return f"\n\n<!-- Error converting {html_path.name} -->\n\n"
+
+
+def convert_remote_page_to_markdown(page: RemotePage) -> str:
+    """Convert a remote page while retaining usable remote references."""
+    soup = BeautifulSoup(
+        page.content_path.read_bytes(),
+        "html.parser",
+        from_encoding=page.encoding,
+    )
+    _resolve_remote_references(soup, page.source_url)
+    _clean_soup(soup)
+    content = soup.body or soup
+    return _render_markdown(str(content), page.source_url)
