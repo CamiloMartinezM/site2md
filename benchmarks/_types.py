@@ -10,6 +10,8 @@ if TYPE_CHECKING:
 
 JsonValue = None | bool | int | float | str | Sequence["JsonValue"] | Mapping[str, "JsonValue"]
 SourceKind = Literal["python", "json", "toml"]
+ChartMeasure = Literal["time", "size"]
+ChartTheme = Literal["light", "dark"]
 PythonFormatter = Callable[[str], str]
 # What the fixture server records: the time (monotonic seconds) and path of each request, in order.
 RequestLog = Sequence[tuple[float, str]]
