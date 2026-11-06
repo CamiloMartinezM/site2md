@@ -47,8 +47,8 @@ The page copy was downloaded on 2026-11-06. Its SHA-256 is `4c68c2a54000607a0fa5
 | site2md | 0.4.3 | yes | 1.78 s ± 0.22 s | 54 | 11.5 MB | 20 |
 | Scrapling | 0.5.1 | yes | 321 ms ± 8 ms | 12 [^1] | 242.9 MB [^2] | 23 |
 | crawl4ai | 0.9.5 | yes | 1.10 s ± 0.04 s | 24 [^3] [^4] | 554.8 MB [^5] | 96 |
-| MarkItDown | 0.1.9 | yes | 742 ms ± 23 ms | 10 [^6] | 94.8 MB | 19 |
-| pandoc | 3.13 | yes | 244 ms ± 12 ms | 12 [^7] | 239.6 MB [^8] | 0 |
+| MarkItDown | 0.1.9 | yes | 730 ms ± 25 ms | 10 [^6] | 94.8 MB | 19 |
+| pandoc | 3.13 | yes | 252 ms ± 28 ms | 12 [^7] | 239.6 MB [^8] | 0 |
 
 [^1]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
 [^2]: The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded.
