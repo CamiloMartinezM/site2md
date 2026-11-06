@@ -21,7 +21,7 @@ Start from the index of a generated local site, crawl breadth first within depth
 - **Checks.** They come from the server's request log, never from a tool's own report:
   - **Crawl output matches:** whether the output matches the reference in any order, with no repeated and no missing records.
   - **Extra pages:** the pages fetched beyond one fetch of each of the 20 expected pages. A decoy, a second fetch of any page, and a path that the site doesn't have each count. `robots.txt` isn't a page.
-  - **Shortest gap:** the shortest time between two consecutive child-page requests. The entry page isn't a child, so the gap between it and the first child doesn't count. The server stamps a request when it arrives, so a client that waits exactly one second between request starts can show a gap a few tens of milliseconds under one second.
+  - **Shortest gap:** the shortest time between two consecutive child-page requests. The entry page isn't a child, so the gap between it and the first child doesn't count. The server stamps each request when it arrives, with a fine clock, so a gap under a tool's delay comes from the tool: one that times its delay with a coarse clock can start a request a little early. The footnote under the table says why for site2md.
 - **Tools without a crawler** show "no crawler" in the crawl columns.
 
 ## Method
@@ -66,7 +66,7 @@ The page copy was downloaded on 2026-11-06. Its SHA-256 is `4c68c2a54000607a0fa5
 | MarkItDown | 0.1.9 | yes | 730 ms ± 25 ms | 10 [^13] | 94.8 MB | 19 | no crawler | no crawler | no crawler | no crawler |
 | pandoc | 3.13 | yes | 252 ms ± 28 ms | 12 [^14] | 239.6 MB [^15] | 0 | no crawler | no crawler | no crawler | no crawler |
 
-[^1]: site2md waits one second from the start of one request to the start of the next, as its traversal policy says. The server stamps each request when it arrives, and arrival times vary by a few tens of milliseconds, so the shortest gap in the log can be slightly under one second.
+[^1]: site2md waits one second from the start of one request to the start of the next, as its traversal policy says. It times that second with `time.monotonic()`, which ticks every 15.6 ms on Windows under Python 3.12, so it can start a child request up to about one tick early, and the shortest gap in the server's log can be slightly under one second.
 [^2]: Not counted: `import sys`. The harness passes the local server's 127.0.0.1 URL on the command line, and this code only reads it. A solution for the live site writes the URL inline.
 [^3]: The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded.
 [^4]: Scrapling's spiders have no depth limit, and the `max_pages` of its Markdown spider limits what it converts, not what it fetches. The spider therefore carries each page's depth in its requests and keeps its own set of the pages it has queued. Without them it fetches the five decoy pages.
