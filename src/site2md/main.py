@@ -355,7 +355,11 @@ def build(
     console.print(
         f"[bold green]Merging[/bold green] {len(markdown_contents)} files into {output}..."
     )
-    merge_markdowns(markdown_contents, output)
+    try:
+        merge_markdowns(markdown_contents, output)
+    except OSError as error:
+        console.print(f"[red]Error writing output:[/red] {error}", soft_wrap=True)
+        sys.exit(1)
     console.print(
         f"[bold white on green]Success![/bold white on green] Markdown created at {output}"
     )
