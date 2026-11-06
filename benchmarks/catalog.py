@@ -9,6 +9,7 @@ from pathlib import Path
 
 from benchmarks._json import expect_list, expect_object, expect_string
 from benchmarks._types import JsonValue, PythonFormatter, SourceKind
+from benchmarks.errors import HarnessError
 from benchmarks.line_count import LineCount, count_lines
 from benchmarks.paths import TOOLS_DIRECTORY
 
@@ -143,22 +144,18 @@ def _footnote(value: JsonValue, where: str) -> Footnote:
 
 
 def _count_file(path: Path, format_python: PythonFormatter) -> LineCount:
-    """Count one file by the rules for its type."""
+    """Count one file by the rules for its type, naming the file when it can't be counted."""
     kind = _SUFFIX_KINDS.get(path.suffix)
     if kind is None:
-        raise ValueError(f"{path.name}: there are no line-counting rules for '{path.suffix}' files")
-    return count_lines(path.read_text(encoding="utf-8"), kind, format_python=format_python)
+        raise HarnessError(f"{path.name}: there are no line-counting rules for '{path.suffix}' files")
+    try:
+        return count_lines(path.read_text(encoding="utf-8"), kind, format_python=format_python)
+    except ValueError as error:
+        raise HarnessError(f"{path.name}: {error}") from error
 
 
-def tool_ids() -> tuple[str, ...]:
-    """Return the ids of the tool folders, in name order."""
-    return tuple(
-        sorted(path.name for path in TOOLS_DIRECTORY.iterdir() if (path / "tool.json").is_file())
-    )
-
-
-def load_tool(directory: Path) -> Tool:
-    """Load and validate one tool folder's `tool.json`."""
+def _read_tool(directory: Path) -> Tool:
+    """Read one tool folder's `tool.json`, raising a ValueError that names what is wrong with it."""
     where = f"{directory.name}/tool.json"
     try:
         loaded = json.loads((directory / "tool.json").read_text(encoding="utf-8"))
@@ -200,6 +197,21 @@ def load_tool(directory: Path) -> Tool:
             for index, raw in enumerate(expect_list(data.get("footnotes", []), f"{where}.footnotes"))
         ),
     )
+
+
+def tool_ids() -> tuple[str, ...]:
+    """Return the ids of the tool folders, in name order."""
+    return tuple(
+        sorted(path.name for path in TOOLS_DIRECTORY.iterdir() if (path / "tool.json").is_file())
+    )
+
+
+def load_tool(directory: Path) -> Tool:
+    """Load and validate one tool folder's `tool.json`, reporting a malformed one as a harness error."""
+    try:
+        return _read_tool(directory)
+    except ValueError as error:
+        raise HarnessError(str(error)) from error
 
 
 def count_solution(tool: Tool, task: str, *, format_python: PythonFormatter) -> LineCount:

@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from benchmarks.catalog import count_solution, load_tool, tool_ids
+from benchmarks.errors import HarnessError
 from benchmarks.line_count import LineCount
 from benchmarks.paths import TOOLS_DIRECTORY
 
@@ -105,10 +106,25 @@ class CountSolutionTests(ToolDirectoryTestCase):
         # 1 command + 2 Python lines
         self.assertEqual(count_solution(tool, "crawl", format_python=_unformatted), LineCount(3, ()))
 
+    def test_a_json_file_that_does_not_parse_is_reported_with_its_name(self) -> None:
+        self.write("extractor/manifest.json", '{"id": ')
+        self.write_definition(page={"steps": [{"run": "example {url}"}], "files": ["extractor/manifest.json"]})
+        with self.assertRaisesRegex(HarnessError, "manifest.json: not valid JSON"):
+            count_solution(load_tool(self.directory), "page", format_python=_unformatted)
+
+    def test_a_python_file_that_the_formatter_rejects_is_reported_with_its_name(self) -> None:
+        def reject(source: str) -> str:
+            raise ValueError("ruff could not format the source: invalid syntax")
+
+        self.write("solution.py", "def (:\n")
+        self.write_definition(page={"steps": [{"run": "python solution.py", "file": "solution.py"}]})
+        with self.assertRaisesRegex(HarnessError, "solution.py: ruff could not format"):
+            count_solution(load_tool(self.directory), "page", format_python=reject)
+
     def test_a_file_type_without_counting_rules_is_rejected(self) -> None:
         self.write("notes.md", "text\n")
         self.write_definition(page={"steps": [{"run": "example {url}"}], "files": ["notes.md"]})
-        with self.assertRaisesRegex(ValueError, "notes.md"):
+        with self.assertRaisesRegex(HarnessError, "notes.md"):
             count_solution(load_tool(self.directory), "page", format_python=_unformatted)
 
 
@@ -135,22 +151,32 @@ class LoadToolTests(ToolDirectoryTestCase):
 
     def test_a_crawl_solution_needs_its_steps_and_files_like_a_page_solution(self) -> None:
         self.write_definition(crawl={"steps": [{"run": "python gone.py", "file": "gone.py"}]})
-        with self.assertRaisesRegex(ValueError, "crawl.*gone.py"):
+        with self.assertRaisesRegex(HarnessError, "crawl.*gone.py"):
+            load_tool(self.directory)
+
+    def test_a_value_of_the_wrong_type_is_named(self) -> None:
+        self.write_definition(requirements="example==1.0")
+        with self.assertRaisesRegex(HarnessError, "example/tool.json.requirements must be a list"):
+            load_tool(self.directory)
+
+    def test_a_definition_that_is_not_json_is_named(self) -> None:
+        self.write("tool.json", "{")
+        with self.assertRaisesRegex(HarnessError, "example/tool.json cannot be read"):
             load_tool(self.directory)
 
     def test_a_missing_key_is_named(self) -> None:
         self.write("tool.json", json.dumps({"name": "Example"}))
-        with self.assertRaisesRegex(ValueError, "version"):
+        with self.assertRaisesRegex(HarnessError, "version"):
             load_tool(self.directory)
 
     def test_an_unknown_key_is_named(self) -> None:
         self.write_definition(requirments=["typo"])
-        with self.assertRaisesRegex(ValueError, "requirments"):
+        with self.assertRaisesRegex(HarnessError, "requirments"):
             load_tool(self.directory)
 
     def test_a_listed_file_that_does_not_exist_is_named(self) -> None:
         self.write_definition(page={"steps": [{"run": "python gone.py", "file": "gone.py"}]})
-        with self.assertRaisesRegex(ValueError, "gone.py"):
+        with self.assertRaisesRegex(HarnessError, "gone.py"):
             load_tool(self.directory)
 
     def test_footnotes_name_the_column_they_explain(self) -> None:
@@ -160,7 +186,7 @@ class LoadToolTests(ToolDirectoryTestCase):
 
     def test_a_footnote_for_an_unknown_column_is_rejected(self) -> None:
         self.write_definition(footnotes=[{"column": "colour", "text": "?"}])
-        with self.assertRaisesRegex(ValueError, "colour"):
+        with self.assertRaisesRegex(HarnessError, "colour"):
             load_tool(self.directory)
 
 
