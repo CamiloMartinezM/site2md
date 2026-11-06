@@ -7,7 +7,6 @@ import json
 import platform
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 from benchmarks._json import expect_list, expect_object
@@ -25,6 +24,7 @@ from benchmarks.environment import (
     install_tool,
     run_command,
     run_shell_command,
+    venv_program,
 )
 from benchmarks.errors import HarnessError
 from benchmarks.files import write_atomically
@@ -184,7 +184,7 @@ def build_reference() -> int:
     print("Page copy: downloaded and pinned.")
     environment, _ = install_tool(load_tool(TOOLS_DIRECTORY / REFERENCE_TOOL))
     work = fresh_directory(CACHE_DIRECTORY / "work" / "reference")
-    site2md = str(environment.scripts / ("site2md.exe" if sys.platform == "win32" else "site2md"))
+    site2md = str(venv_program(environment.venv, "site2md"))
     with FixtureServer({PAGE_PATH: page.read_bytes()}) as server:
         for command in (
             [site2md, "build", server.origin + PAGE_PATH, "--output", "page.md"],

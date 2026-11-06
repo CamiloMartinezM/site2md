@@ -70,7 +70,7 @@ class RunCrawlTests(unittest.TestCase):
             tasks={"crawl": Solution((step,), output_file=output_file)},
         )
         python = Path(sys.executable)
-        environment = Environment(Path(), python, python.parent, "", dict(os.environ))
+        environment = Environment(Path(), python, Path(), "", dict(os.environ))
         result, difference = run_crawl(tool, environment, self.page, [], lambda source: source)
         return result["matches"], result["extra_pages"], difference
 

@@ -29,14 +29,9 @@ class Environment:
 
     directory: Path
     python: Path
-    scripts: Path
+    venv: Path
     python_version: str
     variables: Mapping[str, str]
-
-
-def _scripts_directory(venv: Path) -> Path:
-    """Return the folder of a virtual environment that holds its executables."""
-    return venv / ("Scripts" if sys.platform == "win32" else "bin")
 
 
 def _expand(text: str, values: Mapping[str, str]) -> str:
@@ -45,33 +40,6 @@ def _expand(text: str, values: Mapping[str, str]) -> str:
         return text.format_map(values)
     except KeyError as error:
         raise HarnessError(f"unknown placeholder {error} in '{text}'") from error
-
-
-def child_variables() -> dict[str, str]:
-    """Return the variables for every child process: all writes land in the cache, none leak in."""
-    temporary = CACHE_DIRECTORY / "tmp"
-    temporary.mkdir(parents=True, exist_ok=True)
-    variables = {
-        name: value
-        for name, value in os.environ.items()
-        if name.upper() not in {"PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"}
-    }
-    variables.update(
-        {
-            "UV_CACHE_DIR": str(CACHE_DIRECTORY / "uv"),
-            # `uv tool run`, which formats the solutions, otherwise keeps a lock file in the user's uv folder.
-            "UV_TOOL_DIR": str(CACHE_DIRECTORY / "uv-tools"),
-            # Copies, so the size on disk is the install's own and never shared with the cache.
-            "UV_LINK_MODE": "copy",
-            # A missing interpreter must fail rather than download into uv's own folder.
-            "UV_PYTHON_DOWNLOADS": "never",
-            "PYTHONIOENCODING": "utf-8",
-            "TMP": str(temporary),
-            "TEMP": str(temporary),
-            "TMPDIR": str(temporary),
-        }
-    )
-    return variables
 
 
 def _measure(directory: Path, venv: Path, python: Path, variables: Mapping[str, str]) -> tuple[str, InstallResult]:
@@ -106,6 +74,40 @@ def _measure(directory: Path, venv: Path, python: Path, variables: Mapping[str, 
         if path.is_file() and venv not in path.parents
     )
     return python_version, {"size_bytes": size, "packages": packages}
+
+
+def venv_program(venv: Path, name: str) -> Path:
+    """Return where a virtual environment keeps a console program: `Scripts/<name>.exe` on Windows, `bin/<name>` elsewhere."""
+    if sys.platform == "win32":
+        return venv / "Scripts" / f"{name}.exe"
+    return venv / "bin" / name
+
+
+def child_variables() -> dict[str, str]:
+    """Return the variables for every child process: all writes land in the cache, none leak in."""
+    temporary = CACHE_DIRECTORY / "tmp"
+    temporary.mkdir(parents=True, exist_ok=True)
+    variables = {
+        name: value
+        for name, value in os.environ.items()
+        if name.upper() not in {"PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"}
+    }
+    variables.update(
+        {
+            "UV_CACHE_DIR": str(CACHE_DIRECTORY / "uv"),
+            # `uv tool run`, which formats the solutions, otherwise keeps a lock file in the user's uv folder.
+            "UV_TOOL_DIR": str(CACHE_DIRECTORY / "uv-tools"),
+            # Copies, so the size on disk is the install's own and never shared with the cache.
+            "UV_LINK_MODE": "copy",
+            # A missing interpreter must fail rather than download into uv's own folder.
+            "UV_PYTHON_DOWNLOADS": "never",
+            "PYTHONIOENCODING": "utf-8",
+            "TMP": str(temporary),
+            "TEMP": str(temporary),
+            "TMPDIR": str(temporary),
+        }
+    )
+    return variables
 
 
 def run_command(command: Sequence[str], *, variables: Mapping[str, str], cwd: Path) -> None:
@@ -161,7 +163,7 @@ def install_tool(tool: Tool) -> tuple[Environment, InstallResult]:
     uv = find_program("uv", UV_HINT)
     directory = fresh_directory(CACHE_DIRECTORY / "envs" / tool.id)
     venv = directory / "venv"
-    python = _scripts_directory(venv) / ("python.exe" if sys.platform == "win32" else "python")
+    python = venv_program(venv, "python")
     variables = child_variables()
     run_command([uv, "venv", "--no-config", "--python", PYTHON_VERSION, str(venv)], variables=variables, cwd=directory)
     values = {
@@ -183,7 +185,7 @@ def install_tool(tool: Tool) -> tuple[Environment, InstallResult]:
         run_command([_expand(part, values) for part in command], variables=variables, cwd=directory)
     variables = dict(variables)
     variables["PATH"] = os.pathsep.join(
-        [str(_scripts_directory(venv)), *(str(directory / part) for part in tool.path), variables.get("PATH", "")]
+        [str(python.parent), *(str(directory / part) for part in tool.path), variables.get("PATH", "")]
     )
     variables.update({name: _expand(value, values) for name, value in (tool.env or {}).items()})
-    return Environment(directory, python, _scripts_directory(venv), python_version, variables), install
+    return Environment(directory, python, venv, python_version, variables), install
