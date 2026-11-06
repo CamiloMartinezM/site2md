@@ -56,7 +56,7 @@ The page copy was downloaded on 2026-11-06. Its SHA-256 is `4c68c2a54000607a0fa5
 
 | Tool | Version | Output matches | Time | Lines | Install size | Packages | Crawl output matches | Extra pages | Shortest gap | Crawl lines |
 |---|---|---|---|---|---|---|---|---|---|---|
-| site2md | 0.4.3 | yes | 1.95 s ± 0.24 s | 54 | 11.5 MB | 20 | yes | 0 | 0.965 s [^1] | 54 |
+| site2md | 0.4.3 | yes | 1.75 s ± 0.02 s | 54 | 11.5 MB | 20 | yes | 0 | 0.975 s [^1] | 54 |
 | Scrapling | 0.5.1 | yes | 321 ms ± 8 ms | 12 [^2] | 242.9 MB [^3] | 23 | no crawler | no crawler | no crawler | no crawler |
 | crawl4ai | 0.9.5 | yes | 1.10 s ± 0.04 s | 24 [^4] [^5] | 554.8 MB [^6] | 96 | no crawler | no crawler | no crawler | no crawler |
 | MarkItDown | 0.1.9 | yes | 730 ms ± 25 ms | 10 [^7] | 94.8 MB | 19 | no crawler | no crawler | no crawler | no crawler |
