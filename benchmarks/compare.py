@@ -47,3 +47,25 @@ def first_difference(output_text: str, expected: JsonValue) -> str | None:
     except json.JSONDecodeError as error:
         return f"output is not valid JSON: {error}"
     return _difference(actual, expected, "")
+
+
+def set_difference(output_text: str, expected: JsonValue) -> str | None:
+    """Return what keeps a tool's JSON output from holding the reference records as a set, if anything.
+
+    Crawlers visit pages in different orders, so order and repeats don't matter. Records are compared
+    through their canonical JSON, which keeps number types apart: 468 is not 468.0.
+    """
+    try:
+        actual: JsonValue = json.loads(output_text)
+    except json.JSONDecodeError as error:
+        return f"output is not valid JSON: {error}"
+    if not isinstance(actual, list) or not isinstance(expected, list):
+        return "output is not a JSON array"
+    actual_records = {json.dumps(record, sort_keys=True) for record in actual}
+    expected_records = {json.dumps(record, sort_keys=True) for record in expected}
+    parts = []
+    if missing := expected_records - actual_records:
+        parts.append(f"{len(missing)} missing records, the first {min(missing)}")
+    if unexpected := actual_records - expected_records:
+        parts.append(f"{len(unexpected)} unexpected records, the first {min(unexpected)}")
+    return "; ".join(parts) or None

@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 
 from benchmarks._types import JsonValue
-from benchmarks.compare import first_difference
+from benchmarks.compare import first_difference, set_difference
 
 REFERENCE: JsonValue = [
     {"name": "Andorra", "capital": "Andorra la Vella", "population": 84000, "area_km2": 468.0},
@@ -71,6 +71,54 @@ class FirstDifferenceTests(unittest.TestCase):
         difference = first_difference("### Andorra", REFERENCE)
         self.assertIsNotNone(difference)
         self.assertIn("JSON", str(difference))
+
+
+class SetDifferenceTests(unittest.TestCase):
+    """Check that a crawl's output may come in any order but must hold exactly the reference records."""
+
+    def test_the_reference_in_another_order_matches(self) -> None:
+        self.assertIsNone(set_difference(f"[{ANTARCTICA_TEXT}, {ANDORRA_TEXT}]", REFERENCE))
+
+    def test_whitespace_key_order_and_number_notation_are_ignored(self) -> None:
+        output = """[
+            {"name": "Antarctica", "capital": null, "population": 0, "area_km2": 1.4E7},
+            {"area_km2": 468.0, "population": 84000, "capital": "Andorra la Vella", "name": "Andorra"}
+        ]"""
+        self.assertIsNone(set_difference(output, REFERENCE))
+
+    def test_a_missing_record_is_named(self) -> None:
+        difference = set_difference(f"[{ANDORRA_TEXT}]", REFERENCE)
+        self.assertIsNotNone(difference)
+        self.assertIn("missing", str(difference))
+        self.assertIn("Antarctica", str(difference))
+
+    def test_a_record_that_is_not_in_the_reference_is_named(self) -> None:
+        decoy = '{"name": "Decoyland", "capital": "Decoy City", "population": 1, "area_km2": 2.0}'
+        difference = set_difference(f"[{ANDORRA_TEXT}, {ANTARCTICA_TEXT}, {decoy}]", REFERENCE)
+        self.assertIsNotNone(difference)
+        self.assertIn("unexpected", str(difference))
+        self.assertIn("Decoyland", str(difference))
+
+    def test_integer_where_the_reference_has_a_float_does_not_match(self) -> None:
+        andorra = ANDORRA_TEXT.replace("468.0", "468")
+        self.assertIsNotNone(set_difference(f"[{andorra}, {ANTARCTICA_TEXT}]", REFERENCE))
+
+    def test_missing_capital_must_be_null_not_a_string(self) -> None:
+        antarctica = ANTARCTICA_TEXT.replace("null", '"None"')
+        self.assertIsNotNone(set_difference(f"[{ANDORRA_TEXT}, {antarctica}]", REFERENCE))
+
+    def test_repeated_records_are_one_record_in_a_set(self) -> None:
+        self.assertIsNone(set_difference(f"[{ANDORRA_TEXT}, {ANTARCTICA_TEXT}, {ANDORRA_TEXT}]", REFERENCE))
+
+    def test_text_that_is_not_json_does_not_match(self) -> None:
+        difference = set_difference("### Andorra", REFERENCE)
+        self.assertIsNotNone(difference)
+        self.assertIn("JSON", str(difference))
+
+    def test_json_that_is_not_an_array_does_not_match(self) -> None:
+        difference = set_difference(ANDORRA_TEXT, REFERENCE)
+        self.assertIsNotNone(difference)
+        self.assertIn("array", str(difference))
 
 
 if __name__ == "__main__":
