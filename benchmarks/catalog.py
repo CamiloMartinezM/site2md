@@ -13,7 +13,7 @@ from benchmarks.line_count import LineCount, count_lines
 from benchmarks.paths import TOOLS_DIRECTORY
 
 # The table columns that a footnote can explain.
-FOOTNOTE_COLUMNS = ("time", "lines", "size", "crawl")
+FOOTNOTE_COLUMNS = ("time", "lines", "size", "crawl", "gap")
 # Every tool has a page solution. A tool without a crawl solution is shown as having no crawler.
 TASKS = ("page", "crawl")
 _SUFFIX_KINDS: Mapping[str, SourceKind] = {

@@ -100,7 +100,7 @@ def render_results(tools: Sequence[Tool], results: Mapping[str, ToolResult]) -> 
                 [
                     mark("yes" if crawl["matches"] else "no", by_column["crawl"]),
                     str(len(crawl["extra_pages"])),
-                    _gap_text(crawl["shortest_gap"]),
+                    mark(_gap_text(crawl["shortest_gap"]), by_column["gap"]),
                     mark(str(crawl["lines"]["counted"]), [_local_only_note(crawl_local_only)] if crawl_local_only else []),
                 ]
             )

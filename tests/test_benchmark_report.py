@@ -173,6 +173,12 @@ class RenderCrawlColumnsTests(unittest.TestCase):
         self.assertIn("| yes [^1] | 0 |", table)
         self.assertIn("[^1]: Crawl note.", table)
 
+    def test_a_gap_footnote_explains_the_shortest_gap_cell(self) -> None:
+        tool = _tool("site2md", Footnote("gap", "Gap note."))
+        table = render_results([tool], {"site2md": _result(crawl=_crawl())})
+        self.assertIn("| 0 | 1.004 s [^1] | 33 |", table)
+        self.assertIn("[^1]: Gap note.", table)
+
     def test_crawl_footnotes_are_numbered_after_the_footnotes_of_the_columns_before_them(self) -> None:
         tool = _tool("scrapling", Footnote("crawl", "Crawl note."), Footnote("time", "Time note."))
         table = render_results([tool], {"scrapling": _result(crawl=_crawl())})
