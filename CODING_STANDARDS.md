@@ -2,8 +2,6 @@
 
 These rules cover site2md's Python code in `src/` and `tests/`. `ruff check` and `mypy` enforce some of them. Review checks the rest.
 
-Some existing modules predate this file. Bring a module in line when you change it.
-
 ## House rules
 
 ### 1. Lay out modules in a fixed order
@@ -56,8 +54,10 @@ There are two exceptions:
 
 - **No `# noqa` comments.** Fix the code instead.
   - If a rule is wrong for the whole project, ignore it in `pyproject.toml`, with a comment that says why.
-- **`# type: ignore` only with an error code**, such as `# type: ignore[import-untyped]`, and only when the cause is outside site2md, such as a dependency without type stubs.
-  - For our own data, narrow the type, use a `TypedDict`, or `cast` with a one-line reason.
+- **`# type: ignore` only with an error code**, such as `# type: ignore[import-untyped]`, and only in two cases:
+  - the cause is outside site2md, such as a dependency without type stubs;
+  - a test breaks a type on purpose to check that site2md rejects the value at runtime, for example by assigning to a frozen field.
+- **For our own data, fix the types:** narrow them, use a `TypedDict`, or `cast` with a one-line reason.
 
 ### 4. Ship only code that passes ruff, mypy and the tests
 
@@ -133,6 +133,7 @@ Fix every error rather than silencing it (rule 3). A narrow run can miss errors:
 ### Docstrings and comments
 
 - **Every module, public class and public function has a docstring.** It is one line in the imperative mood ("Return …", "Build …"). Add detail only when the behaviour isn't clear from the signature.
+  - Test methods are the exception: their names describe the behaviour they check.
 - **Comments explain why, not what.** Keep them to one line, and don't commit commented-out code.
 
 ### Console output
