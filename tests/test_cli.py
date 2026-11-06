@@ -689,6 +689,25 @@ remote_build.shutil.rmtree = fail_cleanup
             self.assertNotIn("Scanning", result.stdout)
             self.assertFalse(missing_folder.exists())
 
+    def test_local_build_write_failure_exits_with_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "input"
+            root.mkdir()
+            (root / "index.html").write_text(
+                "<html><body><main><h1>Index</h1></main></body></html>", encoding="utf-8"
+            )
+            # An existing folder as the output makes the write itself fail.
+            output = Path(temp_dir) / "out.md"
+            output.mkdir()
+
+            result = self.run_site2md("build", root, "--output", output)
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("Error writing output:", result.stdout)
+            self.assertIn(output.name, result.stdout)
+            self.assertNotIn("Success!", result.stdout)
+            self.assertTrue(output.is_dir())
+
 
 if __name__ == "__main__":
     unittest.main()
