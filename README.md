@@ -4,7 +4,7 @@
 
 ![Tests](./docs/tests.svg)
 ![Coverage](./docs/coverage.svg)
-![Version](https://img.shields.io/badge/version-0.4.2-blue.svg)
+![Version](https://img.shields.io/badge/version-0.4.3-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.10+-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
@@ -279,7 +279,7 @@ The Extractor converts numbers to JSON-native types, and `site2md` validates eac
 
 ## 📚 Documentation
 
-The tool is self-documenting via the CLI. Release-specific behavior and limits are recorded in the [0.4.0 release notes](docs/release-0.4.0.md) and the [0.4.1](docs/release-0.4.1.md) and [0.4.2](docs/release-0.4.2.md) patch notes.
+The tool is self-documenting via the CLI. Release-specific behavior and limits are recorded in the [0.4.0 release notes](docs/release-0.4.0.md) and the [0.4.1](docs/release-0.4.1.md), [0.4.2](docs/release-0.4.2.md) and [0.4.3](docs/release-0.4.3.md) patch notes.
 
 ```bash
 site2md --help

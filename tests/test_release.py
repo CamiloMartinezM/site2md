@@ -16,7 +16,7 @@ from packaging.requirements import Requirement
 class ReleaseMetadataTests(unittest.TestCase):
     """Exercise package identity and compatibility through installed metadata."""
 
-    def test_package_and_cli_report_version_0_4_2(self) -> None:
+    def test_package_and_cli_report_version_0_4_3(self) -> None:
         command = Path(sys.executable).with_name("site2md")
 
         result = subprocess.run(
@@ -26,9 +26,9 @@ class ReleaseMetadataTests(unittest.TestCase):
             text=True,
         )
 
-        self.assertEqual(version("site2md"), "0.4.2")
+        self.assertEqual(version("site2md"), "0.4.3")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "0.4.2")
+        self.assertEqual(result.stdout.strip(), "0.4.3")
 
     def test_python_and_extraction_dependencies_match_supported_versions(self) -> None:
         package_metadata = metadata("site2md")

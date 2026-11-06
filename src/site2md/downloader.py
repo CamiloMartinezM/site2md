@@ -19,7 +19,7 @@ from typing import IO, Literal
 RemoteMode = Literal["page", "follow", "site"]
 DEFAULT_MAX_PAGE_SIZE_MIB = 25
 REQUEST_TIMEOUT_SECONDS = 30
-USER_AGENT = "site2md/0.4.2"
+USER_AGENT = "site2md/0.4.3"
 ROBOTS_MAX_BYTES = 512 * 1024
 _BYTES_PER_MIB = 1024 * 1024
 _CHUNK_SIZE = 64 * 1024
