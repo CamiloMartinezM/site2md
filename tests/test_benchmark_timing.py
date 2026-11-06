@@ -7,6 +7,7 @@ import unittest
 from collections.abc import Sequence
 
 from benchmarks._types import JsonValue
+from benchmarks.errors import HarnessError
 from benchmarks.timing import summarize_hyperfine
 
 PRIVATE_COMMAND = r"C:\Users\someone\work\.cache\venv\Scripts\site2md.exe build http://127.0.0.1:51234/"
@@ -39,11 +40,11 @@ class SummarizeHyperfineTests(unittest.TestCase):
 
     def test_a_failed_run_is_rejected(self) -> None:
         results: list[JsonValue] = [{"measurements": [_measurement(0.5), _measurement(0.5, exit_code=1)], "summary": {}}]
-        with self.assertRaisesRegex(ValueError, "exit"):
+        with self.assertRaisesRegex(HarnessError, "exit"):
             summarize_hyperfine(_export(results=results))
 
     def test_an_export_from_hyperfine_one_is_rejected_with_its_version_requirement(self) -> None:
-        with self.assertRaisesRegex(ValueError, "hyperfine 2"):
+        with self.assertRaisesRegex(HarnessError, "hyperfine 2"):
             summarize_hyperfine({"results": [{"command": "x", "mean": 1.0, "times": [1.0]}]})
 
 

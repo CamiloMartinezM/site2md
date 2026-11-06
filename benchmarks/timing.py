@@ -21,14 +21,14 @@ def summarize_hyperfine(export: JsonValue) -> TimeResult:
     """Return the wall-clock timings of hyperfine's export, without its command or platform."""
     data = expect_object(export, "hyperfine export")
     if data.get("schema_version") != 2:
-        raise ValueError("hyperfine 2 or later is required: this export has an older format")
+        raise HarnessError("hyperfine 2 or later is required: this export has an older format")
     result = expect_object(expect_list(data["results"], "results")[0], "result")
     measurements = [
         expect_object(measurement, "measurement")
         for measurement in expect_list(result["measurements"], "measurements")
     ]
     if any(measurement.get("exit_code") != 0 for measurement in measurements):
-        raise ValueError("the solution exited with an error in at least one run")
+        raise HarnessError("the solution exited with an error in at least one run")
     summary = expect_object(
         expect_object(result["summary"], "summary")["time_wall_clock"], "wall-clock summary"
     )
