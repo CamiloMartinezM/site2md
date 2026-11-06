@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from benchmarks._types import ToolResult
+from benchmarks._types import CrawlResult, ToolResult
 from benchmarks.catalog import Footnote, Tool
 from benchmarks.report import (
     render_generated,
@@ -39,9 +39,10 @@ def _result(
     packages: int = 20,
     matches: bool = True,
     date: str = "2026-11-06",
+    crawl: CrawlResult | None = None,
 ) -> ToolResult:
     """Return a results file's content with the values a test cares about."""
-    return {
+    result: ToolResult = {
         "version": version,
         "date": date,
         "environment": {
@@ -68,6 +69,26 @@ def _result(
             "lines": {"counted": counted, "local_only": list(local_only)},
         },
     }
+    if crawl is not None:
+        result["crawl"] = crawl
+    return result
+
+
+def _crawl(
+    *,
+    matches: bool = True,
+    extra_pages: tuple[str, ...] = (),
+    shortest_gap: float | None = 1.004,
+    counted: int = 33,
+    local_only: tuple[str, ...] = (),
+) -> CrawlResult:
+    """Return a crawl result with the values a test cares about."""
+    return {
+        "matches": matches,
+        "extra_pages": list(extra_pages),
+        "shortest_gap": shortest_gap,
+        "lines": {"counted": counted, "local_only": list(local_only)},
+    }
 
 
 class RenderResultsTests(unittest.TestCase):
@@ -75,7 +96,11 @@ class RenderResultsTests(unittest.TestCase):
 
     def test_a_row_shows_the_tool_its_version_and_every_measure(self) -> None:
         table = render_results([_tool("site2md")], {"site2md": _result()})
-        self.assertIn("| Tool | Version | Output matches | Time | Lines | Install size | Packages |", table)
+        self.assertIn(
+            "| Tool | Version | Output matches | Time | Lines | Install size | Packages "
+            "| Crawl output matches | Extra pages | Shortest gap | Crawl lines |",
+            table,
+        )
         self.assertIn("| site2md | 0.4.3 | yes | 661 ms ± 12 ms | 54 | 11.5 MB | 20 |", table)
 
     def test_times_of_a_second_or_more_are_shown_in_seconds(self) -> None:
@@ -116,6 +141,50 @@ class RenderResultsTests(unittest.TestCase):
             '[^1]: Not counted, because they are needed only to serve the page from 127.0.0.1: `allowed_domains = {"127.0.0.1:8000"}`.',
             table,
         )
+
+
+class RenderCrawlColumnsTests(unittest.TestCase):
+    """Check the crawl columns: the output check, the extra pages, the shortest gap and the lines."""
+
+    def test_a_row_shows_whether_the_crawl_matched_how_many_extra_pages_and_the_gap(self) -> None:
+        table = render_results([_tool("site2md")], {"site2md": _result(crawl=_crawl())})
+        self.assertIn("| 20 | yes | 0 | 1.004 s | 33 |", table)
+
+    def test_a_crawl_that_does_not_match_is_marked(self) -> None:
+        table = render_results([_tool("site2md")], {"site2md": _result(crawl=_crawl(matches=False))})
+        self.assertIn("| 20 | no | 0 |", table)
+
+    def test_extra_pages_are_counted(self) -> None:
+        crawl = _crawl(extra_pages=("/", "/level-3/page-1.html"))
+        table = render_results([_tool("crawl4ai")], {"crawl4ai": _result(crawl=crawl)})
+        self.assertIn("| yes | 2 | 1.004 s |", table)
+
+    def test_a_crawl_with_fewer_than_two_child_requests_has_no_gap(self) -> None:
+        table = render_results([_tool("site2md")], {"site2md": _result(crawl=_crawl(shortest_gap=None))})
+        self.assertIn("| yes | 0 | n/a | 33 |", table)
+
+    def test_a_tool_without_a_crawl_result_shows_no_crawler_in_every_crawl_column(self) -> None:
+        table = render_results([_tool("markitdown")], {"markitdown": _result()})
+        self.assertIn("| 20 | no crawler | no crawler | no crawler | no crawler |", table)
+
+    def test_a_crawl_footnote_explains_the_crawl_output_cell(self) -> None:
+        tool = _tool("scrapling", Footnote("crawl", "Crawl note."))
+        table = render_results([tool], {"scrapling": _result(crawl=_crawl())})
+        self.assertIn("| yes [^1] | 0 |", table)
+        self.assertIn("[^1]: Crawl note.", table)
+
+    def test_crawl_footnotes_are_numbered_after_the_footnotes_of_the_columns_before_them(self) -> None:
+        tool = _tool("scrapling", Footnote("crawl", "Crawl note."), Footnote("time", "Time note."))
+        table = render_results([tool], {"scrapling": _result(crawl=_crawl())})
+        self.assertIn("| 661 ms ± 12 ms [^1] |", table)
+        self.assertIn("| yes [^2] |", table)
+        self.assertTrue(table.endswith("[^1]: Time note.\n[^2]: Crawl note.\n"))
+
+    def test_crawl_lines_needed_only_for_the_local_server_get_a_footnote_that_names_them(self) -> None:
+        crawl = _crawl(local_only=('allowed_domains = {"127.0.0.1:8000"}',))
+        table = render_results([_tool("scrapling")], {"scrapling": _result(crawl=crawl)})
+        self.assertIn("| 33 [^1] |", table)
+        self.assertIn('`allowed_domains = {"127.0.0.1:8000"}`', table)
 
 
 class RenderGeneratedTests(unittest.TestCase):

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from typing import Literal, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict
+
+if TYPE_CHECKING:
+    from typing_extensions import NotRequired
 
 JsonValue = None | bool | int | float | str | Sequence["JsonValue"] | Mapping[str, "JsonValue"]
 SourceKind = Literal["python", "json", "toml"]
@@ -55,6 +58,17 @@ class PageResult(TypedDict):
     lines: LinesResult
 
 
+class CrawlResult(TypedDict):
+    """A tool's results for the crawl task, which runs once and isn't timed."""
+
+    matches: bool
+    # The pages that the server's request log shows beyond one fetch of each of the 20 expected pages.
+    extra_pages: list[str]
+    # Seconds between the two closest child-page requests, or None when there were fewer than two.
+    shortest_gap: float | None
+    lines: LinesResult
+
+
 class ToolResult(TypedDict):
     """The content of one tool's committed results file."""
 
@@ -63,3 +77,5 @@ class ToolResult(TypedDict):
     environment: EnvironmentResult
     install: InstallResult
     page: PageResult
+    # Absent for a tool without a crawler, and in results files from before the crawl task.
+    crawl: NotRequired[CrawlResult]

@@ -174,7 +174,8 @@ class CommittedToolsTests(unittest.TestCase):
             with self.subTest(tool=tool_id):
                 tool = load_tool(TOOLS_DIRECTORY / tool_id)
                 self.assertEqual(tool.id, tool_id)
-                count_solution(tool, "page", format_python=_unformatted)
+                for task in tool.tasks:
+                    count_solution(tool, task, format_python=_unformatted)
 
 
 if __name__ == "__main__":

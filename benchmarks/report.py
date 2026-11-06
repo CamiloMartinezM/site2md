@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 
 from benchmarks._types import TimeResult, ToolResult
-from benchmarks.catalog import Tool, load_tool, tool_ids
+from benchmarks.catalog import FOOTNOTE_COLUMNS, Tool, load_tool, tool_ids
 from benchmarks.page import read_pin
 from benchmarks.paths import TOOLS_DIRECTORY
 from benchmarks.results import load_results
@@ -14,7 +14,20 @@ START_MARKER = "<!-- benchmarks:generated:start -->"
 END_MARKER = "<!-- benchmarks:generated:end -->"
 # The order of the tools in #40; any other tool follows by name.
 TOOL_ORDER = ("site2md", "scrapling", "crawl4ai", "markitdown", "pandoc")
-HEADERS = ("Tool", "Version", "Output matches", "Time", "Lines", "Install size", "Packages")
+HEADERS = (
+    "Tool",
+    "Version",
+    "Output matches",
+    "Time",
+    "Lines",
+    "Install size",
+    "Packages",
+    "Crawl output matches",
+    "Extra pages",
+    "Shortest gap",
+    "Crawl lines",
+)
+NO_CRAWLER = "no crawler"
 
 
 def _time_text(time: TimeResult) -> str:
@@ -22,6 +35,11 @@ def _time_text(time: TimeResult) -> str:
     if time["mean"] < 1:
         return f"{time['mean'] * 1000:.0f} ms ± {time['stddev'] * 1000:.0f} ms"
     return f"{time['mean']:.2f} s ± {time['stddev']:.2f} s"
+
+
+def _gap_text(gap: float | None) -> str:
+    """Show the shortest gap between child-page requests in seconds, to the millisecond."""
+    return "n/a" if gap is None else f"{gap:.3f} s"
 
 
 def _local_only_note(lines: Sequence[str]) -> str:
@@ -60,11 +78,11 @@ def render_results(tools: Sequence[Tool], results: Mapping[str, ToolResult]) -> 
         page = result["page"]
         by_column = {
             column: [note.text for note in tool.footnotes if note.column == column]
-            for column in ("time", "lines", "size")
+            for column in FOOTNOTE_COLUMNS
         }
         if page["lines"]["local_only"]:
             by_column["lines"].append(_local_only_note(page["lines"]["local_only"]))
-        cells = (
+        cells = [
             tool.name,
             result["version"],
             "yes" if page["matches"] else "no",
@@ -72,7 +90,20 @@ def render_results(tools: Sequence[Tool], results: Mapping[str, ToolResult]) -> 
             mark(str(page["lines"]["counted"]), by_column["lines"]),
             mark(f"{result['install']['size_bytes'] / 1e6:.1f} MB", by_column["size"]),
             str(len(result["install"]["packages"])),
-        )
+        ]
+        crawl = result.get("crawl")
+        if crawl is None:
+            cells.extend([NO_CRAWLER] * 4)
+        else:
+            crawl_local_only = crawl["lines"]["local_only"]
+            cells.extend(
+                [
+                    mark("yes" if crawl["matches"] else "no", by_column["crawl"]),
+                    str(len(crawl["extra_pages"])),
+                    _gap_text(crawl["shortest_gap"]),
+                    mark(str(crawl["lines"]["counted"]), [_local_only_note(crawl_local_only)] if crawl_local_only else []),
+                ]
+            )
         lines.append(f"| {' | '.join(cells)} |")
     table = "\n".join(lines) + "\n"
     if not notes:
