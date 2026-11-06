@@ -57,26 +57,32 @@ The page copy was downloaded on 2026-11-06. Its SHA-256 is `4c68c2a54000607a0fa5
 | Tool | Version | Output matches | Time | Lines | Install size | Packages | Crawl output matches | Extra pages | Shortest gap | Crawl lines |
 |---|---|---|---|---|---|---|---|---|---|---|
 | site2md | 0.4.3 | yes | 1.83 s ± 0.25 s | 54 | 11.5 MB | 20 | yes | 0 | 0.979 s [^1] | 54 |
-| Scrapling | 0.5.1 | yes | 321 ms ± 8 ms | 12 [^2] | 242.9 MB [^3] | 23 | no crawler | no crawler | no crawler | no crawler |
-| crawl4ai | 0.9.5 | yes | 1.10 s ± 0.04 s | 24 [^4] [^5] | 554.8 MB [^6] | 96 | no crawler | no crawler | no crawler | no crawler |
-| MarkItDown | 0.1.9 | yes | 730 ms ± 25 ms | 10 [^7] | 94.8 MB | 19 | no crawler | no crawler | no crawler | no crawler |
-| pandoc | 3.13 | yes | 252 ms ± 28 ms | 12 [^8] | 239.6 MB [^9] | 0 | no crawler | no crawler | no crawler | no crawler |
+| Scrapling | 0.5.1 | yes | 300 ms ± 7 ms | 12 [^2] | 242.9 MB [^3] | 23 | yes [^4] | 0 | 0.000 s [^5] | 19 [^6] |
+| crawl4ai | 0.9.5 | yes | 1.02 s ± 0.03 s | 24 [^7] [^8] | 554.8 MB [^9] | 96 | yes [^10] | 0 | 0.000 s [^11] | 38 [^12] |
+| MarkItDown | 0.1.9 | yes | 730 ms ± 25 ms | 10 [^13] | 94.8 MB | 19 | no crawler | no crawler | no crawler | no crawler |
+| pandoc | 3.13 | yes | 252 ms ± 28 ms | 12 [^14] | 239.6 MB [^15] | 0 | no crawler | no crawler | no crawler | no crawler |
 
 [^1]: site2md waits one second from the start of one request to the start of the next, as its traversal policy says. The server stamps each request when it arrives, and arrival times vary by a few tens of milliseconds, so the shortest gap in the log can be slightly under one second.
 [^2]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
 [^3]: The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded.
-[^4]: crawl4ai's `crwl` command line does the task in one line, but it always starts a browser, so that line isn't counted. The count is for the Python solution, which uses the HTTP-only crawler strategy.
-[^5]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
-[^6]: crawl4ai requires Playwright and Patchright even for its HTTP-only strategy, so no smaller install exists. They take 110 MB each because each bundles a Node driver. No browser is downloaded.
-[^7]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
+[^4]: Scrapling's spiders have no depth limit, and the `max_pages` of its Markdown spider limits what it converts, not what it fetches. The spider therefore carries each page's depth in its requests and keeps its own set of the pages it has queued. Without them it fetches the five decoy pages.
+[^5]: At its defaults a spider fetches up to four pages at once and adds no delay, and it doesn't request robots.txt unless asked to, so several requests reach the server together.
+[^6]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
+[^7]: crawl4ai's `crwl` command line does the task in one line, but it always starts a browser, so that line isn't counted. The count is for the Python solution, which uses the HTTP-only crawler strategy.
 [^8]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
-[^9]: The unpacked archive: `pandoc.exe`, its manual and its licence files. pandoc is not a Python package, so its package count reads 0.
+[^9]: crawl4ai requires Playwright and Patchright even for its HTTP-only strategy, so no smaller install exists. They take 110 MB each because each bundles a Node driver. No browser is downloaded.
+[^10]: crawl4ai's breadth-first crawl never marks the entry page as visited, so every page that links back to it queues it again. A filter keeps it out. Without the filter the entry page is fetched twice, and the second fetch uses one of the 20 pages, so a country page is left out.
+[^11]: At its defaults crawl4ai runs up to five fetches at once, with a random delay of 0.1 to 0.4 s per host that doesn't carry over from one level to the next, so some requests reach the server together.
+[^12]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
+[^13]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
+[^14]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
+[^15]: The unpacked archive: `pandoc.exe`, its manual and its licence files. pandoc is not a Python package, so its package count reads 0.
 
 ### Solutions
 
 - **site2md**: `build` converts the page, `extract` runs a minimal Extractor written for this benchmark, and one last step writes the record values. The crawl runs `build` in site mode with `--max-pages 20 --max-depth 2` and reuses the same Extractor across the document's source sections. site2md is installed from its release tag, because the PyPI name belongs to a different project.
-- **Scrapling**: Scrapling's HTTP fetcher gets the page and CSS selectors read each country. The `fetchers` extra is the smallest one that provides the fetcher, and no browser is downloaded or started.
-- **crawl4ai**: Its HTTP-only crawler strategy fetches the page and its CSS extraction strategy reads each country as text, then a short loop converts the numbers and the missing capital. No browser is downloaded or started. Its home folder, where it keeps logs and a robots.txt cache, is moved into the benchmark's cache.
+- **Scrapling**: Scrapling's HTTP fetcher gets the page and CSS selectors read each country. The `fetchers` extra is the smallest one that provides the fetcher, and no browser is downloaded or started. The crawl is a spider that reads the same selectors on every page it follows and writes the records with its own JSON export.
+- **crawl4ai**: Its HTTP-only crawler strategy fetches the page and its CSS extraction strategy reads each country as text, then a short loop converts the numbers and the missing capital. The crawl is its breadth-first deep crawl with the same extraction strategy. No browser is downloaded or started. Its home folder, where it keeps logs and a robots.txt cache, is moved into the benchmark's cache.
 - **MarkItDown**: `MarkItDown().convert` fetches the page and converts it to Markdown, and a regular expression parses the Markdown into the records. It has no crawler.
 - **pandoc**: `pandoc -f html -t gfm` fetches the page and converts it to Markdown, and a regular expression parses the Markdown into the records. It has no crawler. pandoc is not a Python package: the harness unpacks the official Windows release archive and puts its folder first on PATH, so a pandoc installed on the machine never runs. The pandoc project publishes no checksum, so the pinned SHA-256 is the digest that GitHub shows for the release asset, which matches the first download.
 
