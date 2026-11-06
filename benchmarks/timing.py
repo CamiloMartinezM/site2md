@@ -2,8 +2,19 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
+from collections.abc import Mapping
+from pathlib import Path
+
 from benchmarks._json import expect_list, expect_number, expect_object
 from benchmarks._types import JsonValue, TimeResult
+from benchmarks.errors import HarnessError
+
+
+def _microseconds(value: JsonValue, where: str) -> float:
+    """Return a number of seconds rounded to microseconds, which is finer than hyperfine measures."""
+    return round(expect_number(value, where), 6)
 
 
 def summarize_hyperfine(export: JsonValue) -> TimeResult:
@@ -22,15 +33,37 @@ def summarize_hyperfine(export: JsonValue) -> TimeResult:
         expect_object(result["summary"], "summary")["time_wall_clock"], "wall-clock summary"
     )
     return {
-        "mean": expect_number(summary["mean"], "mean"),
-        "stddev": expect_number(summary["stddev"], "stddev"),
-        "median": expect_number(summary["median"], "median"),
-        "min": expect_number(summary["min"], "min"),
-        "max": expect_number(summary["max"], "max"),
+        "mean": _microseconds(summary["mean"], "mean"),
+        "stddev": _microseconds(summary["stddev"], "stddev"),
+        "median": _microseconds(summary["median"], "median"),
+        "min": _microseconds(summary["min"], "min"),
+        "max": _microseconds(summary["max"], "max"),
         "times": [
-            expect_number(
+            _microseconds(
                 expect_object(measurement["time_wall_clock"], "wall-clock time")["value"], "time"
             )
             for measurement in measurements
         ],
     }
+
+
+def run_hyperfine(
+    hyperfine: str, command: str, *, cwd: Path, variables: Mapping[str, str], export: Path
+) -> TimeResult:
+    """Time a command line with three warmup runs and hyperfine's default number of runs."""
+    try:
+        # hyperfine 2 runs commands without a shell unless asked, and the solution chains steps with &&.
+        completed = subprocess.run(
+            [hyperfine, "--shell=default", "--warmup", "3", "--export-json", str(export), command],
+            cwd=cwd,
+            env=dict(variables),
+            check=False,
+        )
+    except OSError as error:
+        raise HarnessError(f"cannot run hyperfine: {error}") from error
+    if completed.returncode != 0:
+        raise HarnessError(
+            f"hyperfine failed with exit status {completed.returncode}: the solution probably exited "
+            "with an error, so it does not count as working"
+        )
+    return summarize_hyperfine(json.loads(export.read_text(encoding="utf-8")))

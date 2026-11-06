@@ -10,8 +10,8 @@ from pathlib import Path
 from benchmarks._json import expect_list, expect_object, expect_string
 from benchmarks._types import JsonValue, PythonFormatter, SourceKind
 from benchmarks.line_count import LineCount, count_lines
+from benchmarks.paths import TOOLS_DIRECTORY
 
-TOOLS_DIRECTORY = Path(__file__).resolve().parent / "tools"
 # The table columns that a footnote can explain.
 FOOTNOTE_COLUMNS = ("time", "lines", "size")
 TASKS = ("page",)
@@ -60,6 +60,8 @@ class Tool:
     directory: Path
     name: str
     version: str
+    # One sentence for BENCHMARKS.md on how this tool solves the tasks.
+    solution: str
     requirements: tuple[str, ...]
     tasks: Mapping[str, Solution]
     # Commands, as argument lists, that run after the requirements and before the size is measured.
@@ -164,7 +166,7 @@ def load_tool(directory: Path) -> Tool:
     data = expect_object(loaded, where)
     _keys(
         data,
-        required=("name", "version", "requirements", *TASKS),
+        required=("name", "version", "solution", "requirements", *TASKS),
         optional=("install", "setup", "path", "env", "footnotes"),
         where=where,
     )
@@ -175,6 +177,7 @@ def load_tool(directory: Path) -> Tool:
         directory=directory,
         name=expect_string(data["name"], f"{where}.name"),
         version=version,
+        solution=expect_string(data["solution"], f"{where}.solution"),
         requirements=tuple(
             requirement.format(version=version)
             for requirement in _strings(data["requirements"], f"{where}.requirements")

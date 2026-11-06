@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from collections.abc import Sequence
 
 from benchmarks._types import JsonValue
 from benchmarks.timing import summarize_hyperfine
@@ -23,11 +24,13 @@ def _measurement(seconds: float, exit_code: int = 0) -> dict[str, JsonValue]:
     }
 
 
-def _export(**overrides: JsonValue) -> dict[str, JsonValue]:
-    """Return a hand-written hyperfine 2 export of three runs, with private details in it."""
+def _export(
+    seconds: Sequence[float] = (0.5, 0.75, 0.625), **overrides: JsonValue
+) -> dict[str, JsonValue]:
+    """Return a hand-written hyperfine 2 export of runs, with private details in it."""
     result: dict[str, JsonValue] = {
         "command": PRIVATE_COMMAND,
-        "measurements": [_measurement(0.5), _measurement(0.75), _measurement(0.625)],
+        "measurements": [_measurement(value) for value in seconds],
         "summary": {
             "time_wall_clock": {
                 "unit": "second",
@@ -70,6 +73,10 @@ class SummarizeHyperfineTests(unittest.TestCase):
                 "times": [0.5, 0.75, 0.625],
             },
         )
+
+    def test_timings_are_rounded_to_microseconds(self) -> None:
+        summary = summarize_hyperfine(_export(seconds=(1.6933781399999999,)))
+        self.assertEqual(summary["times"], [1.693378])
 
     def test_nothing_that_identifies_the_machine_is_kept(self) -> None:
         recorded = json.dumps(summarize_hyperfine(_export()))

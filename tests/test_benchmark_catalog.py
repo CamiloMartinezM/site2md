@@ -7,8 +7,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from benchmarks.catalog import TOOLS_DIRECTORY, count_solution, load_tool, tool_ids
+from benchmarks.catalog import count_solution, load_tool, tool_ids
 from benchmarks.line_count import LineCount
+from benchmarks.paths import TOOLS_DIRECTORY
 
 
 def _unformatted(source: str) -> str:
@@ -36,6 +37,7 @@ class ToolDirectoryTestCase(unittest.TestCase):
         definition: dict[str, object] = {
             "name": "Example",
             "version": "1.0",
+            "solution": "Fetch the page.",
             "requirements": ["example==1.0"],
             "page": {"steps": [{"run": "example {url}"}]},
         }
@@ -102,6 +104,7 @@ class LoadToolTests(ToolDirectoryTestCase):
         self.write_definition()
         tool = load_tool(self.directory)
         self.assertEqual((tool.id, tool.name, tool.version), ("example", "Example", "1.0"))
+        self.assertEqual(tool.solution, "Fetch the page.")
         self.assertEqual(tool.requirements, ("example==1.0",))
         self.assertEqual(tool.footnotes, ())
 

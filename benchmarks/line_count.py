@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from benchmarks._types import PythonFormatter, SourceKind
@@ -38,11 +38,14 @@ def _count_text_lines(text: str) -> LineCount:
     return LineCount(counted, tuple(local_only))
 
 
-def format_with_ruff(source: str, *, command: Sequence[str]) -> str:
+def format_with_ruff(
+    source: str, *, command: Sequence[str], env: Mapping[str, str] | None = None
+) -> str:
     """Return Python source formatted by `ruff format` at 88 columns, ignoring project settings."""
     completed = subprocess.run(
         [*command, "format", "--isolated", "--stdin-filename", "solution.py", "-"],
         input=source.encode("utf-8"),
+        env=None if env is None else dict(env),
         capture_output=True,
         check=False,
     )

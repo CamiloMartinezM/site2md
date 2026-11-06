@@ -1,11 +1,12 @@
 {
   "name": "site2md",
   "version": "0.4.3",
+  "solution": "`build` converts the page, `extract` runs a minimal Extractor written for this benchmark, and one last step writes the record values. site2md is installed from its release tag, because the PyPI name belongs to a different project.",
   "requirements": [
     "site2md @ git+https://github.com/CamiloMartinezM/site2md@v{version}"
   ],
   "setup": [
-    ["uv", "pip", "install", "--python", "{python}", "{tool}/extractor"]
+    ["uv", "pip", "install", "--no-config", "--python", "{python}", "{tool}/extractor"]
   ],
   "page": {
     "steps": [
