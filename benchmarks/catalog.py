@@ -155,7 +155,7 @@ def _count_file(path: Path, format_python: PythonFormatter) -> LineCount:
 
 
 def _read_tool(directory: Path) -> Tool:
-    """Read one tool folder's `tool.json`, raising a ValueError that names what is wrong with it."""
+    """Read one tool folder's `tool.json`, raising an error that names what is wrong with it."""
     where = f"{directory.name}/tool.json"
     try:
         loaded = json.loads((directory / "tool.json").read_text(encoding="utf-8"))
@@ -210,7 +210,8 @@ def load_tool(directory: Path) -> Tool:
     """Load and validate one tool folder's `tool.json`, reporting a malformed one as a harness error."""
     try:
         return _read_tool(directory)
-    except ValueError as error:
+    except (ValueError, TypeError) as error:
+        # ValueError: a bad value or key. TypeError: a value of the wrong JSON type, from the expect_* helpers.
         raise HarnessError(str(error)) from error
 
 
