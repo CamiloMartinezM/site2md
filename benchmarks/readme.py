@@ -30,6 +30,7 @@ _ALTERNATIVE_TEXTS: Mapping[ChartMeasure, str] = {
     "size": "Bar chart of the disk space each tool's smallest install uses.",
 }
 _MISMATCH_NOTE = "Its output doesn't match the reference, so the chart leaves it out."
+_CRAWL_MISMATCH_NOTE = "Its crawl output doesn't match the reference, or the crawl exited with an error."
 
 
 def _chart_path(theme: ChartTheme) -> str:
@@ -87,7 +88,14 @@ def render_table(tools: Sequence[Tool], results: Mapping[str, ToolResult]) -> st
             mark(str(page["lines"]["counted"]), [*_notes(tool, "lines"), *_local_only_notes(page["lines"])]),
             mark("–", [_crawl_gap(tool)])
             if crawl is None
-            else mark(str(crawl["lines"]["counted"]), _local_only_notes(crawl["lines"])),
+            else mark(
+                str(crawl["lines"]["counted"]),
+                [
+                    *_notes(tool, "crawl"),
+                    *([] if crawl["matches"] else [_CRAWL_MISMATCH_NOTE]),
+                    *_local_only_notes(crawl["lines"]),
+                ],
+            ),
             mark(f"{result['install']['size_bytes'] / 1e6:.1f} MB", _notes(tool, "size")),
         )
         lines.append(f"| {' | '.join(cells)} |")

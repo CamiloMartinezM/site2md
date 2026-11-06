@@ -294,17 +294,19 @@ site2md against the tools you might pick instead. Every tool extracts the same 2
 | Tool | Time | Lines (page) | Lines (crawl) | Install size |
 |---|---|---|---|---|
 | site2md | 1.73 s ± 0.02 s | 54 | 54 | 11.5 MB |
-| Scrapling | 298 ms ± 7 ms | 12 [^1] | 19 [^1] | 242.9 MB [^2] |
-| crawl4ai | 1.02 s ± 0.02 s | 24 [^3] [^1] | 38 [^1] | 554.8 MB [^4] |
-| MarkItDown | 730 ms ± 25 ms | 10 [^1] | – [^5] | 94.8 MB |
-| pandoc | 252 ms ± 28 ms | 12 [^1] | – [^5] | 239.6 MB [^6] |
+| Scrapling | 298 ms ± 7 ms | 12 [^1] | 19 [^2] [^1] | 242.9 MB [^3] |
+| crawl4ai | 1.02 s ± 0.02 s | 24 [^4] [^1] | 38 [^5] [^1] | 554.8 MB [^6] |
+| MarkItDown | 730 ms ± 25 ms | 10 [^1] | – [^7] | 94.8 MB |
+| pandoc | 252 ms ± 28 ms | 12 [^1] | – [^7] | 239.6 MB [^8] |
 
-[^1]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
-[^2]: The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded.
-[^3]: crawl4ai's `crwl` command line does the task in one line, but it always starts a browser, so that line isn't counted. The count is for the Python solution, which uses the HTTP-only crawler strategy.
-[^4]: crawl4ai requires Playwright and Patchright even for its HTTP-only strategy, so no smaller install exists. They take 110 MB each because each bundles a Node driver. No browser is downloaded.
-[^5]: No crawler.
-[^6]: The unpacked archive: `pandoc.exe`, its manual and its licence files. pandoc is not a Python package, so its package count reads 0.
+[^1]: Not counted: `import sys`. The harness passes the local server's 127.0.0.1 URL on the command line, and this code only reads it. A solution for the live site writes the URL inline.
+[^2]: Scrapling's spiders have no depth limit, and the `max_pages` of its Markdown spider limits what it converts, not what it fetches. The spider therefore carries each page's depth in its requests and keeps its own set of the pages it has queued. Without them it fetches the five decoy pages.
+[^3]: The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded.
+[^4]: crawl4ai's `crwl` command line does the task in one line, but it always starts a browser, so that line isn't counted. The count is for the Python solution, which uses the HTTP-only crawler strategy.
+[^5]: crawl4ai's breadth-first crawl never marks the entry page as visited, so every page that links back to it queues it again. A filter keeps it out. Without the filter the entry page is fetched twice, and the second fetch uses one of the 20 pages, so a country page is left out.
+[^6]: crawl4ai requires Playwright and Patchright even for its HTTP-only strategy, so no smaller install exists. They take 110 MB each because each bundles a Node driver. No browser is downloaded.
+[^7]: No crawler.
+[^8]: The unpacked archive: `pandoc.exe`, its manual and its licence files. pandoc is not a Python package, so its package count reads 0.
 <!-- benchmarks:table:end -->
 
 ---

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from benchmarks._types import ToolResult
+from benchmarks._types import CrawlResult, ToolResult
 from benchmarks.catalog import Footnote, Solution, Step, Tool
 
 
@@ -70,20 +70,40 @@ def make_tool(
     )
 
 
+def make_crawl(
+    *,
+    matches: bool = True,
+    extra_pages: tuple[str, ...] = (),
+    shortest_gap: float | None = 1.004,
+    counted: int = 33,
+    local_only: tuple[str, ...] = (),
+) -> CrawlResult:
+    """Return a crawl result with the values a test cares about."""
+    return {
+        "matches": matches,
+        "extra_pages": list(extra_pages),
+        "shortest_gap": shortest_gap,
+        "lines": {"counted": counted, "local_only": list(local_only)},
+    }
+
+
 def make_result(
     *,
+    version: str = "0.4.3",
     mean: float = 0.661,
+    stddev: float = 0.012,
     size_bytes: int = 11_500_000,
+    packages: int = 20,
     lines: int = 54,
     local_only: tuple[str, ...] = (),
     matches: bool = True,
-    crawl_lines: int | None = None,
-    crawl_local_only: tuple[str, ...] = (),
+    date: str = "2026-11-06",
+    crawl: CrawlResult | None = None,
 ) -> ToolResult:
     """Return a results file's content with the values a test cares about."""
     result: ToolResult = {
-        "version": "1.0",
-        "date": "2026-11-06",
+        "version": version,
+        "date": date,
         "environment": {
             "os": "Windows 11",
             "python": "3.12.14",
@@ -91,25 +111,23 @@ def make_result(
             "uv": "0.12.21",
             "ruff": "0.17.4",
         },
-        "install": {"size_bytes": size_bytes, "packages": {"package": "1.0"}},
+        "install": {
+            "size_bytes": size_bytes,
+            "packages": {f"package-{index}": "1.0" for index in range(packages)},
+        },
         "page": {
             "matches": matches,
             "time": {
                 "mean": mean,
-                "stddev": 0.01,
+                "stddev": stddev,
                 "median": mean,
-                "min": mean,
-                "max": mean,
+                "min": mean - stddev,
+                "max": mean + stddev,
                 "times": [mean],
             },
             "lines": {"counted": lines, "local_only": list(local_only)},
         },
     }
-    if crawl_lines is not None:
-        result["crawl"] = {
-            "matches": True,
-            "extra_pages": [],
-            "shortest_gap": 1.0,
-            "lines": {"counted": crawl_lines, "local_only": list(crawl_local_only)},
-        }
+    if crawl is not None:
+        result["crawl"] = crawl
     return result

@@ -67,19 +67,19 @@ The page copy was downloaded on 2026-11-06. Its SHA-256 is `4c68c2a54000607a0fa5
 | pandoc | 3.13 | yes | 252 ms ± 28 ms | 12 [^14] | 239.6 MB [^15] | 0 | no crawler | no crawler | no crawler | no crawler |
 
 [^1]: site2md waits one second from the start of one request to the start of the next, as its traversal policy says. The server stamps each request when it arrives, and arrival times vary by a few tens of milliseconds, so the shortest gap in the log can be slightly under one second.
-[^2]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
+[^2]: Not counted: `import sys`. The harness passes the local server's 127.0.0.1 URL on the command line, and this code only reads it. A solution for the live site writes the URL inline.
 [^3]: The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded.
 [^4]: Scrapling's spiders have no depth limit, and the `max_pages` of its Markdown spider limits what it converts, not what it fetches. The spider therefore carries each page's depth in its requests and keeps its own set of the pages it has queued. Without them it fetches the five decoy pages.
 [^5]: At its defaults a spider fetches up to four pages at once and adds no delay, and it doesn't request robots.txt unless asked to, so several requests reach the server together.
-[^6]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
+[^6]: Not counted: `import sys`. The harness passes the local server's 127.0.0.1 URL on the command line, and this code only reads it. A solution for the live site writes the URL inline.
 [^7]: crawl4ai's `crwl` command line does the task in one line, but it always starts a browser, so that line isn't counted. The count is for the Python solution, which uses the HTTP-only crawler strategy.
-[^8]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
+[^8]: Not counted: `import sys`. The harness passes the local server's 127.0.0.1 URL on the command line, and this code only reads it. A solution for the live site writes the URL inline.
 [^9]: crawl4ai requires Playwright and Patchright even for its HTTP-only strategy, so no smaller install exists. They take 110 MB each because each bundles a Node driver. No browser is downloaded.
 [^10]: crawl4ai's breadth-first crawl never marks the entry page as visited, so every page that links back to it queues it again. A filter keeps it out. Without the filter the entry page is fetched twice, and the second fetch uses one of the 20 pages, so a country page is left out.
 [^11]: At its defaults crawl4ai runs up to five fetches at once, with a random delay of 0.1 to 0.4 s per host that doesn't carry over from one level to the next, so some requests reach the server together.
-[^12]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
-[^13]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
-[^14]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
+[^12]: Not counted: `import sys`. The harness passes the local server's 127.0.0.1 URL on the command line, and this code only reads it. A solution for the live site writes the URL inline.
+[^13]: Not counted: `import sys`. The harness passes the local server's 127.0.0.1 URL on the command line, and this code only reads it. A solution for the live site writes the URL inline.
+[^14]: Not counted: `import sys`. The harness passes the local server's 127.0.0.1 URL on the command line, and this code only reads it. A solution for the live site writes the URL inline.
 [^15]: The unpacked archive: `pandoc.exe`, its manual and its licence files. pandoc is not a Python package, so its package count reads 0.
 
 ### Solutions

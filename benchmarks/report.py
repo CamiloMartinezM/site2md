@@ -43,7 +43,10 @@ def _gap_text(gap: float | None) -> str:
 def local_only_note(lines: Sequence[str]) -> str:
     """Name the lines that were not counted because only the local server needs them."""
     named = ", ".join(f"`{line}`" for line in lines)
-    return f"Not counted, because they are needed only to serve the page from 127.0.0.1: {named}."
+    return (
+        f"Not counted: {named}. The harness passes the local server's 127.0.0.1 URL on the command line, "
+        "and this code only reads it. A solution for the live site writes the URL inline."
+    )
 
 
 def _distinct(results: Mapping[str, ToolResult], read: Callable[[ToolResult], str]) -> str:
