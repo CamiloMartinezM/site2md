@@ -60,9 +60,9 @@ The page copy was downloaded on 2026-11-06. Its SHA-256 is `4c68c2a54000607a0fa5
 
 | Tool | Version | Output matches | Time | Lines | Install size | Packages | Crawl output matches | Extra pages | Shortest gap | Crawl lines |
 |---|---|---|---|---|---|---|---|---|---|---|
-| site2md | 0.4.3 | yes | 1.83 s ± 0.25 s | 54 | 11.5 MB | 20 | yes | 0 | 0.979 s [^1] | 54 |
-| Scrapling | 0.5.1 | yes | 300 ms ± 7 ms | 12 [^2] | 242.9 MB [^3] | 23 | yes [^4] | 0 | 0.000 s [^5] | 19 [^6] |
-| crawl4ai | 0.9.5 | yes | 1.02 s ± 0.03 s | 24 [^7] [^8] | 554.8 MB [^9] | 96 | yes [^10] | 0 | 0.000 s [^11] | 38 [^12] |
+| site2md | 0.4.3 | yes | 1.73 s ± 0.02 s | 54 | 11.5 MB | 20 | yes | 0 | 0.980 s [^1] | 54 |
+| Scrapling | 0.5.1 | yes | 298 ms ± 7 ms | 12 [^2] | 242.9 MB [^3] | 23 | yes [^4] | 0 | 0.000 s [^5] | 19 [^6] |
+| crawl4ai | 0.9.5 | yes | 1.02 s ± 0.02 s | 24 [^7] [^8] | 554.8 MB [^9] | 96 | yes [^10] | 0 | 0.000 s [^11] | 38 [^12] |
 | MarkItDown | 0.1.9 | yes | 730 ms ± 25 ms | 10 [^13] | 94.8 MB | 19 | no crawler | no crawler | no crawler | no crawler |
 | pandoc | 3.13 | yes | 252 ms ± 28 ms | 12 [^14] | 239.6 MB [^15] | 0 | no crawler | no crawler | no crawler | no crawler |
 
