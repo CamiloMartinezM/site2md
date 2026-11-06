@@ -29,7 +29,7 @@ BENCHMARKS.md is the only file rendered from all the results. Rerun `python -m b
 4. Serves the page on 127.0.0.1 on a free port, and runs hyperfine on the solution's steps joined with `&&`.
 5. Compares the last step's output with the reference, counts the solution's lines, and writes `results/<id>.json`. Then it refreshes BENCHMARKS.md, the same as `render`. If the output differs, the file records `"matches": false`, and the command prints the first difference and exits with status 1.
 
-Every child process gets `UV_CACHE_DIR` and the temporary-file variables pointing into `.cache`, so a run writes nowhere else. `UV_PYTHON_DOWNLOADS=never` makes a missing Python 3.12 an error instead of a download into uv's own folder; `uv python install 3.12` fixes it.
+Every child process gets `UV_CACHE_DIR`, `UV_TOOL_DIR` and the temporary-file variables pointing into `.cache`, so a run writes nowhere else. `UV_PYTHON_DOWNLOADS=never` makes a missing Python 3.12 an error instead of a download into uv's own folder; `uv python install 3.12` fixes it.
 
 ## Adding a tool
 
