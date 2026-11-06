@@ -63,14 +63,9 @@ You need [uv](https://docs.astral.sh/uv/), a Python 3.12 that uv can find (`uv p
 
 Run these commands from the repository root with Python 3.10 or later. The harness uses only the standard library.
 
-```
-python -m benchmarks run site2md
-python -m benchmarks render
-```
-
-- `run <tool>` measures one tool, checks its output against the reference, and writes `benchmarks/results/<tool>.json`. The tool is a folder name in `benchmarks/tools`.
-- `render` rebuilds the generated part of this file from every results file. After a merge conflict in this file, rerun it.
-- `reference` downloads the page afresh, pins its date and hash, and rebuilds the reference records. It is needed only when the page changes. Spot-check the records by hand before you commit them.
+- `python -m benchmarks run site2md` measures one tool, checks its output against the reference, writes `benchmarks/results/site2md.json` and refreshes the generated part of this file. Any folder name in `benchmarks/tools` works in place of `site2md`. If the output differs from the reference, the command says where and exits with status 1.
+- `python -m benchmarks render` rebuilds the generated part of this file from every results file, without running anything. After a merge conflict in this file, rerun it.
+- `python -m benchmarks reference` downloads the page afresh, pins its date and hash, and rebuilds the reference records. It is needed only when the page changes. Spot-check the records by hand before you commit them.
 
 A run writes only into the git-ignored `benchmarks/.cache`, and its servers use whatever port is free, so runs in separate checkouts can overlap. [`benchmarks/README.md`](benchmarks/README.md) explains the harness and how to add a tool.
 

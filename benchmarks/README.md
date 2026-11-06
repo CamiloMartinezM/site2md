@@ -3,7 +3,7 @@
 The harness behind [BENCHMARKS.md](../BENCHMARKS.md). It uses only the standard library, and it never becomes a site2md dependency: the wheel packages `src/site2md` alone.
 
 ```
-python -m benchmarks run <tool>   # measure one tool, write results/<tool>.json
+python -m benchmarks run <tool>   # measure one tool, write results/<tool>.json, refresh BENCHMARKS.md
 python -m benchmarks render       # rebuild BENCHMARKS.md's generated part from every results file
 python -m benchmarks reference    # download the page afresh, pin it, rebuild expected/countries.json
 ```
@@ -27,13 +27,13 @@ BENCHMARKS.md is the only file rendered from all the results. Rerun `python -m b
 2. Reuses the cached page copy, or downloads it, and checks its SHA-256 against `expected/page.json`.
 3. Creates a fresh uv environment on Python 3.12, installs the tool's pinned requirements, and measures the install. Then it runs the tool's `setup` commands.
 4. Serves the page on 127.0.0.1 on a free port, and runs hyperfine on the solution's steps joined with `&&`.
-5. Compares the last step's output with the reference, counts the solution's lines, and writes `results/<id>.json`.
+5. Compares the last step's output with the reference, counts the solution's lines, and writes `results/<id>.json`. Then it refreshes BENCHMARKS.md, the same as `render`. If the output differs, the file records `"matches": false`, and the command prints the first difference and exits with status 1.
 
 Every child process gets `UV_CACHE_DIR` and the temporary-file variables pointing into `.cache`, so a run writes nowhere else. `UV_PYTHON_DOWNLOADS=never` makes a missing Python 3.12 an error instead of a download into uv's own folder; `uv python install 3.12` fixes it.
 
 ## Adding a tool
 
-Create `tools/<id>/tool.json` and the files it names, then run `python -m benchmarks run <id>` and `python -m benchmarks render`. No harness code changes. `tools/site2md` is the worked example.
+Create `tools/<id>/tool.json` and the files it names, then run `python -m benchmarks run <id>`. No harness code changes. `tools/site2md` is the worked example.
 
 ```json
 {

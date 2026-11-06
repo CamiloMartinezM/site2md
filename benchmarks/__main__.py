@@ -20,32 +20,6 @@ from benchmarks.results import write_result
 from benchmarks.runner import build_reference, run_tool
 
 
-def _run(tool_id: str) -> None:
-    """Measure one tool, write its results file and report what was measured."""
-    if tool_id not in tool_ids():
-        raise HarnessError(f"unknown tool '{tool_id}'; the tools are {', '.join(tool_ids())}")
-    tool = load_tool(TOOLS_DIRECTORY / tool_id)
-    result, difference = run_tool(tool)
-    path = write_result(tool_id, result)
-    page = result["page"]
-    print(
-        f"{tool.name} {result['version']}: {page['time']['mean'] * 1000:.0f} ms "
-        f"+/- {page['time']['stddev'] * 1000:.0f} ms, {page['lines']['counted']} lines, "
-        f"{result['install']['size_bytes'] / 1e6:.1f} MB in {len(result['install']['packages'])} packages."
-    )
-    if difference is None:
-        print("The output matches the reference exactly.")
-    else:
-        print(f"The output does NOT match the reference: {difference}")
-    print(f"Wrote {path.relative_to(REPOSITORY_ROOT)}. Run `python -m benchmarks render` to update BENCHMARKS.md.")
-
-
-def _reference() -> None:
-    """Rebuild the reference records from a freshly downloaded and pinned page copy."""
-    count = build_reference()
-    print(f"Wrote {count} records to {REFERENCE.relative_to(REPOSITORY_ROOT)}. Spot-check them before you commit.")
-
-
 def _render() -> None:
     """Rebuild the generated part of BENCHMARKS.md from the committed results."""
     document = BENCHMARKS_DOCUMENT.read_text(encoding="utf-8")
@@ -58,6 +32,33 @@ def _render() -> None:
         return
     write_atomically(BENCHMARKS_DOCUMENT, rendered.encode("utf-8"))
     print("Updated BENCHMARKS.md.")
+
+
+def _run(tool_id: str) -> None:
+    """Measure one tool, write its results file, refresh BENCHMARKS.md and report the outcome."""
+    if tool_id not in tool_ids():
+        raise HarnessError(f"unknown tool '{tool_id}'; the tools are {', '.join(tool_ids())}")
+    tool = load_tool(TOOLS_DIRECTORY / tool_id)
+    result, difference = run_tool(tool)
+    path = write_result(tool_id, result)
+    page = result["page"]
+    print(
+        f"{tool.name} {result['version']}: {page['time']['mean'] * 1000:.0f} ms "
+        f"+/- {page['time']['stddev'] * 1000:.0f} ms, {page['lines']['counted']} lines, "
+        f"{result['install']['size_bytes'] / 1e6:.1f} MB in {len(result['install']['packages'])} packages."
+    )
+    print(f"Wrote {path.relative_to(REPOSITORY_ROOT)}.")
+    _render()
+    # The results are written first, so that the table can show "no" for a solution that fails the check.
+    if difference is not None:
+        raise HarnessError(f"the output does not match the reference: {difference}")
+    print("The output matches the reference exactly.")
+
+
+def _reference() -> None:
+    """Rebuild the reference records from a freshly downloaded and pinned page copy."""
+    count = build_reference()
+    print(f"Wrote {count} records to {REFERENCE.relative_to(REPOSITORY_ROOT)}. Spot-check them before you commit.")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
