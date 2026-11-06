@@ -57,18 +57,38 @@ The page copy was downloaded on 2026-11-06. Its SHA-256 is `4c68c2a54000607a0fa5
 | Tool | Version | Output matches | Time | Lines | Install size | Packages | Crawl output matches | Extra pages | Shortest gap | Crawl lines |
 |---|---|---|---|---|---|---|---|---|---|---|
 | site2md | 0.4.3 | yes | 1.95 s ± 0.24 s | 54 | 11.5 MB | 20 | yes | 0 | 0.965 s [^1] | 54 |
+| Scrapling | 0.5.1 | yes | 321 ms ± 8 ms | 12 [^2] | 242.9 MB [^3] | 23 | no crawler | no crawler | no crawler | no crawler |
+| crawl4ai | 0.9.5 | yes | 1.10 s ± 0.04 s | 24 [^4] [^5] | 554.8 MB [^6] | 96 | no crawler | no crawler | no crawler | no crawler |
+| MarkItDown | 0.1.9 | yes | 730 ms ± 25 ms | 10 [^7] | 94.8 MB | 19 | no crawler | no crawler | no crawler | no crawler |
+| pandoc | 3.13 | yes | 252 ms ± 28 ms | 12 [^8] | 239.6 MB [^9] | 0 | no crawler | no crawler | no crawler | no crawler |
 
 [^1]: site2md waits one second from the start of one request to the start of the next, as its traversal policy says. The server stamps each request when it arrives, and arrival times vary by a few tens of milliseconds, so the shortest gap in the log can be slightly under one second.
+[^2]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
+[^3]: The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded.
+[^4]: crawl4ai's `crwl` command line does the task in one line, but it always starts a browser, so that line isn't counted. The count is for the Python solution, which uses the HTTP-only crawler strategy.
+[^5]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
+[^6]: crawl4ai requires Playwright and Patchright even for its HTTP-only strategy, so no smaller install exists. They take 110 MB each because each bundles a Node driver. No browser is downloaded.
+[^7]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
+[^8]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
+[^9]: The unpacked archive: `pandoc.exe`, its manual and its licence files. pandoc is not a Python package, so its package count reads 0.
 
 ### Solutions
 
 - **site2md**: `build` converts the page, `extract` runs a minimal Extractor written for this benchmark, and one last step writes the record values. The crawl runs `build` in site mode with `--max-pages 20 --max-depth 2` and reuses the same Extractor across the document's source sections. site2md is installed from its release tag, because the PyPI name belongs to a different project.
+- **Scrapling**: Scrapling's HTTP fetcher gets the page and CSS selectors read each country. The `fetchers` extra is the smallest one that provides the fetcher, and no browser is downloaded or started.
+- **crawl4ai**: Its HTTP-only crawler strategy fetches the page and its CSS extraction strategy reads each country as text, then a short loop converts the numbers and the missing capital. No browser is downloaded or started. Its home folder, where it keeps logs and a robots.txt cache, is moved into the benchmark's cache.
+- **MarkItDown**: `MarkItDown().convert` fetches the page and converts it to Markdown, and a regular expression parses the Markdown into the records. It has no crawler.
+- **pandoc**: `pandoc -f html -t gfm` fetches the page and converts it to Markdown, and a regular expression parses the Markdown into the records. It has no crawler. pandoc is not a Python package: the harness unpacks the official Windows release archive and puts its folder first on PATH, so a pandoc installed on the machine never runs. The pandoc project publishes no checksum, so the pinned SHA-256 is the digest that GitHub shows for the release asset, which matches the first download.
 
 ### Versions and raw results
 
 | Tool | Version | Date | Raw results |
 |---|---|---|---|
 | site2md | 0.4.3 | 2026-11-06 | [site2md.json](benchmarks/results/site2md.json) |
+| Scrapling | 0.5.1 | 2026-11-06 | [scrapling.json](benchmarks/results/scrapling.json) |
+| crawl4ai | 0.9.5 | 2026-11-06 | [crawl4ai.json](benchmarks/results/crawl4ai.json) |
+| MarkItDown | 0.1.9 | 2026-11-06 | [markitdown.json](benchmarks/results/markitdown.json) |
+| pandoc | 3.13 | 2026-11-06 | [pandoc.json](benchmarks/results/pandoc.json) |
 <!-- benchmarks:generated:end -->
 
 ## Rerun

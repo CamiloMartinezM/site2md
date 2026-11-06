@@ -30,7 +30,7 @@ BENCHMARKS.md is the only file rendered from all the results. Rerun `python -m b
 5. Compares the last step's output with the reference, counts the solution's lines, and, if the tool has a crawl solution, runs the crawl task once (see below).
 6. Writes `results/<id>.json`. Then it refreshes BENCHMARKS.md, the same as `render`. If an output differs, the file records `"matches": false` for that task, and the command prints the first difference and exits with status 1.
 
-Every child process gets `UV_CACHE_DIR` and the temporary-file variables pointing into `.cache`, so a run writes nowhere else. `UV_PYTHON_DOWNLOADS=never` makes a missing Python 3.12 an error instead of a download into uv's own folder; `uv python install 3.12` fixes it.
+Every child process gets `UV_CACHE_DIR`, `UV_TOOL_DIR` and the temporary-file variables pointing into `.cache`, so a run writes nowhere else. `UV_PYTHON_DOWNLOADS=never` makes a missing Python 3.12 an error instead of a download into uv's own folder; `uv python install 3.12` fixes it.
 
 ## Adding a tool
 
@@ -99,7 +99,7 @@ The results file gains a `crawl` object with `matches`, `extra_pages` (the paths
 
 ### Install size
 
-The size of the environment's site-packages, without bytecode caches, plus anything an `install` command unpacked into `{environment}` outside `venv/`. The packages are the `.dist-info` folders. A tool that is not a Python package, such as pandoc, unpacks its archive into `{environment}`, checks the archive's checksum in its own `install` command, and adds the unpacked folder to `path`.
+The size of the environment's site-packages, without bytecode caches, plus anything an `install` command unpacked into `{environment}` outside `venv/`. The packages are the `.dist-info` folders. A tool that is not a Python package, such as pandoc, unpacks its archive into `{environment}`, checks the archive's checksum in its own `install` command, and adds the unpacked folder to `path`. `tools/pandoc/install_archive.py` does the first two for a zip: it refuses an archive whose SHA-256 is not the pinned one before it unpacks anything.
 
 ## Tests
 

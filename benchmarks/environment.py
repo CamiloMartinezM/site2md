@@ -47,7 +47,7 @@ def _expand(text: str, values: Mapping[str, str]) -> str:
         raise HarnessError(f"unknown placeholder {error} in '{text}'") from error
 
 
-def _child_variables() -> dict[str, str]:
+def child_variables() -> dict[str, str]:
     """Return the variables for every child process: all writes land in the cache, none leak in."""
     temporary = CACHE_DIRECTORY / "tmp"
     temporary.mkdir(parents=True, exist_ok=True)
@@ -59,6 +59,8 @@ def _child_variables() -> dict[str, str]:
     variables.update(
         {
             "UV_CACHE_DIR": str(CACHE_DIRECTORY / "uv"),
+            # `uv tool run`, which formats the solutions, otherwise keeps a lock file in the user's uv folder.
+            "UV_TOOL_DIR": str(CACHE_DIRECTORY / "uv-tools"),
             # Copies, so the size on disk is the install's own and never shared with the cache.
             "UV_LINK_MODE": "copy",
             # A missing interpreter must fail rather than download into uv's own folder.
@@ -151,7 +153,7 @@ def install_tool(tool: Tool) -> tuple[Environment, InstallResult]:
     directory = fresh_directory(CACHE_DIRECTORY / "envs" / tool.id)
     venv = directory / "venv"
     python = _scripts_directory(venv) / ("python.exe" if sys.platform == "win32" else "python")
-    variables = _child_variables()
+    variables = child_variables()
     run_command([uv, "venv", "--no-config", "--python", PYTHON_VERSION, str(venv)], variables=variables, cwd=directory)
     values = {
         "python": str(python),
