@@ -1,0 +1,16 @@
+{
+  "name": "Scrapling",
+  "version": "0.5.1",
+  "solution": "Scrapling's HTTP fetcher gets the page and CSS selectors read each country. The `fetchers` extra is the smallest one that provides the fetcher, and no browser is downloaded or started.",
+  "requirements": [
+    "scrapling[fetchers]=={version}"
+  ],
+  "footnotes": [
+    {"column": "size", "text": "The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded."}
+  ],
+  "page": {
+    "steps": [
+      {"run": "python page.py {url}", "file": "page.py"}
+    ]
+  }
+}
