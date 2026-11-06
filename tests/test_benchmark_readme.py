@@ -63,6 +63,12 @@ class RenderTableTests(unittest.TestCase):
         rows = [line.split("|")[1].strip() for line in render_table(tools, results).splitlines()[2:4]]
         self.assertEqual(rows, ["site2md", "pandoc"])
 
+    def test_a_tool_added_later_gets_a_row_after_the_documented_tools(self) -> None:
+        tools = [make_tool("newcomer", name="New Comer"), make_tool("pandoc")]
+        results = {"newcomer": make_result(lines=7, crawl_lines=3), "pandoc": make_result()}
+        table = render_table(tools, results)
+        self.assertLess(table.index("| pandoc |"), table.index("| New Comer | 661 ms ± 10 ms | 7 | 3 | 11.5 MB |"))
+
     def test_footnotes_from_the_tool_are_numbered_in_row_order(self) -> None:
         tools = [
             make_tool("site2md", Footnote("time", "Time note.")),
@@ -79,7 +85,7 @@ class RenderTableTests(unittest.TestCase):
         table = render_table(tools, {"markitdown": make_result(), "pandoc": make_result()})
         self.assertIn("| markitdown | 661 ms ± 10 ms | 54 | – [^1] |", table)
         self.assertIn("| pandoc | 661 ms ± 10 ms | 54 | – [^1] |", table)
-        self.assertEqual(table.count("[^1]:"), 1)
+        self.assertTrue(table.endswith("\n[^1]: No crawler.\n"))
 
     def test_lines_needed_only_for_the_local_server_get_a_footnote_that_names_them(self) -> None:
         results = {
