@@ -1,0 +1,22 @@
+{
+  "name": "site2md",
+  "version": "0.4.3",
+  "requirements": [
+    "site2md @ git+https://github.com/CamiloMartinezM/site2md@v{version}"
+  ],
+  "setup": [
+    ["uv", "pip", "install", "--python", "{python}", "{tool}/extractor"]
+  ],
+  "page": {
+    "steps": [
+      {"run": "site2md build {url} --output page.md"},
+      {"run": "site2md extract benchmark.countries page.md --output result.json"},
+      {"run": "python records.py", "file": "records.py"}
+    ],
+    "files": [
+      "extractor/pyproject.toml",
+      "extractor/benchmark_countries/__init__.py",
+      "extractor/benchmark_countries/provider-manifest-v1.json"
+    ]
+  }
+}
