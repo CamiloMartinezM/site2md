@@ -27,7 +27,8 @@ BENCHMARKS.md is the only file rendered from all the results. Rerun `python -m b
 2. Reuses the cached page copy, or downloads it, and checks its SHA-256 against `expected/page.json`.
 3. Creates a fresh uv environment on Python 3.12, installs the tool's pinned requirements, and measures the install. Then it runs the tool's `setup` commands.
 4. Serves the page on 127.0.0.1 on a free port, and runs hyperfine on the solution's steps joined with `&&`.
-5. Compares the last step's output with the reference, counts the solution's lines, and writes `results/<id>.json`. Then it refreshes BENCHMARKS.md, the same as `render`. If the output differs, the file records `"matches": false`, and the command prints the first difference and exits with status 1.
+5. Compares the last step's output with the reference, counts the solution's lines, and, if the tool has a crawl solution, runs the crawl task once (see below).
+6. Writes `results/<id>.json`. Then it refreshes BENCHMARKS.md, the same as `render`. If an output differs, the file records `"matches": false` for that task, and the command prints the first difference and exits with status 1.
 
 Every child process gets `UV_CACHE_DIR` and the temporary-file variables pointing into `.cache`, so a run writes nowhere else. `UV_PYTHON_DOWNLOADS=never` makes a missing Python 3.12 an error instead of a download into uv's own folder; `uv python install 3.12` fixes it.
 
@@ -53,10 +54,11 @@ Create `tools/<id>/tool.json` and the files it names, then run `python -m benchm
 | `setup` | Optional argument lists that run after the measurement, such as installing site2md's benchmark Extractor. Same placeholders |
 | `path` | Optional folders of `{environment}` to put on PATH, besides the Python environment's own scripts folder |
 | `env` | Optional environment variables for the solution and `setup`. Values accept the same placeholders |
-| `footnotes` | Optional notes: `{"column": "time" \| "lines" \| "size", "text": "..."}`. The report numbers them and puts them under the table |
+| `footnotes` | Optional notes: `{"column": "time" \| "lines" \| "size" \| "crawl" \| "gap", "text": "..."}`. The report numbers them and puts them under the table. `crawl` explains the crawl output check, and `gap` the shortest gap |
 | `page.steps` | The solution, in order. See below |
 | `page.files` | Other files that the solution needs and that count toward its lines, such as an Extractor |
 | `page.output_file` | Optional. Where the last step writes the records. By default its standard output is saved as `output.json` |
+| `crawl` | Optional. The crawl solution, with the same `steps`, `files` and `output_file` as `page`. A tool without it shows "no crawler" in the crawl columns |
 
 Unknown keys are errors, and so is a file that doesn't exist.
 
@@ -66,9 +68,30 @@ Each step is `{"run": "<command>"}`, typed as a user would type it. The commands
 
 The last step must produce the JSON array of records, as `{"name", "capital", "population", "area_km2"}` objects in page order, with an integer population, a number for the area and `null` for a missing capital. Write the file with UTF-8 encoding, or print ASCII-only JSON, because Windows consoles and files default to a legacy code page.
 
+### The crawl solution
+
+A `crawl` solution has the same shape as `page`, but `{url}` is the entry page of a site that `crawl.py` generates from the page copy: `http://127.0.0.1:<port>/`. The last step must write the records of every page it crawled, in any order. The solution keeps its own limits: breadth first, depth 2 and at most 20 pages. It runs once through the platform shell and isn't timed.
+
+| Pages | Depth | Hold |
+|---|---|---|
+| `/` | 0 | a share of the 250 countries |
+| `/level-1/page-1.html` to `page-4.html` | 1 | a share |
+| `/level-2/page-1.html` to `page-15.html` | 2 | a share |
+| `/level-3/page-1.html` to `page-5.html`, each linked from one of the first five level-2 pages | 3 | two decoy countries each, named `Decoy Country N`, which must not be in the output |
+
+The 20 pages within depth 2 split the 250 countries round-robin. Each page links to its children and, except the entry page, back to the entry page, as many sites do. The page copy's own menu links are removed, because they would return 404 here. Its link to the data source on another site stays, so that a crawler has to stay on the site. `robots.txt` allows everything.
+
+The check takes the pages and the gaps from the server's request log, never from what a tool reports:
+
+- **Crawl output matches** compares the records with `expected/countries.json` as a set: order and repeated records don't matter, and number types do.
+- **Extra pages** counts every page request beyond one fetch of each of the 20 expected pages: decoys, a second fetch of any page, and paths the site doesn't have. `robots.txt` is not a page.
+- **Shortest gap** is the shortest time between two consecutive child-page requests. The first page request is the entry page, so the gap between it and the first child doesn't count.
+
+The results file gains a `crawl` object with `matches`, `extra_pages` (the paths), `shortest_gap` (seconds, or `null` when there were fewer than two child requests) and `lines`. A results file without it, from before the crawl task or from a tool without a crawler, still loads.
+
 ### Line counts
 
-`python -m benchmarks` counts the solution under the rules in BENCHMARKS.md:
+`python -m benchmarks` counts each solution under the rules in BENCHMARKS.md:
 
 - A step counts one line. A step with a `file` counts that file's lines instead.
 - Python is formatted with `ruff format` (88 columns, ignoring the project's settings) at the version in `line_count.py`, and then its non-blank, non-comment lines are counted. Docstrings count. JSON is re-indented with two spaces. TOML counts as written, so write one key per line.
@@ -80,4 +103,4 @@ The size of the environment's site-packages, without bytecode caches, plus anyth
 
 ## Tests
 
-`tests/test_benchmark_*.py` run in CI without any benchmarked tool: the line counter, the output comparison, the hyperfine summary, the report and the fixture server. Two of them check the committed files: no results file names a path or a machine, and BENCHMARKS.md matches what `render` produces.
+`tests/test_benchmark_*.py` run in CI without any benchmarked tool: the line counter, the output comparisons, the hyperfine summary, the report, the fixture server, and the crawl site and request-log readers. Two of them check the committed files: no results file names a path or a machine, and BENCHMARKS.md matches what `render` produces.

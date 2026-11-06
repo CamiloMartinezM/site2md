@@ -12,10 +12,22 @@ Extract the 250 countries from a local copy of [Scrape This Site's countries pag
 - **The reference.** `benchmarks/expected/countries.json` holds the record values that site2md's built-in `site2md.scrapethissite.countries` Extractor produces from that copy. It holds country facts, not the page. Population is an integer, area is a number, and a missing capital is `null`: the page writes `None` for those.
 - **The server.** The copy is served on 127.0.0.1, on a port that the system picks for each run.
 
+## The crawl task
+
+Start from the index of a generated local site, crawl breadth first within depth 2 and at most 20 pages, and extract the same 250 countries. The output is the same JSON array of records. It must match the reference **as a set**, because crawlers visit pages in different orders: order and repeated records don't matter, and number types still do.
+
+- **The site.** The harness generates it from the page copy. The index and 19 pages below it, within depth 2, split the 250 countries between them. Five more pages one level deeper hold decoy countries (`Decoy Country 1` and so on) that must not appear in the output. Every page except the index links back to the index. The copy's own menu links, which return 404 on a local server, are removed. Its `robots.txt` allows everything. [`benchmarks/README.md`](benchmarks/README.md) lists the pages.
+- **Not timed.** Site and follow modes space child requests at least one second apart, and [there is no delay override](https://github.com/CamiloMartinezM/site2md/blob/e6c8a04beb0c386a2d07d6addaf0c9e35598d66e/docs/traversal-policy.md#L35). Against tools at their defaults, site2md would always finish a crawl last. Each crawl runs once to check its output, and nobody times it.
+- **Checks.** They come from the server's request log, never from a tool's own report:
+  - **Crawl output matches:** whether the output matches the reference as a set.
+  - **Extra pages:** the pages fetched beyond one fetch of each of the 20 expected pages. A decoy, a second fetch of any page, and a path that the site doesn't have each count. `robots.txt` isn't a page.
+  - **Shortest gap:** the shortest time between two consecutive child-page requests. The entry page isn't a child, so the gap between it and the first child doesn't count. The server stamps a request when it arrives, so a client that waits exactly one second between request starts can show a gap a few tens of milliseconds under one second.
+- **Tools without a crawler** show "no crawler" in the crawl columns.
+
 ## Method
 
 - **Time.** `hyperfine --warmup 3` with its default run count and a fresh process per run. It times the same solution that the line count counts, end to end, with the page served locally. The table shows the mean ± standard deviation.
-- **Line counts.** The non-blank, non-comment lines of every file a user would write for the solution, using the shortest solution that works.
+- **Line counts.** The non-blank, non-comment lines of every file a user would write for the solution, using the shortest solution that works. The page task and the crawl task are counted separately, and "Lines" is the page task's count.
   - Python is formatted with `ruff format` (88 columns), and imports count.
   - A shell command counts as one line. Python inside a shell command counts as its formatted lines.
   - JSON is formatted with two-space indentation, and TOML has one key per line.
@@ -44,11 +56,13 @@ The page copy was downloaded on 2026-11-06. Its SHA-256 is `4c68c2a54000607a0fa5
 
 | Tool | Version | Output matches | Time | Lines | Install size | Packages | Crawl output matches | Extra pages | Shortest gap | Crawl lines |
 |---|---|---|---|---|---|---|---|---|---|---|
-| site2md | 0.4.3 | yes | 1.78 s ± 0.22 s | 54 | 11.5 MB | 20 | no crawler | no crawler | no crawler | no crawler |
+| site2md | 0.4.3 | yes | 1.95 s ± 0.24 s | 54 | 11.5 MB | 20 | yes | 0 | 0.965 s [^1] | 54 |
+
+[^1]: site2md waits one second from the start of one request to the start of the next, as its traversal policy says. The server stamps each request when it arrives, and arrival times vary by a few tens of milliseconds, so the shortest gap in the log can be slightly under one second.
 
 ### Solutions
 
-- **site2md**: `build` converts the page, `extract` runs a minimal Extractor written for this benchmark, and one last step writes the record values. site2md is installed from its release tag, because the PyPI name belongs to a different project.
+- **site2md**: `build` converts the page, `extract` runs a minimal Extractor written for this benchmark, and one last step writes the record values. The crawl runs `build` in site mode with `--max-pages 20 --max-depth 2` and reuses the same Extractor across the document's source sections. site2md is installed from its release tag, because the PyPI name belongs to a different project.
 
 ### Versions and raw results
 
