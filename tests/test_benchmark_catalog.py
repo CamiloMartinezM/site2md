@@ -90,6 +90,21 @@ class CountSolutionTests(ToolDirectoryTestCase):
             LineCount(1, ('allow("127.0.0.1")',)),
         )
 
+    def test_the_crawl_solution_is_counted_apart_from_the_page_solution(self) -> None:
+        self.write("records.py", "import json\n\nprint(json.dumps([]))\n")
+        self.write_definition(
+            crawl={
+                "steps": [
+                    {"run": "example crawl {url} --max-pages 20"},
+                    {"run": "python records.py", "file": "records.py"},
+                ]
+            }
+        )
+        tool = load_tool(self.directory)
+        self.assertEqual(count_solution(tool, "page", format_python=_unformatted), LineCount(1, ()))
+        # 1 command + 2 Python lines
+        self.assertEqual(count_solution(tool, "crawl", format_python=_unformatted), LineCount(3, ()))
+
     def test_a_file_type_without_counting_rules_is_rejected(self) -> None:
         self.write("notes.md", "text\n")
         self.write_definition(page={"steps": [{"run": "example {url}"}], "files": ["notes.md"]})
@@ -107,6 +122,21 @@ class LoadToolTests(ToolDirectoryTestCase):
         self.assertEqual(tool.solution, "Fetch the page.")
         self.assertEqual(tool.requirements, ("example==1.0",))
         self.assertEqual(tool.footnotes, ())
+
+    def test_a_tool_may_define_a_crawl_solution_next_to_its_page_solution(self) -> None:
+        self.write_definition(crawl={"steps": [{"run": "example crawl {url}"}]})
+        tool = load_tool(self.directory)
+        self.assertEqual(sorted(tool.tasks), ["crawl", "page"])
+        self.assertEqual(tool.tasks["crawl"].steps[0].run, "example crawl {url}")
+
+    def test_a_tool_without_a_crawl_solution_has_only_the_page_task(self) -> None:
+        self.write_definition()
+        self.assertEqual(list(load_tool(self.directory).tasks), ["page"])
+
+    def test_a_crawl_solution_needs_its_steps_and_files_like_a_page_solution(self) -> None:
+        self.write_definition(crawl={"steps": [{"run": "python gone.py", "file": "gone.py"}]})
+        with self.assertRaisesRegex(ValueError, "crawl.*gone.py"):
+            load_tool(self.directory)
 
     def test_a_missing_key_is_named(self) -> None:
         self.write("tool.json", json.dumps({"name": "Example"}))

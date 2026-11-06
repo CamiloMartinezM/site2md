@@ -14,7 +14,8 @@ from benchmarks.paths import TOOLS_DIRECTORY
 
 # The table columns that a footnote can explain.
 FOOTNOTE_COLUMNS = ("time", "lines", "size")
-TASKS = ("page",)
+# Every tool has a page solution. A tool without a crawl solution is shown as having no crawler.
+TASKS = ("page", "crawl")
 _SUFFIX_KINDS: Mapping[str, SourceKind] = {
     ".py": "python",
     ".json": "json",
@@ -166,8 +167,8 @@ def load_tool(directory: Path) -> Tool:
     data = expect_object(loaded, where)
     _keys(
         data,
-        required=("name", "version", "solution", "requirements", *TASKS),
-        optional=("install", "setup", "path", "env", "footnotes"),
+        required=("name", "version", "solution", "requirements", "page"),
+        optional=("crawl", "install", "setup", "path", "env", "footnotes"),
         where=where,
     )
     version = expect_string(data["version"], f"{where}.version")
@@ -182,7 +183,7 @@ def load_tool(directory: Path) -> Tool:
             requirement.format(version=version)
             for requirement in _strings(data["requirements"], f"{where}.requirements")
         ),
-        tasks={task: _solution(data[task], directory, f"{where}.{task}") for task in TASKS},
+        tasks={task: _solution(data[task], directory, f"{where}.{task}") for task in TASKS if task in data},
         install=_commands(data.get("install", []), f"{where}.install"),
         setup=_commands(data.get("setup", []), f"{where}.setup"),
         path=_strings(data.get("path", []), f"{where}.path"),
