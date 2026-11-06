@@ -37,6 +37,8 @@ def extract(
     output: Path | None = None,
 ) -> None:
     """Extract structured records from a Markdown file or standard input."""
+    if output is not None and not output.parent.is_dir():
+        _extract_failure(f"output folder does not exist: {output.parent}")
     try:
         if input_source == "-":
             input_bytes = sys.stdin.buffer.read()
@@ -263,6 +265,14 @@ def build(
         or max_page_size_mib is not None
     ):
         console.print("[red]Error:[/red] Remote build options require an HTTP(S) URL.")
+        sys.exit(1)
+
+    # Check before any work, so a remote build never requests a page it cannot save.
+    if not output.parent.is_dir():
+        console.print(
+            f"[red]Error:[/red] Output folder '{output.parent}' does not exist.",
+            soft_wrap=True,
+        )
         sys.exit(1)
 
     if is_remote:

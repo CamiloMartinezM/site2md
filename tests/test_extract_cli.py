@@ -185,6 +185,53 @@ os.replace = observing_replace
             self.assertEqual(audit_path.read_text(encoding="utf-8"), str(len(payload)))
             self.assertEqual(json.loads(payload)["records"][0]["value"]["name"], "Atomic")
 
+    def test_extract_names_a_missing_output_folder(self) -> None:
+        markdown = b"""### Example
+
+**Capital:** Test City
+**Population:** 125000
+**Area (km2):** 468
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = Path(temp_dir) / "countries.md"
+            input_path.write_bytes(markdown)
+            missing_folder = Path(temp_dir) / "missing"
+
+            result = self.run_site2md(
+                "extract",
+                "site2md.scrapethissite.countries",
+                input_path,
+                "--output",
+                missing_folder / "result.json",
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout, b"")
+            self.assertEqual(
+                result.stderr.decode().splitlines(),
+                [f"error: output folder does not exist: {missing_folder}"],
+            )
+            self.assertFalse(missing_folder.exists())
+
+    def test_extract_checks_the_output_folder_before_reading_input(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            missing_folder = Path(temp_dir) / "missing"
+
+            result = self.run_site2md(
+                "extract",
+                "site2md.scrapethissite.countries",
+                Path(temp_dir) / "absent.md",
+                "--output",
+                missing_folder / "result.json",
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout, b"")
+            self.assertEqual(
+                result.stderr.decode().splitlines(),
+                [f"error: output folder does not exist: {missing_folder}"],
+            )
+
     def test_extract_failures_preserve_output_and_leave_standard_output_empty(
         self,
     ) -> None:
