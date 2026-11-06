@@ -1,0 +1,39 @@
+{
+  "name": "crawl4ai",
+  "version": "0.9.5",
+  "solution": "Its HTTP-only crawler strategy fetches the page and its CSS extraction strategy reads each country as text, then a short loop converts the numbers and the missing capital. The crawl is its breadth-first deep crawl with the same extraction strategy. No browser is downloaded or started. Its home folder, where it keeps logs and a robots.txt cache, is moved into the benchmark's cache.",
+  "requirements": [
+    "crawl4ai=={version}"
+  ],
+  "env": {
+    "CRAWL4_AI_BASE_DIRECTORY": "{cache}/work/crawl4ai/home"
+  },
+  "page": {
+    "steps": [
+      {"run": "python page.py {url}", "file": "page.py"}
+    ]
+  },
+  "crawl": {
+    "steps": [
+      {"run": "python crawl.py {url}", "file": "crawl.py"}
+    ]
+  },
+  "footnotes": [
+    {
+      "column": "crawl",
+      "text": "crawl4ai's breadth-first crawl never marks the entry page as visited, so every page that links back to it queues it again. A filter keeps it out. Without the filter the entry page is fetched twice, and the second fetch uses one of the 20 pages, so a country page is left out."
+    },
+    {
+      "column": "gap",
+      "text": "At its defaults crawl4ai runs up to five fetches at once, with a random delay of 0.1 to 0.4 s per host that doesn't carry over from one level to the next, so some requests reach the server together."
+    },
+    {
+      "column": "lines",
+      "text": "crawl4ai's `crwl` command line does the task in one line, but it always starts a browser, so that line isn't counted. The count is for the Python solution, which uses the HTTP-only crawler strategy."
+    },
+    {
+      "column": "size",
+      "text": "crawl4ai requires Playwright and Patchright even for its HTTP-only strategy, so no smaller install exists. They take 110 MB each because each bundles a Node driver. No browser is downloaded."
+    }
+  ]
+}

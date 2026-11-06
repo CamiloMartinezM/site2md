@@ -1,0 +1,26 @@
+{
+  "name": "pandoc",
+  "version": "3.13",
+  "solution": "`pandoc -f html -t gfm` fetches the page and converts it to Markdown, and a regular expression parses the Markdown into the records. It has no crawler. pandoc is not a Python package: the harness unpacks the official Windows release archive and puts its folder first on PATH, so a pandoc installed on the machine never runs. The pandoc project publishes no checksum, so the pinned SHA-256 is the digest that GitHub shows for the release asset, which matches the first download.",
+  "requirements": [],
+  "install": [
+    [
+      "{python}",
+      "{tool}/install_archive.py",
+      "https://github.com/jgm/pandoc/releases/download/3.13/pandoc-3.13-windows-x86_64.zip",
+      "23e1f2e978a3df80db8bf65c9c59534f41a23140480cfb4f783a882ab7dc6a4e",
+      "{environment}"
+    ],
+    ["{environment}/pandoc-3.13/pandoc.exe", "--version"]
+  ],
+  "path": ["pandoc-3.13"],
+  "page": {
+    "steps": [{"run": "python page.py {url}", "file": "page.py"}]
+  },
+  "footnotes": [
+    {
+      "column": "size",
+      "text": "The unpacked archive: `pandoc.exe`, its manual and its licence files. pandoc is not a Python package, so its package count reads 0."
+    }
+  ]
+}

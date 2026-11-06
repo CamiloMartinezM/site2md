@@ -214,3 +214,6 @@ __marimo__/
 
 # Local Extractor implementations that must not be published
 /src/site2md/extractors/private/
+
+# Benchmark cache: the page copy, environments, uv cache and work folders
+/benchmarks/.cache/

@@ -1,0 +1,10 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "benchmark-countries"
+version = "0"
+
+[project.entry-points."site2md.extractors.v1"]
+"benchmark.countries" = "benchmark_countries:Countries"

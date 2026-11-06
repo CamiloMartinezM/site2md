@@ -1,0 +1,9 @@
+{
+  "name": "MarkItDown",
+  "version": "0.1.9",
+  "solution": "`MarkItDown().convert` fetches the page and converts it to Markdown, and a regular expression parses the Markdown into the records. It has no crawler.",
+  "requirements": ["markitdown=={version}"],
+  "page": {
+    "steps": [{"run": "python page.py {url}", "file": "page.py"}]
+  }
+}

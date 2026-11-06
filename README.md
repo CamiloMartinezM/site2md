@@ -12,8 +12,17 @@
 
 *Convert a local HTML tree or bounded remote web content into a Markdown document for LLM ingestion, offline reading, or archiving.*
 
+<!-- benchmarks:chart:start -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/benchmark-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/benchmark-light.svg">
+  <img alt="Bar chart of the disk space each tool's smallest install uses." src="docs/benchmark-light.svg">
+</picture>
 
-[Installation](#-installation) • [Features](#-features) • [Usage](#-usage) • [Remote modes](#choose-a-remote-mode) • [Examples](#-examples)
+*Disk space used by each tool's smallest install that can extract the countries from [Scrape This Site's countries page](https://www.scrapethissite.com/pages/simple/) without a browser. [Details](BENCHMARKS.md).*
+<!-- benchmarks:chart:end -->
+
+[Installation](#-installation) • [Features](#-features) • [Usage](#-usage) • [Remote modes](#choose-a-remote-mode) • [Examples](#-examples) • [Benchmarks](#-benchmarks)
 
 </div>
 
@@ -274,6 +283,31 @@ The Extractor converts numbers to JSON-native types, and `site2md` validates eac
   "area_km2": 468.0
 }
 ```
+
+---
+
+## 📊 Benchmarks
+
+site2md against the tools you might pick instead. Every tool extracts the same 250 countries from a local copy of the [Scrape This Site countries page](https://www.scrapethissite.com/pages/simple/) and must produce exactly the same JSON. Each tool's solution gets whatever code that takes, and its lines are the non-blank, non-comment lines a user would write, imports included. Time is the page task, as the mean ± standard deviation over fresh processes. The crawl starts from a generated local site and is checked once, never timed, because site2md spaces its requests at least one second apart and has no override. [BENCHMARKS.md](BENCHMARKS.md) has the method, the versions, the raw results, how to rerun them and the tools left out.
+
+<!-- benchmarks:table:start -->
+| Tool | Time | Lines (page) | Lines (crawl) | Install size |
+|---|---|---|---|---|
+| site2md | 1.72 s ± 0.01 s | 54 | 54 | 11.5 MB |
+| Scrapling | 302 ms ± 11 ms | 12 [^1] | 19 [^2] [^1] | 242.9 MB [^3] |
+| crawl4ai | 997 ms ± 17 ms | 24 [^4] [^1] | 38 [^5] [^1] | 554.8 MB [^6] |
+| MarkItDown | 689 ms ± 9 ms | 10 [^1] | – [^7] | 94.8 MB |
+| pandoc | 246 ms ± 5 ms | 12 [^1] | – [^7] | 239.6 MB [^8] |
+
+[^1]: Not counted: `import sys`. The harness passes the local server's 127.0.0.1 URL on the command line, and this code only reads it. A solution for the live site writes the URL inline.
+[^2]: Scrapling's spiders have no depth limit, and the `max_pages` of its Markdown spider limits what it converts, not what it fetches. The spider therefore carries each page's depth in its requests and keeps its own set of the pages it has queued. Without them it fetches the five decoy pages.
+[^3]: The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded.
+[^4]: crawl4ai's `crwl` command line does the task in one line, but it always starts a browser, so that line isn't counted. The count is for the Python solution, which uses the HTTP-only crawler strategy.
+[^5]: crawl4ai's breadth-first crawl never marks the entry page as visited, so every page that links back to it queues it again. A filter keeps it out. Without the filter the entry page is fetched twice, and the second fetch uses one of the 20 pages, so a country page is left out.
+[^6]: crawl4ai requires Playwright and Patchright even for its HTTP-only strategy, so no smaller install exists. They take 110 MB each because each bundles a Node driver. No browser is downloaded.
+[^7]: No crawler.
+[^8]: The unpacked archive: `pandoc.exe`, its manual and its licence files. pandoc is not a Python package, so its package count reads 0.
+<!-- benchmarks:table:end -->
 
 ---
 

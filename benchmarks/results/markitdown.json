@@ -1,0 +1,63 @@
+{
+  "version": "0.1.9",
+  "date": "2026-11-06",
+  "environment": {
+    "os": "Windows 11",
+    "python": "3.12.14",
+    "hyperfine": "2.0.0",
+    "uv": "0.12.21",
+    "ruff": "0.17.4"
+  },
+  "install": {
+    "size_bytes": 94792538,
+    "packages": {
+      "beautifulsoup4": "4.15.0",
+      "certifi": "2026.10.23",
+      "charset_normalizer": "3.5.2",
+      "click": "8.5.0",
+      "defusedxml": "0.7.1",
+      "flatbuffers": "25.12.19",
+      "idna": "3.20",
+      "magika": "1.0.3",
+      "markdownify": "1.2.3",
+      "markitdown": "0.1.9",
+      "numpy": "2.5.4",
+      "onnxruntime": "1.31.1",
+      "packaging": "26.3",
+      "protobuf": "7.36.2",
+      "requests": "2.34.2",
+      "six": "1.17.0",
+      "soupsieve": "4.0.1",
+      "typing_extensions": "4.16.0",
+      "urllib3": "2.8.0"
+    }
+  },
+  "page": {
+    "matches": true,
+    "time": {
+      "mean": 0.689107,
+      "stddev": 0.009046,
+      "median": 0.688229,
+      "min": 0.678132,
+      "max": 0.706159,
+      "times": [
+        0.706159,
+        0.692148,
+        0.686631,
+        0.699814,
+        0.689826,
+        0.693762,
+        0.680893,
+        0.678132,
+        0.68151,
+        0.68219
+      ]
+    },
+    "lines": {
+      "counted": 10,
+      "local_only": [
+        "import sys"
+      ]
+    }
+  }
+}
