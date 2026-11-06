@@ -28,9 +28,9 @@ The chart shows time only if site2md has the lowest mean time among the tools wh
 1. Checks that hyperfine and uv are installed, and stops with how to install them if not.
 2. Reuses the cached page copy, or downloads it, and checks its SHA-256 against `expected/page.json`.
 3. Creates a fresh uv environment on Python 3.12, installs the tool's pinned requirements, and measures the install. Then it runs the tool's `setup` commands.
-4. Serves the page on 127.0.0.1 on a free port, and runs hyperfine on the solution's steps joined with `&&`.
+4. Checks that the program of every step resolves to a file inside `.cache`, so that a program installed on the machine can't stand in for the pinned one. Then it serves the page on 127.0.0.1 on a free port, and runs hyperfine on the solution's steps joined with `&&`.
 5. Compares the last step's output with the reference, counts the solution's lines, and, if the tool has a crawl solution, runs the crawl task once (see below).
-6. Writes `results/<id>.json`. Then it renders the generated files, the same as `render`. If an output differs, the file records `"matches": false` for that task, and the command prints the first difference and exits with status 1.
+6. Writes `results/<id>.json`. Then it renders the generated files, the same as `render`. If an output differs, or the crawl exits with an error or writes no output, the file records `"matches": false` for that task, and the command prints the first difference and exits with status 1. A page solution that exits with an error stops the run, because there is nothing to time.
 
 Every child process gets `UV_CACHE_DIR`, `UV_TOOL_DIR` and the temporary-file variables pointing into `.cache`, so a run writes nowhere else. `UV_PYTHON_DOWNLOADS=never` makes a missing Python 3.12 an error instead of a download into uv's own folder; `uv python install 3.12` fixes it.
 
@@ -55,8 +55,8 @@ Create `tools/<id>/tool.json` and the files it names, then run `python -m benchm
 | `install` | Optional argument lists that run after the requirements and before the install is measured. Their placeholders are `{python}`, `{environment}`, `{cache}` and `{tool}` |
 | `setup` | Optional argument lists that run after the measurement, such as installing site2md's benchmark Extractor. Same placeholders |
 | `path` | Optional folders of `{environment}` to put on PATH, besides the Python environment's own scripts folder |
-| `env` | Optional environment variables for the solution and `setup`. Values accept the same placeholders |
-| `footnotes` | Optional notes: `{"column": "time" \| "lines" \| "size" \| "crawl" \| "gap", "text": "..."}`. The report numbers them and puts them under the table. `crawl` explains the crawl output check, and `gap` the shortest gap |
+| `env` | Optional environment variables for the solution, not for `install` or `setup`. Values accept the same placeholders |
+| `footnotes` | Optional notes: `{"column": "time" \| "lines" \| "size" \| "crawl" \| "gap", "text": "..."}`. The report numbers them and puts them under the table. `crawl` explains the crawl output check, and also appears in the README's table on the crawl line count. `gap` explains the shortest gap |
 | `page.steps` | The solution, in order. See below |
 | `page.files` | Other files that the solution needs and that count toward its lines, such as an Extractor |
 | `page.output_file` | Optional. Where the last step writes the records. By default its standard output is saved as `output.json` |
@@ -97,7 +97,7 @@ The results file gains a `crawl` object with `matches`, `extra_pages` (the paths
 
 - A step counts one line. A step with a `file` counts that file's lines instead.
 - Python is formatted with `ruff format` (88 columns, ignoring the project's settings) at the version in `line_count.py`, and then its non-blank, non-comment lines are counted. Docstrings count. JSON is re-indented with two spaces. TOML counts as written, so write one key per line.
-- A line needed only because the page is served from 127.0.0.1 isn't counted. In Python and TOML, end the line with `# 127.0.0.1-only`. For a step, add `"local_only": true`. The report adds a footnote that names those lines.
+- A line needed only because the page is served from 127.0.0.1 isn't counted. In Python and TOML, end the line with `# 127.0.0.1-only`. The report adds a footnote that names those lines.
 
 ### Install size
 
