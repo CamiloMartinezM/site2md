@@ -12,8 +12,17 @@
 
 *Convert a local HTML tree or bounded remote web content into a Markdown document for LLM ingestion, offline reading, or archiving.*
 
+<!-- benchmarks:chart:start -->
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/benchmark-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/benchmark-light.svg">
+  <img alt="Bar chart of the time each tool takes to extract the countries." src="docs/benchmark-light.svg">
+</picture>
 
-[Installation](#-installation) • [Features](#-features) • [Usage](#-usage) • [Remote modes](#choose-a-remote-mode) • [Examples](#-examples)
+*Extracting the 250 countries from [Scrape This Site's countries page](https://www.scrapethissite.com/pages/simple/) as JSON, from a local copy. [Details](BENCHMARKS.md).*
+<!-- benchmarks:chart:end -->
+
+[Installation](#-installation) • [Features](#-features) • [Usage](#-usage) • [Remote modes](#choose-a-remote-mode) • [Examples](#-examples) • [Benchmarks](#-benchmarks)
 
 </div>
 
@@ -274,6 +283,20 @@ The Extractor converts numbers to JSON-native types, and `site2md` validates eac
   "area_km2": 468.0
 }
 ```
+
+---
+
+## 📊 Benchmarks
+
+site2md against the tools you might pick instead. Every tool extracts the same 250 countries from a local copy of the [Scrape This Site countries page](https://www.scrapethissite.com/pages/simple/) and must produce exactly the same JSON. Each tool's solution gets whatever code that takes, and its lines are the non-blank, non-comment lines a user would write, imports included. Time is the page task, as the mean ± standard deviation over fresh processes. The crawl starts from a generated local site and is checked once, never timed, because site2md spaces its requests at least one second apart and has no override. [BENCHMARKS.md](BENCHMARKS.md) has the method, the versions, the raw results, how to rerun them and the tools left out.
+
+<!-- benchmarks:table:start -->
+| Tool | Time | Lines (page) | Lines (crawl) | Install size |
+|---|---|---|---|---|
+| site2md | 1.78 s ± 0.22 s | 54 | – [^1] | 11.5 MB |
+
+[^1]: site2md has no crawler.
+<!-- benchmarks:table:end -->
 
 ---
 
