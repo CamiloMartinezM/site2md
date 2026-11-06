@@ -7,6 +7,8 @@ from typing import Literal, TypedDict
 
 JsonValue = None | bool | int | float | str | Sequence["JsonValue"] | Mapping[str, "JsonValue"]
 SourceKind = Literal["python", "json", "toml"]
+ChartMeasure = Literal["time", "size"]
+ChartTheme = Literal["light", "dark"]
 PythonFormatter = Callable[[str], str]
 
 

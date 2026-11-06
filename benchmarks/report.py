@@ -35,7 +35,7 @@ def _distinct(results: Mapping[str, ToolResult], read: Callable[[ToolResult], st
     return ", ".join(sorted({read(result) for result in results.values()}))
 
 
-def _ordered(tools: Sequence[Tool]) -> list[Tool]:
+def ordered_tools(tools: Sequence[Tool]) -> list[Tool]:
     """Order tools as in #40, then any others by name."""
     return sorted(
         tools,
@@ -55,7 +55,7 @@ def render_results(tools: Sequence[Tool], results: Mapping[str, ToolResult]) -> 
         return text
 
     lines = [f"| {' | '.join(HEADERS)} |", f"|{'---|' * len(HEADERS)}"]
-    for tool in _ordered([tool for tool in tools if tool.id in results]):
+    for tool in ordered_tools([tool for tool in tools if tool.id in results]):
         result = results[tool.id]
         page = result["page"]
         by_column = {
@@ -88,7 +88,7 @@ def render_generated(
     page_sha256: str,
 ) -> str:
     """Render everything in BENCHMARKS.md that comes from the committed results."""
-    measured = _ordered([tool for tool in tools if tool.id in results])
+    measured = ordered_tools([tool for tool in tools if tool.id in results])
     versions = [
         f"| {tool.name} | {results[tool.id]['version']} | {results[tool.id]['date']} "
         f"| [{tool.id}.json](benchmarks/results/{tool.id}.json) |\n"
