@@ -20,7 +20,7 @@
     },
     {
       "column": "size",
-      "text": "crawl4ai requires Playwright and patchright even for its HTTP-only strategy, so no smaller install exists. No browser is downloaded."
+      "text": "crawl4ai requires Playwright and Patchright even for its HTTP-only strategy, so no smaller install exists. They take 110 MB each because each bundles a Node driver. No browser is downloaded."
     }
   ]
 }
