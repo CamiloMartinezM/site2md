@@ -76,7 +76,7 @@ The last step must produce the JSON array of records, as `{"name", "capital", "p
 
 ### Install size
 
-The size of the environment's site-packages, without bytecode caches, plus anything an `install` command unpacked into `{environment}` outside `venv/`. The packages are the `.dist-info` folders. A tool that is not a Python package, such as pandoc, unpacks its archive into `{environment}`, checks the archive's checksum in its own `install` command, and adds the unpacked folder to `path`.
+The size of the environment's site-packages, without bytecode caches, plus anything an `install` command unpacked into `{environment}` outside `venv/`. The packages are the `.dist-info` folders. A tool that is not a Python package, such as pandoc, unpacks its archive into `{environment}`, checks the archive's checksum in its own `install` command, and adds the unpacked folder to `path`. `tools/pandoc/install_archive.py` does the first two for a zip: it refuses an archive whose SHA-256 is not the pinned one before it unpacks anything.
 
 ## Tests
 

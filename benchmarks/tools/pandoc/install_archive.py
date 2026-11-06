@@ -13,6 +13,7 @@ import sys
 import urllib.error
 import urllib.request
 import zipfile
+from collections.abc import Sequence
 from pathlib import Path
 
 USER_AGENT = "site2md-benchmark/1 (https://github.com/CamiloMartinezM/site2md)"
@@ -33,7 +34,7 @@ def _download(url: str) -> bytes:
     return body
 
 
-def main(arguments: list[str]) -> int:
+def main(arguments: Sequence[str]) -> int:
     """Install the archive that the arguments name, and return the exit status."""
     if len(arguments) != 3:
         raise SystemExit("usage: install_archive.py URL SHA256 DESTINATION")
@@ -46,6 +47,7 @@ def main(arguments: list[str]) -> int:
             "Nothing was unpacked: the release may have changed, or the download is corrupt"
         )
     # extractall drops absolute paths and ".." parts, so a member cannot leave the destination.
+    # shortcut: the unpack is not atomic; the destination is a fresh environment that the next run replaces.
     with zipfile.ZipFile(io.BytesIO(body)) as archive:
         archive.extractall(Path(destination))
     print(f"Checked SHA-256 {digest} and unpacked {url} into {destination}.")
