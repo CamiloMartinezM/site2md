@@ -293,14 +293,14 @@ site2md against the tools you might pick instead. Every tool extracts the same 2
 <!-- benchmarks:table:start -->
 | Tool | Time | Lines (page) | Lines (crawl) | Install size |
 |---|---|---|---|---|
-| site2md | 1.78 s ± 0.22 s | 54 | – [^1] | 11.5 MB |
-| Scrapling | 321 ms ± 8 ms | 12 [^2] | – [^1] | 242.9 MB [^3] |
-| crawl4ai | 1.10 s ± 0.04 s | 24 [^4] [^2] | – [^1] | 554.8 MB [^5] |
-| MarkItDown | 730 ms ± 25 ms | 10 [^2] | – [^1] | 94.8 MB |
-| pandoc | 252 ms ± 28 ms | 12 [^2] | – [^1] | 239.6 MB [^6] |
+| site2md | 1.75 s ± 0.02 s | 54 | 54 | 11.5 MB |
+| Scrapling | 321 ms ± 8 ms | 12 [^1] | – [^2] | 242.9 MB [^3] |
+| crawl4ai | 1.10 s ± 0.04 s | 24 [^4] [^1] | – [^2] | 554.8 MB [^5] |
+| MarkItDown | 730 ms ± 25 ms | 10 [^1] | – [^2] | 94.8 MB |
+| pandoc | 252 ms ± 28 ms | 12 [^1] | – [^2] | 239.6 MB [^6] |
 
-[^1]: No crawler.
-[^2]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
+[^1]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
+[^2]: No crawler.
 [^3]: The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded.
 [^4]: crawl4ai's `crwl` command line does the task in one line, but it always starts a browser, so that line isn't counted. The count is for the Python solution, which uses the HTTP-only crawler strategy.
 [^5]: crawl4ai requires Playwright and Patchright even for its HTTP-only strategy, so no smaller install exists. They take 110 MB each because each bundles a Node driver. No browser is downloaded.
