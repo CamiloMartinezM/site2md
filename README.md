@@ -293,11 +293,11 @@ site2md against the tools you might pick instead. Every tool extracts the same 2
 <!-- benchmarks:table:start -->
 | Tool | Time | Lines (page) | Lines (crawl) | Install size |
 |---|---|---|---|---|
-| site2md | 1.73 s ± 0.02 s | 54 | 54 | 11.5 MB |
-| Scrapling | 298 ms ± 7 ms | 12 [^1] | 19 [^2] [^1] | 242.9 MB [^3] |
-| crawl4ai | 1.02 s ± 0.02 s | 24 [^4] [^1] | 38 [^5] [^1] | 554.8 MB [^6] |
-| MarkItDown | 730 ms ± 25 ms | 10 [^1] | – [^7] | 94.8 MB |
-| pandoc | 252 ms ± 28 ms | 12 [^1] | – [^7] | 239.6 MB [^8] |
+| site2md | 1.72 s ± 0.01 s | 54 | 54 | 11.5 MB |
+| Scrapling | 302 ms ± 11 ms | 12 [^1] | 19 [^2] [^1] | 242.9 MB [^3] |
+| crawl4ai | 997 ms ± 17 ms | 24 [^4] [^1] | 38 [^5] [^1] | 554.8 MB [^6] |
+| MarkItDown | 689 ms ± 9 ms | 10 [^1] | – [^7] | 94.8 MB |
+| pandoc | 246 ms ± 5 ms | 12 [^1] | – [^7] | 239.6 MB [^8] |
 
 [^1]: Not counted: `import sys`. The harness passes the local server's 127.0.0.1 URL on the command line, and this code only reads it. A solution for the live site writes the URL inline.
 [^2]: Scrapling's spiders have no depth limit, and the `max_pages` of its Markdown spider limits what it converts, not what it fetches. The spider therefore carries each page's depth in its requests and keeps its own set of the pages it has queued. Without them it fetches the five decoy pages.

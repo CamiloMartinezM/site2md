@@ -8,7 +8,7 @@
   "footnotes": [
     {
       "column": "gap",
-      "text": "site2md waits one second from the start of one request to the start of the next, as its traversal policy says. It times that second with `time.monotonic()`, which ticks every 15.6 ms on Windows under Python 3.12, so it can start a child request up to about one tick early, and the shortest gap in the server's log can be slightly under one second."
+      "text": "site2md waits one second from the start of one request to the start of the next, as its traversal policy says. It times that second with `time.monotonic()`, which ticks every 15.6 ms on Windows under Python 3.12, so it can start a child request up to one tick early. Variation in how long each request takes to reach the server can add a few milliseconds, so the shortest gap in the server's log can be slightly under one second."
     }
   ],
   "setup": [

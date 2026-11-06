@@ -60,13 +60,13 @@ The page copy was downloaded on 2026-11-06. Its SHA-256 is `4c68c2a54000607a0fa5
 
 | Tool | Version | Output matches | Time | Lines | Install size | Packages | Crawl output matches | Extra pages | Shortest gap | Crawl lines |
 |---|---|---|---|---|---|---|---|---|---|---|
-| site2md | 0.4.3 | yes | 1.73 s ± 0.02 s | 54 | 11.5 MB | 20 | yes | 0 | 0.980 s [^1] | 54 |
-| Scrapling | 0.5.1 | yes | 298 ms ± 7 ms | 12 [^2] | 242.9 MB [^3] | 23 | yes [^4] | 0 | 0.000 s [^5] | 19 [^2] |
-| crawl4ai | 0.9.5 | yes | 1.02 s ± 0.02 s | 24 [^6] [^2] | 554.8 MB [^7] | 96 | yes [^8] | 0 | 0.000 s [^9] | 38 [^2] |
-| MarkItDown | 0.1.9 | yes | 730 ms ± 25 ms | 10 [^2] | 94.8 MB | 19 | no crawler | no crawler | no crawler | no crawler |
-| pandoc | 3.13 | yes | 252 ms ± 28 ms | 12 [^2] | 239.6 MB [^10] | 0 | no crawler | no crawler | no crawler | no crawler |
+| site2md | 0.4.3 | yes | 1.72 s ± 0.01 s | 54 | 11.5 MB | 20 | yes | 0 | 0.974 s [^1] | 54 |
+| Scrapling | 0.5.1 | yes | 302 ms ± 11 ms | 12 [^2] | 242.9 MB [^3] | 23 | yes [^4] | 0 | 0.000 s [^5] | 19 [^2] |
+| crawl4ai | 0.9.5 | yes | 997 ms ± 17 ms | 24 [^6] [^2] | 554.8 MB [^7] | 96 | yes [^8] | 0 | 0.000 s [^9] | 38 [^2] |
+| MarkItDown | 0.1.9 | yes | 689 ms ± 9 ms | 10 [^2] | 94.8 MB | 19 | no crawler | no crawler | no crawler | no crawler |
+| pandoc | 3.13 | yes | 246 ms ± 5 ms | 12 [^2] | 239.6 MB [^10] | 0 | no crawler | no crawler | no crawler | no crawler |
 
-[^1]: site2md waits one second from the start of one request to the start of the next, as its traversal policy says. It times that second with `time.monotonic()`, which ticks every 15.6 ms on Windows under Python 3.12, so it can start a child request up to about one tick early, and the shortest gap in the server's log can be slightly under one second.
+[^1]: site2md waits one second from the start of one request to the start of the next, as its traversal policy says. It times that second with `time.monotonic()`, which ticks every 15.6 ms on Windows under Python 3.12, so it can start a child request up to one tick early. Variation in how long each request takes to reach the server can add a few milliseconds, so the shortest gap in the server's log can be slightly under one second.
 [^2]: Not counted: `import sys`. The harness passes the local server's 127.0.0.1 URL on the command line, and this code only reads it. A solution for the live site writes the URL inline.
 [^3]: The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded.
 [^4]: Scrapling's spiders have no depth limit, and the `max_pages` of its Markdown spider limits what it converts, not what it fetches. The spider therefore carries each page's depth in its requests and keeps its own set of the pages it has queued. Without them it fetches the five decoy pages.
