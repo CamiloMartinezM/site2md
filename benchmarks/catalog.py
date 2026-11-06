@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from benchmarks._json import expect_list, expect_object, expect_string
 from benchmarks._types import JsonValue, PythonFormatter, SourceKind
 from benchmarks.line_count import LineCount, count_lines
 
@@ -71,35 +72,14 @@ class Tool:
     footnotes: tuple[Footnote, ...] = ()
 
 
-def _object(value: JsonValue, where: str) -> Mapping[str, JsonValue]:
-    """Return a JSON object, or raise an error that names where it was expected."""
-    if not isinstance(value, Mapping):
-        raise TypeError(f"{where} must be an object")
-    return value
-
-
-def _list(value: JsonValue, where: str) -> Sequence[JsonValue]:
-    """Return a JSON array, or raise an error that names where it was expected."""
-    if not isinstance(value, list):
-        raise TypeError(f"{where} must be a list")
-    return value
-
-
-def _string(value: JsonValue, where: str) -> str:
-    """Return a JSON string, or raise an error that names where it was expected."""
-    if not isinstance(value, str):
-        raise TypeError(f"{where} must be a string")
-    return value
-
-
 def _strings(value: JsonValue, where: str) -> tuple[str, ...]:
     """Return a JSON array of strings."""
-    return tuple(_string(item, f"{where} items") for item in _list(value, where))
+    return tuple(expect_string(item, f"{where} items") for item in expect_list(value, where))
 
 
 def _commands(value: JsonValue, where: str) -> tuple[tuple[str, ...], ...]:
     """Return a JSON array of argument lists."""
-    return tuple(_strings(item, f"{where} items") for item in _list(value, where))
+    return tuple(_strings(item, f"{where} items") for item in expect_list(value, where))
 
 
 def _keys(
@@ -116,12 +96,12 @@ def _keys(
 
 def _step(value: JsonValue, where: str) -> Step:
     """Read one step of a solution."""
-    data = _object(value, where)
+    data = expect_object(value, where)
     _keys(data, required=("run",), optional=("file", "local_only"), where=where)
     file = data.get("file")
     step = Step(
-        run=_string(data["run"], f"{where}.run"),
-        file=None if file is None else _string(file, f"{where}.file"),
+        run=expect_string(data["run"], f"{where}.run"),
+        file=None if file is None else expect_string(file, f"{where}.file"),
         local_only=data.get("local_only") is True,
     )
     if step.file is not None and step.local_only:
@@ -131,11 +111,11 @@ def _step(value: JsonValue, where: str) -> Step:
 
 def _solution(value: JsonValue, directory: Path, where: str) -> Solution:
     """Read one solution and check that every file it names exists."""
-    data = _object(value, where)
+    data = expect_object(value, where)
     _keys(data, required=("steps",), optional=("files", "output_file"), where=where)
     steps = tuple(
         _step(raw, f"{where}.steps[{index}]")
-        for index, raw in enumerate(_list(data["steps"], f"{where}.steps"))
+        for index, raw in enumerate(expect_list(data["steps"], f"{where}.steps"))
     )
     if not steps:
         raise ValueError(f"{where}: steps must not be empty")
@@ -145,18 +125,18 @@ def _solution(value: JsonValue, directory: Path, where: str) -> Solution:
             raise ValueError(f"{where}: file '{name}' does not exist in {directory.name}")
     output_file = data.get("output_file")
     return Solution(
-        steps, files, None if output_file is None else _string(output_file, f"{where}.output_file")
+        steps, files, None if output_file is None else expect_string(output_file, f"{where}.output_file")
     )
 
 
 def _footnote(value: JsonValue, where: str) -> Footnote:
     """Read one footnote and check the column it names."""
-    data = _object(value, where)
+    data = expect_object(value, where)
     _keys(data, required=("column", "text"), optional=(), where=where)
-    column = _string(data["column"], f"{where}.column")
+    column = expect_string(data["column"], f"{where}.column")
     if column not in FOOTNOTE_COLUMNS:
         raise ValueError(f"{where}: column '{column}' is not one of {FOOTNOTE_COLUMNS}")
-    return Footnote(column, _string(data["text"], f"{where}.text"))
+    return Footnote(column, expect_string(data["text"], f"{where}.text"))
 
 
 def _count_file(path: Path, format_python: PythonFormatter) -> LineCount:
@@ -181,19 +161,19 @@ def load_tool(directory: Path) -> Tool:
         loaded = json.loads((directory / "tool.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ValueError(f"{where} cannot be read: {error}") from error
-    data = _object(loaded, where)
+    data = expect_object(loaded, where)
     _keys(
         data,
         required=("name", "version", "requirements", *TASKS),
         optional=("install", "setup", "path", "env", "footnotes"),
         where=where,
     )
-    version = _string(data["version"], f"{where}.version")
+    version = expect_string(data["version"], f"{where}.version")
     environment = data.get("env")
     return Tool(
         id=directory.name,
         directory=directory,
-        name=_string(data["name"], f"{where}.name"),
+        name=expect_string(data["name"], f"{where}.name"),
         version=version,
         requirements=tuple(
             requirement.format(version=version)
@@ -207,13 +187,13 @@ def load_tool(directory: Path) -> Tool:
             None
             if environment is None
             else {
-                key: _string(item, f"{where}.env.{key}")
-                for key, item in _object(environment, f"{where}.env").items()
+                key: expect_string(item, f"{where}.env.{key}")
+                for key, item in expect_object(environment, f"{where}.env").items()
             }
         ),
         footnotes=tuple(
             _footnote(raw, f"{where}.footnotes[{index}]")
-            for index, raw in enumerate(_list(data.get("footnotes", []), f"{where}.footnotes"))
+            for index, raw in enumerate(expect_list(data.get("footnotes", []), f"{where}.footnotes"))
         ),
     )
 
