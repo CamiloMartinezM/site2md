@@ -26,7 +26,7 @@ def _difference(actual: JsonValue, expected: JsonValue, path: str) -> str | None
         return None
     if isinstance(actual, list) and isinstance(expected, list):
         if len(actual) != len(expected):
-            return f"{path or 'output'}: expected {len(expected)} items, got {len(actual)}"
+            return f"{path or 'output'}: expected {len(expected)} records, got {len(actual)}"
         for index, (actual_item, expected_item) in enumerate(zip(actual, expected)):
             difference = _difference(actual_item, expected_item, f"{path}[{index}]")
             if difference is not None:

@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-
 from benchmarks._types import JsonValue
 
 
-def expect_object(value: JsonValue, where: str) -> Mapping[str, JsonValue]:
+def expect_object(value: JsonValue, where: str) -> dict[str, JsonValue]:
     """Return a JSON object, or raise an error that names where it was expected."""
-    if not isinstance(value, Mapping):
+    if not isinstance(value, dict):
         raise TypeError(f"{where} must be an object")
     return value
 
 
-def expect_list(value: JsonValue, where: str) -> Sequence[JsonValue]:
+def expect_list(value: JsonValue, where: str) -> list[JsonValue]:
     """Return a JSON array, or raise an error that names where it was expected."""
     if not isinstance(value, list):
         raise TypeError(f"{where} must be a list")

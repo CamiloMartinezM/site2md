@@ -35,6 +35,9 @@ class FirstDifferenceTests(unittest.TestCase):
         self.assertIsNotNone(difference)
         self.assertIn("[0].population", str(difference))
 
+    def test_a_missing_record_is_reported_by_count(self) -> None:
+        self.assertEqual(first_difference("[]", REFERENCE), "output: expected 2 records, got 0")
+
     def test_integer_where_the_reference_has_a_float_does_not_match(self) -> None:
         output = REFERENCE_TEXT.replace("468.0", "468")
         difference = first_difference(output, REFERENCE)

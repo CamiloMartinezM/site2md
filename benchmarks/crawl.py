@@ -50,7 +50,7 @@ def _page(head: str, tail: str, countries: list[str], links: list[str]) -> bytes
     return (head + "\n".join(countries) + tail).encode("utf-8")
 
 
-def _page_requests(requests: RequestLog) -> RequestLog:
+def _page_requests(requests: RequestLog) -> list[tuple[float, str]]:
     """Return the requests for pages, which leaves out robots.txt."""
     return [request for request in requests if request[1] != ROBOTS_PATH]
 
