@@ -293,17 +293,17 @@ site2md against the tools you might pick instead. Every tool extracts the same 2
 <!-- benchmarks:table:start -->
 | Tool | Time | Lines (page) | Lines (crawl) | Install size |
 |---|---|---|---|---|
-| site2md | 1.75 s ± 0.02 s | 54 | 54 | 11.5 MB |
-| Scrapling | 321 ms ± 8 ms | 12 [^1] | – [^2] | 242.9 MB [^3] |
-| crawl4ai | 1.10 s ± 0.04 s | 24 [^4] [^1] | – [^2] | 554.8 MB [^5] |
-| MarkItDown | 730 ms ± 25 ms | 10 [^1] | – [^2] | 94.8 MB |
-| pandoc | 252 ms ± 28 ms | 12 [^1] | – [^2] | 239.6 MB [^6] |
+| site2md | 1.83 s ± 0.25 s | 54 | 54 | 11.5 MB |
+| Scrapling | 300 ms ± 7 ms | 12 [^1] | 19 [^1] | 242.9 MB [^2] |
+| crawl4ai | 1.02 s ± 0.03 s | 24 [^3] [^1] | 38 [^1] | 554.8 MB [^4] |
+| MarkItDown | 730 ms ± 25 ms | 10 [^1] | – [^5] | 94.8 MB |
+| pandoc | 252 ms ± 28 ms | 12 [^1] | – [^5] | 239.6 MB [^6] |
 
 [^1]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
-[^2]: No crawler.
-[^3]: The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded.
-[^4]: crawl4ai's `crwl` command line does the task in one line, but it always starts a browser, so that line isn't counted. The count is for the Python solution, which uses the HTTP-only crawler strategy.
-[^5]: crawl4ai requires Playwright and Patchright even for its HTTP-only strategy, so no smaller install exists. They take 110 MB each because each bundles a Node driver. No browser is downloaded.
+[^2]: The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded.
+[^3]: crawl4ai's `crwl` command line does the task in one line, but it always starts a browser, so that line isn't counted. The count is for the Python solution, which uses the HTTP-only crawler strategy.
+[^4]: crawl4ai requires Playwright and Patchright even for its HTTP-only strategy, so no smaller install exists. They take 110 MB each because each bundles a Node driver. No browser is downloaded.
+[^5]: No crawler.
 [^6]: The unpacked archive: `pandoc.exe`, its manual and its licence files. pandoc is not a Python package, so its package count reads 0.
 <!-- benchmarks:table:end -->
 
