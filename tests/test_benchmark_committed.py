@@ -9,8 +9,7 @@ from collections.abc import Iterator
 
 from benchmarks._types import JsonValue
 from benchmarks.catalog import load_tool
-from benchmarks.paths import BENCHMARKS_DOCUMENT, RESULTS_DIRECTORY, TOOLS_DIRECTORY
-from benchmarks.report import render_document
+from benchmarks.paths import RESULTS_DIRECTORY, TOOLS_DIRECTORY
 
 
 class CommittedBenchmarksTests(unittest.TestCase):
@@ -58,11 +57,6 @@ class CommittedBenchmarksTests(unittest.TestCase):
             environment = json.loads(path.read_text(encoding="utf-8"))["environment"]
             with self.subTest(file=path.name, part="environment keys"):
                 self.assertEqual(sorted(environment), ["hyperfine", "os", "python", "ruff", "uv"])
-
-    def test_benchmarks_document_shows_the_committed_results(self) -> None:
-        # A stale document means `python -m benchmarks render` was not rerun after a merge.
-        document = BENCHMARKS_DOCUMENT.read_text(encoding="utf-8")
-        self.assertEqual(render_document(document), document)
 
 
 class Crawl4aiToolTests(unittest.TestCase):

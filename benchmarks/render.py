@@ -7,6 +7,7 @@ from pathlib import Path
 from benchmarks.catalog import load_tool, tool_ids
 from benchmarks.chart import choose_measure, render_chart
 from benchmarks.errors import HarnessError
+from benchmarks.page import read_pin
 from benchmarks.paths import (
     BENCHMARKS_DOCUMENT,
     CHART_FILES,
@@ -14,7 +15,7 @@ from benchmarks.paths import (
     TOOLS_DIRECTORY,
 )
 from benchmarks.readme import render_readme
-from benchmarks.report import render_document
+from benchmarks.report import render_generated, splice_generated
 from benchmarks.results import load_results
 
 
@@ -22,9 +23,11 @@ def render_files() -> dict[Path, str]:
     """Return the new text of BENCHMARKS.md, the README and both charts, built from the committed files."""
     tools = [load_tool(TOOLS_DIRECTORY / tool_id) for tool_id in tool_ids()]
     results = load_results()
+    pin = read_pin()
     measure = choose_measure(results)
+    generated = render_generated(tools, results, page_date=pin.downloaded, page_sha256=pin.sha256)
     documents = {
-        BENCHMARKS_DOCUMENT: render_document,
+        BENCHMARKS_DOCUMENT: lambda document: splice_generated(document, generated),
         README_DOCUMENT: lambda document: render_readme(document, tools, results),
     }
     files: dict[Path, str] = {}

@@ -66,6 +66,17 @@ class RenderResultsTests(unittest.TestCase):
             table,
         )
 
+    def test_rows_that_share_a_note_point_to_one_footnote(self) -> None:
+        tools = [make_tool("scrapling"), make_tool("crawl4ai")]
+        results = {
+            "scrapling": make_result(local_only=("import sys",)),
+            "crawl4ai": make_result(local_only=("import sys",)),
+        }
+        table = render_results(tools, results)
+        self.assertIn("| scrapling | 0.4.3 | yes | 661 ms ± 12 ms | 54 [^1] |", table)
+        self.assertIn("| crawl4ai | 0.4.3 | yes | 661 ms ± 12 ms | 54 [^1] |", table)
+        self.assertEqual(table.count("[^1]:"), 1)
+
 
 class RenderCrawlColumnsTests(unittest.TestCase):
     """Check the crawl columns: the output check, the extra pages, the shortest gap and the lines."""

@@ -9,7 +9,7 @@ from xml.sax.saxutils import escape
 
 from benchmarks._types import ChartMeasure, ChartTheme, ToolResult
 from benchmarks.catalog import Tool
-from benchmarks.report import ordered_tools
+from benchmarks.report import measured_tools
 
 # The tool the README is about: the chart shows time only if this tool is the fastest.
 SUBJECT = "site2md"
@@ -51,8 +51,8 @@ def _rows(tools: Sequence[Tool], results: Mapping[str, ToolResult], measure: Cha
     """List the bars, smallest first: only tools whose output matches the reference have one."""
     rows = [
         _Row(tool.name, _value(measure, results[tool.id]), tool.id == SUBJECT)
-        for tool in ordered_tools(tools)
-        if tool.id in results and results[tool.id]["page"]["matches"]
+        for tool in measured_tools(tools, results)
+        if results[tool.id]["page"]["matches"]
     ]
     return sorted(rows, key=lambda row: row.value)
 

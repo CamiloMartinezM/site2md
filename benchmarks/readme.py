@@ -4,14 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from benchmarks._types import ChartMeasure, ChartTheme, LinesResult, ToolResult
+from benchmarks._types import ChartMeasure, ChartTheme, CrawlResult, ToolResult
 from benchmarks.catalog import Tool
 from benchmarks.chart import choose_measure
 from benchmarks.page import PAGE_URL
 from benchmarks.paths import CHART_FILES, REPOSITORY_ROOT
 from benchmarks.report import (
-    local_only_note,
-    ordered_tools,
+    Footnotes,
+    column_notes,
+    local_only_notes,
+    markdown_table,
+    measured_tools,
+    size_text,
     splice_generated,
     time_text,
 )
@@ -38,19 +42,35 @@ def _chart_path(theme: ChartTheme) -> str:
     return CHART_FILES[theme].relative_to(REPOSITORY_ROOT).as_posix()
 
 
-def _notes(tool: Tool, column: str) -> list[str]:
-    """List the notes that the tool's definition attaches to one column."""
-    return [note.text for note in tool.footnotes if note.column == column]
+def _crawl_cell(tool: Tool, crawl: CrawlResult | None, footnotes: Footnotes) -> str:
+    """Show the crawl's line count, or the reason there is none, with the notes that explain it."""
+    if crawl is None:
+        return footnotes.mark("–", ["No crawl results yet." if "crawl" in tool.tasks else "No crawler."])
+    return footnotes.mark(
+        str(crawl["lines"]["counted"]),
+        [
+            *column_notes(tool, "crawl"),
+            *([] if crawl["matches"] else [_CRAWL_MISMATCH_NOTE]),
+            *local_only_notes(crawl["lines"]),
+        ],
+    )
 
 
-def _local_only_notes(lines: LinesResult) -> list[str]:
-    """Return the note that names the lines left out of a count, or nothing if none were left out."""
-    return [local_only_note(lines["local_only"])] if lines["local_only"] else []
-
-
-def _crawl_gap(tool: Tool) -> str:
-    """Say why a tool has no crawl line count."""
-    return "No crawl results yet." if "crawl" in tool.tasks else "No crawler."
+def _table_row(tool: Tool, result: ToolResult, footnotes: Footnotes) -> list[str]:
+    """Build one row of the README's table, with the footnote markers of its cells."""
+    page = result["page"]
+    return [
+        tool.name,
+        footnotes.mark(
+            time_text(page["time"]),
+            [*column_notes(tool, "time"), *([] if page["matches"] else [_MISMATCH_NOTE])],
+        ),
+        footnotes.mark(
+            str(page["lines"]["counted"]), [*column_notes(tool, "lines"), *local_only_notes(page["lines"])]
+        ),
+        _crawl_cell(tool, result.get("crawl"), footnotes),
+        footnotes.mark(size_text(result["install"]["size_bytes"]), column_notes(tool, "size")),
+    ]
 
 
 def render_chart_block(measure: ChartMeasure) -> str:
@@ -67,42 +87,9 @@ def render_chart_block(measure: ChartMeasure) -> str:
 
 def render_table(tools: Sequence[Tool], results: Mapping[str, ToolResult]) -> str:
     """Render the README's table, one row per tool that has results, with a footnote for every gap."""
-    notes: list[str] = []
-
-    def mark(text: str, column_notes: Sequence[str]) -> str:
-        """Append a footnote marker per note, and remember each note once however many cells share it."""
-        for note in column_notes:
-            if note not in notes:
-                notes.append(note)
-            text += f" [^{notes.index(note) + 1}]"
-        return text
-
-    lines = [f"| {' | '.join(_HEADERS)} |", f"|{'---|' * len(_HEADERS)}"]
-    for tool in ordered_tools([tool for tool in tools if tool.id in results]):
-        result = results[tool.id]
-        page = result["page"]
-        crawl = result.get("crawl")
-        cells = (
-            tool.name,
-            mark(time_text(page["time"]), [*_notes(tool, "time"), *([] if page["matches"] else [_MISMATCH_NOTE])]),
-            mark(str(page["lines"]["counted"]), [*_notes(tool, "lines"), *_local_only_notes(page["lines"])]),
-            mark("–", [_crawl_gap(tool)])
-            if crawl is None
-            else mark(
-                str(crawl["lines"]["counted"]),
-                [
-                    *_notes(tool, "crawl"),
-                    *([] if crawl["matches"] else [_CRAWL_MISMATCH_NOTE]),
-                    *_local_only_notes(crawl["lines"]),
-                ],
-            ),
-            mark(f"{result['install']['size_bytes'] / 1e6:.1f} MB", _notes(tool, "size")),
-        )
-        lines.append(f"| {' | '.join(cells)} |")
-    table = "\n".join(lines) + "\n"
-    if not notes:
-        return table
-    return table + "\n" + "".join(f"[^{number}]: {note}\n" for number, note in enumerate(notes, start=1))
+    footnotes = Footnotes()
+    rows = [_table_row(tool, results[tool.id], footnotes) for tool in measured_tools(tools, results)]
+    return markdown_table(_HEADERS, rows, footnotes)
 
 
 def render_readme(document: str, tools: Sequence[Tool], results: Mapping[str, ToolResult]) -> str:

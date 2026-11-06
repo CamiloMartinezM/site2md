@@ -1,14 +1,11 @@
-"""Render the committed results into the generated part of BENCHMARKS.md."""
+"""Render the committed results into the generated part of BENCHMARKS.md, and share the table pieces with the README."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 
-from benchmarks._types import TimeResult, ToolResult
-from benchmarks.catalog import FOOTNOTE_COLUMNS, Tool, load_tool, tool_ids
-from benchmarks.page import read_pin
-from benchmarks.paths import TOOLS_DIRECTORY
-from benchmarks.results import load_results
+from benchmarks._types import FootnoteColumn, LinesResult, TimeResult, ToolResult
+from benchmarks.catalog import Tool
 
 # The order of the tools in #40; any other tool follows by name.
 TOOL_ORDER = ("site2md", "scrapling", "crawl4ai", "markitdown", "pandoc")
@@ -28,25 +25,23 @@ HEADERS = (
 NO_CRAWLER = "no crawler"
 
 
-def time_text(time: TimeResult) -> str:
-    """Show a mean and standard deviation in milliseconds below one second, in seconds above."""
-    if time["mean"] < 1:
-        return f"{time['mean'] * 1000:.0f} ms ± {time['stddev'] * 1000:.0f} ms"
-    return f"{time['mean']:.2f} s ± {time['stddev']:.2f} s"
+class Footnotes:
+    """Numbers a table's notes in the order its cells first cite them, and lists each note once."""
 
+    def __init__(self) -> None:
+        self._notes: list[str] = []
 
-def _gap_text(gap: float | None) -> str:
-    """Show the shortest gap between child-page requests in seconds, to the millisecond."""
-    return "n/a" if gap is None else f"{gap:.3f} s"
+    def mark(self, text: str, notes: Iterable[str]) -> str:
+        """Append a marker to a cell's text for each note, however many cells share the note."""
+        for note in notes:
+            if note not in self._notes:
+                self._notes.append(note)
+            text += f" [^{self._notes.index(note) + 1}]"
+        return text
 
-
-def local_only_note(lines: Sequence[str]) -> str:
-    """Name the lines that were not counted because only the local server needs them."""
-    named = ", ".join(f"`{line}`" for line in lines)
-    return (
-        f"Not counted: {named}. The harness passes the local server's 127.0.0.1 URL on the command line, "
-        "and this code only reads it. A solution for the live site writes the URL inline."
-    )
+    def render(self) -> str:
+        """Return the footnote lines that go under the table, or nothing if no cell cited a note."""
+        return "".join(f"[^{number}]: {note}\n" for number, note in enumerate(self._notes, start=1))
 
 
 def _distinct(results: Mapping[str, ToolResult], read: Callable[[ToolResult], str]) -> str:
@@ -54,62 +49,92 @@ def _distinct(results: Mapping[str, ToolResult], read: Callable[[ToolResult], st
     return ", ".join(sorted({read(result) for result in results.values()}))
 
 
-def ordered_tools(tools: Sequence[Tool]) -> list[Tool]:
-    """Order tools as in #40, then any others by name."""
+def _results_row(tool: Tool, result: ToolResult, footnotes: Footnotes) -> list[str]:
+    """Build one row of the results table, with the footnote markers of its cells."""
+    page = result["page"]
+    cells = [
+        tool.name,
+        result["version"],
+        "yes" if page["matches"] else "no",
+        footnotes.mark(time_text(page["time"]), column_notes(tool, "time")),
+        footnotes.mark(
+            str(page["lines"]["counted"]), [*column_notes(tool, "lines"), *local_only_notes(page["lines"])]
+        ),
+        footnotes.mark(size_text(result["install"]["size_bytes"]), column_notes(tool, "size")),
+        str(len(result["install"]["packages"])),
+    ]
+    crawl = result.get("crawl")
+    if crawl is None:
+        return [*cells, *[NO_CRAWLER] * 4]
+    return [
+        *cells,
+        footnotes.mark("yes" if crawl["matches"] else "no", column_notes(tool, "crawl")),
+        str(len(crawl["extra_pages"])),
+        footnotes.mark(gap_text(crawl["shortest_gap"]), column_notes(tool, "gap")),
+        footnotes.mark(str(crawl["lines"]["counted"]), local_only_notes(crawl["lines"])),
+    ]
+
+
+def time_text(time: TimeResult) -> str:
+    """Show a mean and standard deviation in milliseconds below one second, in seconds above."""
+    if time["mean"] < 1:
+        return f"{time['mean'] * 1000:.0f} ms ± {time['stddev'] * 1000:.0f} ms"
+    return f"{time['mean']:.2f} s ± {time['stddev']:.2f} s"
+
+
+def size_text(size_bytes: int) -> str:
+    """Show an install size in megabytes."""
+    return f"{size_bytes / 1e6:.1f} MB"
+
+
+def gap_text(gap: float | None) -> str:
+    """Show the shortest gap between child-page requests in seconds, to the millisecond."""
+    return "n/a" if gap is None else f"{gap:.3f} s"
+
+
+def column_notes(tool: Tool, column: FootnoteColumn) -> list[str]:
+    """List the notes that a tool's definition attaches to one column."""
+    return [note.text for note in tool.footnotes if note.column == column]
+
+
+def local_only_notes(lines: LinesResult) -> list[str]:
+    """Return the note that names the lines left out of a count, or nothing if none were left out."""
+    if not lines["local_only"]:
+        return []
+    named = ", ".join(f"`{line}`" for line in lines["local_only"])
+    return [
+        (
+            f"Not counted: {named}. The harness passes the local server's 127.0.0.1 URL on the command line, "
+            "and this code only reads it. A solution for the live site writes the URL inline."
+        )
+    ]
+
+
+def measured_tools(tools: Sequence[Tool], results: Mapping[str, ToolResult]) -> list[Tool]:
+    """Return the tools that have results, in the order of #40 and then any others by name."""
     return sorted(
-        tools,
+        (tool for tool in tools if tool.id in results),
         key=lambda tool: (TOOL_ORDER.index(tool.id), "") if tool.id in TOOL_ORDER else (len(TOOL_ORDER), tool.id),
     )
 
 
+def markdown_table(headers: Sequence[str], rows: Sequence[Sequence[str]], footnotes: Footnotes) -> str:
+    """Render a Markdown table, with the notes that its cells cite listed under it."""
+    lines = [
+        f"| {' | '.join(headers)} |",
+        f"|{'---|' * len(headers)}",
+        *(f"| {' | '.join(row)} |" for row in rows),
+    ]
+    table = "\n".join(lines) + "\n"
+    notes = footnotes.render()
+    return f"{table}\n{notes}" if notes else table
+
+
 def render_results(tools: Sequence[Tool], results: Mapping[str, ToolResult]) -> str:
     """Render the results table, one row per tool that has results, with numbered footnotes."""
-    notes: list[str] = []
-
-    def mark(text: str, column_notes: Sequence[str]) -> str:
-        """Append a footnote marker per note and remember the note."""
-        for note in column_notes:
-            notes.append(note)
-            text += f" [^{len(notes)}]"
-        return text
-
-    lines = [f"| {' | '.join(HEADERS)} |", f"|{'---|' * len(HEADERS)}"]
-    for tool in ordered_tools([tool for tool in tools if tool.id in results]):
-        result = results[tool.id]
-        page = result["page"]
-        by_column = {
-            column: [note.text for note in tool.footnotes if note.column == column]
-            for column in FOOTNOTE_COLUMNS
-        }
-        if page["lines"]["local_only"]:
-            by_column["lines"].append(local_only_note(page["lines"]["local_only"]))
-        cells = [
-            tool.name,
-            result["version"],
-            "yes" if page["matches"] else "no",
-            mark(time_text(page["time"]), by_column["time"]),
-            mark(str(page["lines"]["counted"]), by_column["lines"]),
-            mark(f"{result['install']['size_bytes'] / 1e6:.1f} MB", by_column["size"]),
-            str(len(result["install"]["packages"])),
-        ]
-        crawl = result.get("crawl")
-        if crawl is None:
-            cells.extend([NO_CRAWLER] * 4)
-        else:
-            crawl_local_only = crawl["lines"]["local_only"]
-            cells.extend(
-                [
-                    mark("yes" if crawl["matches"] else "no", by_column["crawl"]),
-                    str(len(crawl["extra_pages"])),
-                    mark(_gap_text(crawl["shortest_gap"]), by_column["gap"]),
-                    mark(str(crawl["lines"]["counted"]), [local_only_note(crawl_local_only)] if crawl_local_only else []),
-                ]
-            )
-        lines.append(f"| {' | '.join(cells)} |")
-    table = "\n".join(lines) + "\n"
-    if not notes:
-        return table
-    return table + "\n" + "".join(f"[^{number}]: {note}\n" for number, note in enumerate(notes, start=1))
+    footnotes = Footnotes()
+    rows = [_results_row(tool, results[tool.id], footnotes) for tool in measured_tools(tools, results)]
+    return markdown_table(HEADERS, rows, footnotes)
 
 
 def render_generated(
@@ -120,7 +145,7 @@ def render_generated(
     page_sha256: str,
 ) -> str:
     """Render everything in BENCHMARKS.md that comes from the committed results."""
-    measured = ordered_tools([tool for tool in tools if tool.id in results])
+    measured = measured_tools(tools, results)
     versions = [
         f"| {tool.name} | {results[tool.id]['version']} | {results[tool.id]['date']} "
         f"| [{tool.id}.json](benchmarks/results/{tool.id}.json) |\n"
@@ -157,13 +182,3 @@ def splice_generated(document: str, generated: str, *, block: str = "generated")
     if start == -1 or end < start:
         raise ValueError(f"the document needs a {start_marker} line followed by an {end_marker} line")
     return f"{document[: start + len(start_marker)]}\n{generated}{document[end:]}"
-
-
-def render_document(document: str) -> str:
-    """Return BENCHMARKS.md with its generated block rebuilt from the committed files."""
-    tools = [load_tool(TOOLS_DIRECTORY / tool_id) for tool_id in tool_ids()]
-    pin = read_pin()
-    generated = render_generated(
-        tools, load_results(), page_date=pin.downloaded, page_sha256=pin.sha256
-    )
-    return splice_generated(document, generated)

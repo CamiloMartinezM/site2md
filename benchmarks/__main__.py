@@ -11,6 +11,7 @@ from benchmarks.errors import HarnessError
 from benchmarks.files import write_atomically
 from benchmarks.paths import REFERENCE, REPOSITORY_ROOT, TOOLS_DIRECTORY
 from benchmarks.render import render_files
+from benchmarks.report import gap_text, size_text, time_text
 from benchmarks.results import write_result
 from benchmarks.runner import build_reference, run_tool
 
@@ -37,16 +38,14 @@ def _run(tool_id: str) -> None:
     path = write_result(tool_id, result)
     page = result["page"]
     print(
-        f"{tool.name} {result['version']}: {page['time']['mean'] * 1000:.0f} ms "
-        f"+/- {page['time']['stddev'] * 1000:.0f} ms, {page['lines']['counted']} lines, "
-        f"{result['install']['size_bytes'] / 1e6:.1f} MB in {len(result['install']['packages'])} packages."
+        f"{tool.name} {result['version']}: {time_text(page['time'])}, {page['lines']['counted']} lines, "
+        f"{size_text(result['install']['size_bytes'])} in {len(result['install']['packages'])} packages."
     )
     crawl = result.get("crawl")
     if crawl is not None:
-        gap = "n/a" if crawl["shortest_gap"] is None else f"{crawl['shortest_gap']:.3f} s"
         print(
             f"Crawl: {len(crawl['extra_pages'])} extra pages fetched, shortest gap between child pages "
-            f"{gap}, {crawl['lines']['counted']} lines."
+            f"{gap_text(crawl['shortest_gap'])}, {crawl['lines']['counted']} lines."
         )
     print(f"Wrote {path.relative_to(REPOSITORY_ROOT)}.")
     _render()

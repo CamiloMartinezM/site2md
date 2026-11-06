@@ -12,6 +12,9 @@ JsonValue = None | bool | int | float | str | Sequence["JsonValue"] | Mapping[st
 SourceKind = Literal["python", "json", "toml"]
 ChartMeasure = Literal["time", "size"]
 ChartTheme = Literal["light", "dark"]
+# The two tasks a tool can solve, and the table columns that a tool's footnote can explain.
+TaskName = Literal["page", "crawl"]
+FootnoteColumn = Literal["time", "lines", "size", "crawl", "gap"]
 PythonFormatter = Callable[[str], str]
 # What the fixture server records: the time (perf_counter seconds) and path of each request, in the order logged.
 RequestLog = Sequence[tuple[float, str]]

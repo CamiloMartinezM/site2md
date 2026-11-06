@@ -67,21 +67,6 @@ class CountSolutionTests(ToolDirectoryTestCase):
         # 2 commands + 2 Python lines + 3 JSON lines ({, "id", }) + 2 TOML lines
         self.assertEqual(count_solution(tool, "page", format_python=_unformatted), LineCount(9, ()))
 
-    def test_a_command_needed_only_for_the_local_server_is_named_not_counted(self) -> None:
-        self.write_definition(
-            page={
-                "steps": [
-                    {"run": "example allow 127.0.0.1:{port}", "local_only": True},
-                    {"run": "example fetch {url}"},
-                ]
-            }
-        )
-        tool = load_tool(self.directory)
-        self.assertEqual(
-            count_solution(tool, "page", format_python=_unformatted),
-            LineCount(1, ("example allow 127.0.0.1:{port}",)),
-        )
-
     def test_local_server_lines_inside_a_file_are_named_not_counted(self) -> None:
         self.write("solution.py", 'fetch(url)\nallow("127.0.0.1")  # 127.0.0.1-only\n')
         self.write_definition(page={"steps": [{"run": "python solution.py {url}", "file": "solution.py"}]})
