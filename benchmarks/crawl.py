@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import itertools
 import re
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 
+from benchmarks._types import RequestLog
 from benchmarks.errors import HarnessError
 
 START_PATH = "/"
+ROBOTS_PATH = "/robots.txt"
 # The layout: 1 entry page, 4 pages below it and 15 below those fill the 20-page budget within depth 2.
 LEVEL_1_PAGES = 4
 LEVEL_2_PAGES = 15
@@ -47,6 +50,11 @@ def _page(head: str, tail: str, countries: list[str], links: list[str]) -> bytes
     return (head + "\n".join(countries) + tail).encode("utf-8")
 
 
+def _page_requests(requests: RequestLog) -> RequestLog:
+    """Return the requests for pages, which leaves out robots.txt."""
+    return [request for request in requests if request[1] != ROBOTS_PATH]
+
+
 def build_site(page_html: str) -> CrawlSite:
     """Build the site: 20 pages within depth 2 that split the copy's countries, and 5 decoy pages at depth 3."""
     html = _OWN_LINK.sub(r"\1", page_html)
@@ -76,3 +84,24 @@ def build_site(page_html: str) -> CrawlSite:
         numbers = range(index * DECOYS_PER_PAGE + 1, (index + 1) * DECOYS_PER_PAGE + 1)
         pages[path] = _page(head, tail, [_decoy_country(countries[0], number) for number in numbers], [START_PATH])
     return CrawlSite(pages, expected, decoys)
+
+
+def extra_pages(requests: RequestLog, expected: Collection[str]) -> list[str]:
+    """Return the pages fetched beyond one fetch of each expected page, in request order."""
+    seen: set[str] = set()
+    extra = []
+    for _, path in _page_requests(requests):
+        if path in expected and path not in seen:
+            seen.add(path)
+        else:
+            extra.append(path)
+    return extra
+
+
+def shortest_gap(requests: RequestLog) -> float | None:
+    """Return the shortest time in seconds between two consecutive child-page requests, if there are two.
+
+    The first page request is the entry page, so the children are the page requests after it.
+    """
+    children = [moment for moment, _ in _page_requests(requests)[1:]]
+    return min((later - earlier for earlier, later in itertools.pairwise(children)), default=None)

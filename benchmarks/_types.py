@@ -8,6 +8,8 @@ from typing import Literal, TypedDict
 JsonValue = None | bool | int | float | str | Sequence["JsonValue"] | Mapping[str, "JsonValue"]
 SourceKind = Literal["python", "json", "toml"]
 PythonFormatter = Callable[[str], str]
+# What the fixture server records: the time (monotonic seconds) and path of each request, in order.
+RequestLog = Sequence[tuple[float, str]]
 
 
 class TimeResult(TypedDict):

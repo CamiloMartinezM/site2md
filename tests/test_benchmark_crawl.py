@@ -5,7 +5,13 @@ from __future__ import annotations
 import re
 import unittest
 
-from benchmarks.crawl import START_PATH, CrawlSite, build_site
+from benchmarks.crawl import (
+    START_PATH,
+    CrawlSite,
+    build_site,
+    extra_pages,
+    shortest_gap,
+)
 from benchmarks.errors import HarnessError
 
 COUNTRY_COUNT = 43
@@ -167,6 +173,64 @@ class BuildSiteTests(unittest.TestCase):
     def test_a_page_without_countries_is_rejected(self) -> None:
         with self.assertRaisesRegex(HarnessError, "countries"):
             build_site("<html><body>Nothing here</body></html>")
+
+
+class ExtraPagesTests(unittest.TestCase):
+    """Check which fetches of a crawl fall outside the expected pages."""
+
+    EXPECTED = ("/", "/a", "/b")
+
+    def test_a_crawl_of_the_expected_pages_fetched_nothing_extra(self) -> None:
+        log = [(0.0, "/robots.txt"), (0.1, "/"), (1.2, "/a"), (2.3, "/b")]
+        self.assertEqual(extra_pages(log, self.EXPECTED), [])
+
+    def test_a_decoy_page_is_extra(self) -> None:
+        log = [(0.1, "/"), (1.2, "/a"), (2.3, "/b"), (3.4, "/level-3/page-1.html")]
+        self.assertEqual(extra_pages(log, self.EXPECTED), ["/level-3/page-1.html"])
+
+    def test_fetching_the_entry_page_a_second_time_is_one_extra_page(self) -> None:
+        log = [(0.1, "/"), (1.2, "/a"), (2.3, "/"), (3.4, "/b")]
+        self.assertEqual(extra_pages(log, self.EXPECTED), ["/"])
+
+    def test_a_path_the_site_does_not_have_is_extra_even_though_it_was_not_found(self) -> None:
+        log = [(0.1, "/"), (1.2, "/pages/"), (2.3, "/a"), (3.4, "/b")]
+        self.assertEqual(extra_pages(log, self.EXPECTED), ["/pages/"])
+
+    def test_extra_pages_come_in_the_order_they_were_fetched(self) -> None:
+        log = [(0.1, "/"), (1.2, "/z"), (2.3, "/a"), (3.4, "/y"), (4.5, "/z")]
+        self.assertEqual(extra_pages(log, self.EXPECTED), ["/z", "/y", "/z"])
+
+    def test_robots_txt_is_not_a_page_however_often_it_is_fetched(self) -> None:
+        log = [(0.0, "/robots.txt"), (0.1, "/"), (0.2, "/robots.txt"), (1.3, "/a")]
+        self.assertEqual(extra_pages(log, self.EXPECTED), [])
+
+    def test_a_crawl_that_fetched_nothing_has_nothing_extra(self) -> None:
+        self.assertEqual(extra_pages([], self.EXPECTED), [])
+
+
+class ShortestGapTests(unittest.TestCase):
+    """Check the shortest time between two consecutive child-page requests."""
+
+    def test_it_is_the_smallest_difference_between_consecutive_child_requests(self) -> None:
+        log = [(0.0, "/"), (5.0, "/a"), (6.5, "/b"), (7.25, "/c"), (9.0, "/d")]
+        self.assertEqual(shortest_gap(log), 0.75)
+
+    def test_the_gap_between_the_entry_page_and_the_first_child_is_not_a_child_gap(self) -> None:
+        log = [(0.0, "/"), (0.1, "/a"), (1.4, "/b")]
+        self.assertAlmostEqual(shortest_gap(log) or 0.0, 1.3)
+
+    def test_robots_txt_requests_are_not_child_pages(self) -> None:
+        log = [(0.0, "/robots.txt"), (0.1, "/"), (0.2, "/robots.txt"), (2.0, "/a"), (2.05, "/robots.txt"), (4.0, "/b")]
+        self.assertEqual(shortest_gap(log), 2.0)
+
+    def test_a_repeated_fetch_is_a_child_request(self) -> None:
+        log = [(0.0, "/"), (1.0, "/a"), (1.02, "/")]
+        self.assertAlmostEqual(shortest_gap(log) or 0.0, 0.02)
+
+    def test_there_is_no_gap_with_fewer_than_two_child_requests(self) -> None:
+        self.assertIsNone(shortest_gap([]))
+        self.assertIsNone(shortest_gap([(0.0, "/robots.txt"), (0.1, "/")]))
+        self.assertIsNone(shortest_gap([(0.0, "/"), (1.0, "/a")]))
 
 
 if __name__ == "__main__":
