@@ -8,7 +8,8 @@ import unittest
 from collections.abc import Iterator
 
 from benchmarks._types import JsonValue
-from benchmarks.paths import BENCHMARKS_DOCUMENT, RESULTS_DIRECTORY
+from benchmarks.catalog import load_tool
+from benchmarks.paths import BENCHMARKS_DOCUMENT, RESULTS_DIRECTORY, TOOLS_DIRECTORY
 from benchmarks.report import render_document
 
 
@@ -44,6 +45,25 @@ class CommittedBenchmarksTests(unittest.TestCase):
         # A stale document means `python -m benchmarks render` was not rerun after a merge.
         document = BENCHMARKS_DOCUMENT.read_text(encoding="utf-8")
         self.assertEqual(render_document(document), document)
+
+
+class Crawl4aiToolTests(unittest.TestCase):
+    """Check what the crawl4ai definition promises, since CI cannot install crawl4ai to see it."""
+
+    def setUp(self) -> None:
+        self.tool = load_tool(TOOLS_DIRECTORY / "crawl4ai")
+
+    def test_it_is_pinned_to_one_exact_version(self) -> None:
+        self.assertEqual(self.tool.requirements, ("crawl4ai==0.9.5",))
+
+    def test_its_home_folder_is_inside_the_cache(self) -> None:
+        # Unset, crawl4ai writes its logs and robots.txt cache to the user's home folder.
+        home = (self.tool.env or {}).get("CRAWL4_AI_BASE_DIRECTORY", "")
+        self.assertTrue(home.startswith("{cache}/"), home)
+
+    def test_the_command_line_footnote_explains_why_its_one_line_is_not_counted(self) -> None:
+        notes = [note.text for note in self.tool.footnotes if note.column == "lines"]
+        self.assertTrue(any("crwl" in note and "browser" in note for note in notes), notes)
 
 
 if __name__ == "__main__":
