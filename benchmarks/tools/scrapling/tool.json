@@ -1,16 +1,24 @@
 {
   "name": "Scrapling",
   "version": "0.5.1",
-  "solution": "Scrapling's HTTP fetcher gets the page and CSS selectors read each country. The `fetchers` extra is the smallest one that provides the fetcher, and no browser is downloaded or started.",
+  "solution": "Scrapling's HTTP fetcher gets the page and CSS selectors read each country. The `fetchers` extra is the smallest one that provides the fetcher, and no browser is downloaded or started. The crawl is a spider that reads the same selectors on every page it follows and writes the records with its own JSON export.",
   "requirements": [
     "scrapling[fetchers]=={version}"
   ],
   "footnotes": [
-    {"column": "size", "text": "The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded."}
+    {"column": "size", "text": "The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded."},
+    {"column": "crawl", "text": "Scrapling's spiders have no depth limit, and the `max_pages` of its Markdown spider limits what it converts, not what it fetches. The spider therefore carries each page's depth in its requests and keeps its own set of the pages it has queued. Without them it fetches the five decoy pages."},
+    {"column": "gap", "text": "At its defaults a spider fetches up to four pages at once and adds no delay, and it doesn't request robots.txt unless asked to, so several requests reach the server together."}
   ],
   "page": {
     "steps": [
       {"run": "python page.py {url}", "file": "page.py"}
     ]
+  },
+  "crawl": {
+    "steps": [
+      {"run": "python crawl.py {url}", "file": "crawl.py"}
+    ],
+    "output_file": "output.json"
   }
 }
