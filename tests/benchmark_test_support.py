@@ -62,6 +62,8 @@ def make_result(
     if crawl_lines is not None:
         result["crawl"] = {
             "matches": True,
+            "extra_pages": [],
+            "shortest_gap": 1.0,
             "lines": {"counted": crawl_lines, "local_only": list(crawl_local_only)},
         }
     return result

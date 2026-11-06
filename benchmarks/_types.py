@@ -6,7 +6,6 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Literal, TypedDict
 
 if TYPE_CHECKING:
-    # typing.NotRequired needs Python 3.11, and the harness runs on 3.10.
     from typing_extensions import NotRequired
 
 JsonValue = None | bool | int | float | str | Sequence["JsonValue"] | Mapping[str, "JsonValue"]
@@ -60,9 +59,13 @@ class PageResult(TypedDict):
 
 
 class CrawlResult(TypedDict):
-    """A tool's results for the crawl task."""
+    """A tool's results for the crawl task, which runs once and isn't timed."""
 
     matches: bool
+    # The pages that the server's request log shows beyond one fetch of each of the 20 expected pages.
+    extra_pages: list[str]
+    # Seconds between the two closest child-page requests, or None when there were fewer than two.
+    shortest_gap: float | None
     lines: LinesResult
 
 
@@ -74,5 +77,5 @@ class ToolResult(TypedDict):
     environment: EnvironmentResult
     install: InstallResult
     page: PageResult
-    # A tool without a crawl solution has no crawl results.
+    # Absent for a tool without a crawler, and in results files from before the crawl task.
     crawl: NotRequired[CrawlResult]
