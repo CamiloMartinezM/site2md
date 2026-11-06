@@ -116,6 +116,16 @@ def run_command(command: Sequence[str], *, variables: Mapping[str, str], cwd: Pa
         raise HarnessError(f"command failed with exit status {completed.returncode}: {' '.join(command)}")
 
 
+def run_shell_command(command: str, *, variables: Mapping[str, str], cwd: Path) -> None:
+    """Run a command line through the platform shell, as hyperfine does, and stop the harness if it fails."""
+    # A shell is needed for `&&` and `>`. The line is a tool's own committed steps and the local server's URL.
+    completed = subprocess.run(command, shell=True, env=dict(variables), cwd=cwd, check=False)
+    if completed.returncode != 0:
+        raise HarnessError(
+            f"the solution exited with status {completed.returncode}, so it does not count as working: {command}"
+        )
+
+
 def fresh_directory(path: Path) -> Path:
     """Return an empty folder at a path inside the cache, replacing whatever was there."""
     # Validate before deleting: only something below the cache may go.

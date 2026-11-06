@@ -19,5 +19,17 @@
       "extractor/benchmark_countries/__init__.py",
       "extractor/benchmark_countries/provider-manifest-v1.json"
     ]
+  },
+  "crawl": {
+    "steps": [
+      {"run": "site2md build {url} --mode site --max-pages 20 --max-depth 2 --output page.md"},
+      {"run": "site2md extract benchmark.countries page.md --output result.json"},
+      {"run": "python records.py", "file": "records.py"}
+    ],
+    "files": [
+      "extractor/pyproject.toml",
+      "extractor/benchmark_countries/__init__.py",
+      "extractor/benchmark_countries/provider-manifest-v1.json"
+    ]
   }
 }

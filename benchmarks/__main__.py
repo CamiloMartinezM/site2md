@@ -39,7 +39,7 @@ def _run(tool_id: str) -> None:
     if tool_id not in tool_ids():
         raise HarnessError(f"unknown tool '{tool_id}'; the tools are {', '.join(tool_ids())}")
     tool = load_tool(TOOLS_DIRECTORY / tool_id)
-    result, difference = run_tool(tool)
+    result, differences = run_tool(tool)
     path = write_result(tool_id, result)
     page = result["page"]
     print(
@@ -47,12 +47,19 @@ def _run(tool_id: str) -> None:
         f"+/- {page['time']['stddev'] * 1000:.0f} ms, {page['lines']['counted']} lines, "
         f"{result['install']['size_bytes'] / 1e6:.1f} MB in {len(result['install']['packages'])} packages."
     )
+    crawl = result.get("crawl")
+    if crawl is not None:
+        gap = "n/a" if crawl["shortest_gap"] is None else f"{crawl['shortest_gap']:.3f} s"
+        print(
+            f"Crawl: {len(crawl['extra_pages'])} extra pages fetched, shortest gap between child pages "
+            f"{gap}, {crawl['lines']['counted']} lines."
+        )
     print(f"Wrote {path.relative_to(REPOSITORY_ROOT)}.")
     _render()
     # The results are written first, so that the table can show "no" for a solution that fails the check.
-    if difference is not None:
-        raise HarnessError(f"the output does not match the reference: {difference}")
-    print("The output matches the reference exactly.")
+    if differences:
+        raise HarnessError(f"the output does not match the reference: {'; '.join(differences)}")
+    print("The output matches the reference: exactly for the page task, as a set for the crawl task.")
 
 
 def _reference() -> None:

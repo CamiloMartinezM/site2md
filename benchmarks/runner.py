@@ -8,18 +8,22 @@ import platform
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 from benchmarks._json import expect_list, expect_object
-from benchmarks._types import JsonValue, ToolResult
+from benchmarks._types import CrawlResult, JsonValue, PythonFormatter, ToolResult
 from benchmarks.catalog import Solution, Tool, count_solution, load_tool
-from benchmarks.compare import first_difference
+from benchmarks.compare import first_difference, set_difference
+from benchmarks.crawl import START_PATH, build_site, extra_pages, shortest_gap
 from benchmarks.environment import (
     HYPERFINE_HINT,
     UV_HINT,
+    Environment,
     find_program,
     fresh_directory,
     install_tool,
     run_command,
+    run_shell_command,
 )
 from benchmarks.errors import HarnessError
 from benchmarks.files import write_atomically
@@ -50,6 +54,47 @@ def _load_reference() -> JsonValue:
     return reference
 
 
+def _prepare_work(tool: Tool, solution: Solution, name: str) -> Path:
+    """Return an empty work folder that holds a copy of each Python file the solution runs."""
+    work = fresh_directory(CACHE_DIRECTORY / "work" / name)
+    for step in solution.steps:
+        if step.file is not None:
+            shutil.copy(tool.directory / step.file, work)
+    return work
+
+
+def _read_output(work: Path, solution: Solution) -> str:
+    """Return what the solution's last step wrote, which is the records."""
+    output = work / (solution.output_file or OUTPUT_FILE)
+    if not output.is_file():
+        raise HarnessError(f"the solution wrote no {output.name}")
+    return output.read_text(encoding="utf-8")
+
+
+def _run_crawl(
+    tool: Tool, environment: Environment, page: Path, reference: JsonValue, format_python: PythonFormatter
+) -> tuple[CrawlResult, str | None]:
+    """Run the crawl task once, untimed, and check its output and the server's request log."""
+    solution = tool.tasks["crawl"]
+    site = build_site(page.read_text(encoding="utf-8"))
+    work = _prepare_work(tool, solution, f"{tool.id}-crawl")
+    with FixtureServer(site.pages) as server:
+        run_shell_command(
+            build_command(solution, server.origin + START_PATH), variables=environment.variables, cwd=work
+        )
+    difference = set_difference(_read_output(work, solution), reference)
+    lines = count_solution(tool, "crawl", format_python=format_python)
+    gap = shortest_gap(server.requests)
+    result: CrawlResult = {
+        "matches": difference is None,
+        "extra_pages": extra_pages(server.requests, site.expected),
+        # Microseconds, like the times: finer than the server's clock.
+        "shortest_gap": None if gap is None else round(gap, 6),
+        "lines": {"counted": lines.counted, "local_only": list(lines.local_only)},
+    }
+    return result, difference
+
+
 def build_command(solution: Solution, url: str) -> str:
     """Join a solution's steps into the one command line that is timed, with `{url}` filled in."""
     try:
@@ -61,8 +106,8 @@ def build_command(solution: Solution, url: str) -> str:
     return " && ".join(commands)
 
 
-def run_tool(tool: Tool) -> tuple[ToolResult, str | None]:
-    """Run the page task for one tool, and return its results and the first difference, if any."""
+def run_tool(tool: Tool) -> tuple[ToolResult, list[str]]:
+    """Run the tool's tasks, and return its results and the first difference from the reference in each task."""
     hyperfine = find_program("hyperfine", HYPERFINE_HINT)
     uv = find_program("uv", UV_HINT)
     page, downloaded = ensure_page()
@@ -71,10 +116,7 @@ def run_tool(tool: Tool) -> tuple[ToolResult, str | None]:
     print(f"Installing {tool.name} {tool.version}...")
     environment, install = install_tool(tool)
     solution = tool.tasks["page"]
-    work = fresh_directory(CACHE_DIRECTORY / "work" / tool.id)
-    for step in solution.steps:
-        if step.file is not None:
-            shutil.copy(tool.directory / step.file, work)
+    work = _prepare_work(tool, solution, tool.id)
     print("Timing the page task...")
     with FixtureServer({PAGE_PATH: page.read_bytes()}) as server:
         time = run_hyperfine(
@@ -84,16 +126,13 @@ def run_tool(tool: Tool) -> tuple[ToolResult, str | None]:
             variables=environment.variables,
             export=work / "hyperfine.json",
         )
-    output = work / (solution.output_file or OUTPUT_FILE)
-    if not output.is_file():
-        raise HarnessError(f"the solution wrote no {output.name}")
-    difference = first_difference(output.read_text(encoding="utf-8"), reference)
+    page_difference = first_difference(_read_output(work, solution), reference)
     ruff = ("uv", "tool", "run", "--no-config", "--from", f"ruff=={RUFF_VERSION}", "ruff")
-    lines = count_solution(
-        tool,
-        "page",
-        format_python=lambda source: format_with_ruff(source, command=ruff, env=environment.variables),
-    )
+
+    def format_python(source: str) -> str:
+        return format_with_ruff(source, command=ruff, env=environment.variables)
+
+    lines = count_solution(tool, "page", format_python=format_python)
     result: ToolResult = {
         "version": tool.version,
         "date": datetime.datetime.now(datetime.timezone.utc).date().isoformat(),
@@ -106,12 +145,18 @@ def run_tool(tool: Tool) -> tuple[ToolResult, str | None]:
         },
         "install": install,
         "page": {
-            "matches": difference is None,
+            "matches": page_difference is None,
             "time": time,
             "lines": {"counted": lines.counted, "local_only": list(lines.local_only)},
         },
     }
-    return result, difference
+    differences = [] if page_difference is None else [f"page task: {page_difference}"]
+    if "crawl" in tool.tasks:
+        print("Running the crawl task once. It isn't timed, and it waits as long as the tool's own delays.")
+        result["crawl"], crawl_difference = _run_crawl(tool, environment, page, reference, format_python)
+        if crawl_difference is not None:
+            differences.append(f"crawl task: {crawl_difference}")
+    return result, differences
 
 
 def build_reference() -> int:
