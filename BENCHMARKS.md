@@ -44,7 +44,7 @@ The page copy was downloaded on 2026-11-06. Its SHA-256 is `4c68c2a54000607a0fa5
 
 | Tool | Version | Output matches | Time | Lines | Install size | Packages |
 |---|---|---|---|---|---|---|
-| site2md | 0.4.3 | yes | 1.79 s ± 0.24 s | 54 | 11.5 MB | 20 |
+| site2md | 0.4.3 | yes | 1.78 s ± 0.22 s | 54 | 11.5 MB | 20 |
 
 ### Solutions
 
