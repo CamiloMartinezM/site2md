@@ -46,14 +46,19 @@ The page copy was downloaded on 2026-11-06. Its SHA-256 is `4c68c2a54000607a0fa5
 |---|---|---|---|---|---|---|
 | site2md | 0.4.3 | yes | 1.78 s ± 0.22 s | 54 | 11.5 MB | 20 |
 | Scrapling | 0.5.1 | yes | 321 ms ± 8 ms | 12 [^1] | 242.9 MB [^2] | 23 |
+| crawl4ai | 0.9.5 | yes | 1.10 s ± 0.04 s | 24 [^3] [^4] | 554.8 MB [^5] | 96 |
 
 [^1]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
 [^2]: The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded.
+[^3]: crawl4ai's `crwl` command line does the task in one line, but it always starts a browser, so that line isn't counted. The count is for the Python solution, which uses the HTTP-only crawler strategy.
+[^4]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
+[^5]: crawl4ai requires Playwright and Patchright even for its HTTP-only strategy, so no smaller install exists. They take 110 MB each because each bundles a Node driver. No browser is downloaded.
 
 ### Solutions
 
 - **site2md**: `build` converts the page, `extract` runs a minimal Extractor written for this benchmark, and one last step writes the record values. site2md is installed from its release tag, because the PyPI name belongs to a different project.
 - **Scrapling**: Scrapling's HTTP fetcher gets the page and CSS selectors read each country. The `fetchers` extra is the smallest one that provides the fetcher, and no browser is downloaded or started.
+- **crawl4ai**: Its HTTP-only crawler strategy fetches the page and its CSS extraction strategy reads each country as text, then a short loop converts the numbers and the missing capital. No browser is downloaded or started. Its home folder, where it keeps logs and a robots.txt cache, is moved into the benchmark's cache.
 
 ### Versions and raw results
 
@@ -61,6 +66,7 @@ The page copy was downloaded on 2026-11-06. Its SHA-256 is `4c68c2a54000607a0fa5
 |---|---|---|---|
 | site2md | 0.4.3 | 2026-11-06 | [site2md.json](benchmarks/results/site2md.json) |
 | Scrapling | 0.5.1 | 2026-11-06 | [scrapling.json](benchmarks/results/scrapling.json) |
+| crawl4ai | 0.9.5 | 2026-11-06 | [crawl4ai.json](benchmarks/results/crawl4ai.json) |
 <!-- benchmarks:generated:end -->
 
 ## Rerun
