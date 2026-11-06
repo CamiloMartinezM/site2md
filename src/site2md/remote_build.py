@@ -9,17 +9,16 @@ import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import soupsieve
 from bs4 import BeautifulSoup, Tag
 
+from site2md._types import RemoteBuildStage, RemoteMode, TraversalControl
 from site2md.converter import convert_remote_page_to_markdown
 from site2md.downloader import (
     DEFAULT_MAX_PAGE_SIZE_MIB,
     RemoteFetchError,
-    RemoteMode,
     RemotePage,
     TraversalRequestPolicy,
     fetch_remote,
@@ -27,15 +26,6 @@ from site2md.downloader import (
     url_origin,
 )
 
-RemoteBuildStage = Literal[
-    "validation",
-    "fetch",
-    "conversion",
-    "destination",
-    "cleanup",
-    "interruption",
-    "unexpected",
-]
 DEFAULT_MAX_PAGES = 50
 DEFAULT_MAX_DEPTH = 3
 DEFAULT_MAX_TOTAL_SIZE_MIB = 250
@@ -85,7 +75,6 @@ class RemoteBuildError(RuntimeError):
         self.retained_workspace = retained_workspace
 
 
-_TraversalControl = Literal["continue", "stop"]
 
 
 @dataclass(frozen=True)
@@ -124,149 +113,6 @@ class _TraversalState:
     admitted_count: int
     pending: list[tuple[str, int]]
     page_limit_reached: bool
-
-
-def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
-    """Build one remote document and atomically replace its destination."""
-    limits = _validate_request(request)
-    max_total_bytes = (
-        limits.max_total_bytes if request.mode in {"follow", "site"} else None
-    )
-    workspace = Path(tempfile.mkdtemp(prefix="site2md_remote_"))
-    staged_destination: Path | None = None
-    entry_path = workspace / "page.html"
-    index_pages: list[dict[str, object]] = [
-        {
-            "requested_url": request.entry_url,
-            "html": entry_path.name,
-            "status": "pending",
-        }
-    ]
-
-    try:
-        _write_debugging_index(workspace, index_pages)
-        try:
-            page = fetch_remote(
-                request.entry_url,
-                request.mode,
-                max_page_size_mib=limits.max_page_size_mib,
-                max_body_bytes=max_total_bytes,
-                content_path=entry_path,
-            )
-        except RemoteFetchError as error:
-            _record_fetch_failure(index_pages[0], entry_path, error)
-            _write_debugging_index(workspace, index_pages)
-            raise RemoteBuildError(str(error), stage="fetch") from error
-        except BaseException as error:
-            _record_fatal_fetch(index_pages[0], entry_path, error)
-            _write_debugging_index(workspace, index_pages)
-            raise
-
-        index_pages[0]["source_url"] = page.source_url
-        index_pages[0]["body_bytes"] = page.body_bytes
-        index_pages[0]["stored_bytes"] = _stored_bytes(entry_path)
-        index_pages[0]["status"] = "fetched"
-        _write_debugging_index(workspace, index_pages)
-
-        try:
-            markdown = convert_remote_page_to_markdown(page)
-            converted_path = workspace / "converted.md"
-            converted_path.write_text(
-                f"{markdown}\n\n---\n\n",
-                encoding="utf-8",
-            )
-            index_pages[0]["markdown"] = "converted.md"
-            index_pages[0]["status"] = "converted"
-            _write_debugging_index(workspace, index_pages)
-        except Exception as error:
-            raise RemoteBuildError(str(error), stage="conversion") from error
-
-        fragments = [converted_path]
-        fetched = 1
-        skipped = 0
-        failed = 0
-        warnings: list[str] = []
-        reached_limits: list[str] = []
-        if request.mode in {"follow", "site"}:
-            assert max_total_bytes is not None
-            traversal = _traverse_children(
-                request=request,
-                entry_page=page,
-                workspace=workspace,
-                index_pages=index_pages,
-                entry_fragment=converted_path,
-                limits=limits,
-            )
-            fragments = traversal.fragments
-            fetched = traversal.fetched
-            skipped = traversal.skipped
-            failed = traversal.failed
-            warnings = traversal.warnings
-            reached_limits = traversal.reached_limits
-
-        document_path = workspace / "document.md"
-        with document_path.open("wb") as document:
-            for fragment in fragments:
-                with fragment.open("rb") as source:
-                    shutil.copyfileobj(source, document)
-
-        try:
-            staged_destination = _stage_destination(
-                document_path,
-                request.destination,
-            )
-        except OSError as error:
-            raise RemoteBuildError(str(error), stage="destination") from error
-
-        if not request.keep_temp:
-            try:
-                shutil.rmtree(workspace)
-            except OSError as error:
-                message = f"Could not remove temporary workspace: {error}"
-                raise RemoteBuildError(message, stage="cleanup") from error
-
-        try:
-            os.replace(staged_destination, request.destination)
-        except OSError as error:
-            raise RemoteBuildError(str(error), stage="destination") from error
-        staged_destination = None
-
-        return RemoteBuildSummary(
-            fetched=fetched,
-            skipped=skipped,
-            failed=failed,
-            warnings=tuple(warnings),
-            reached_limits=tuple(reached_limits),
-            retained_workspace=workspace if request.keep_temp else None,
-        )
-    except BaseException as error:
-        failure = _remote_build_failure(error)
-        if request.keep_temp or (
-            workspace.exists() and failure.stage == "cleanup"
-        ):
-            failure.retained_workspace = workspace
-        elif workspace.exists():
-            try:
-                shutil.rmtree(workspace)
-            except OSError as cleanup_error:
-                message = (
-                    f"{failure} Additionally, could not remove temporary workspace: "
-                    f"{cleanup_error}"
-                )
-                failure = RemoteBuildError(
-                    message,
-                    stage="cleanup",
-                    retained_workspace=workspace,
-                )
-        if failure is error:
-            raise
-        raise failure from error
-    finally:
-        if staged_destination is not None:
-            try:
-                staged_destination.unlink(missing_ok=True)
-            except OSError:
-                pass
 
 
 def _traverse_children(
@@ -352,7 +198,7 @@ def _process_child(
     target: str,
     depth: int,
     request_policy: TraversalRequestPolicy,
-) -> _TraversalControl:
+) -> TraversalControl:
     """Fetch one admitted child and route its observable outcome."""
     index_entry: dict[str, object] = {
         "requested_url": target,
@@ -416,7 +262,7 @@ def _handle_child_fetch_error(
     index_entry: dict[str, object],
     child_path: Path,
     error: RemoteFetchError,
-) -> _TraversalControl:
+) -> TraversalControl:
     """Classify one expected child retrieval outcome and update diagnostics."""
     state.total_received += error.bytes_received
     _record_fetch_failure(index_entry, child_path, error)
@@ -463,7 +309,7 @@ def _process_fetched_child(
     index_entry: dict[str, object],
     child_path: Path,
     child: RemotePage,
-) -> _TraversalControl:
+) -> TraversalControl:
     """Deduplicate, discover from, and convert one fetched child page."""
     index_entry["source_url"] = child.source_url
     index_entry["body_bytes"] = child.body_bytes
@@ -803,3 +649,146 @@ def _stored_bytes(content_path: Path) -> int:
         return content_path.stat().st_size
     except OSError:
         return 0
+
+
+def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
+    """Build one remote document and atomically replace its destination."""
+    limits = _validate_request(request)
+    max_total_bytes = (
+        limits.max_total_bytes if request.mode in {"follow", "site"} else None
+    )
+    workspace = Path(tempfile.mkdtemp(prefix="site2md_remote_"))
+    staged_destination: Path | None = None
+    entry_path = workspace / "page.html"
+    index_pages: list[dict[str, object]] = [
+        {
+            "requested_url": request.entry_url,
+            "html": entry_path.name,
+            "status": "pending",
+        }
+    ]
+
+    try:
+        _write_debugging_index(workspace, index_pages)
+        try:
+            page = fetch_remote(
+                request.entry_url,
+                request.mode,
+                max_page_size_mib=limits.max_page_size_mib,
+                max_body_bytes=max_total_bytes,
+                content_path=entry_path,
+            )
+        except RemoteFetchError as error:
+            _record_fetch_failure(index_pages[0], entry_path, error)
+            _write_debugging_index(workspace, index_pages)
+            raise RemoteBuildError(str(error), stage="fetch") from error
+        except BaseException as error:
+            _record_fatal_fetch(index_pages[0], entry_path, error)
+            _write_debugging_index(workspace, index_pages)
+            raise
+
+        index_pages[0]["source_url"] = page.source_url
+        index_pages[0]["body_bytes"] = page.body_bytes
+        index_pages[0]["stored_bytes"] = _stored_bytes(entry_path)
+        index_pages[0]["status"] = "fetched"
+        _write_debugging_index(workspace, index_pages)
+
+        try:
+            markdown = convert_remote_page_to_markdown(page)
+            converted_path = workspace / "converted.md"
+            converted_path.write_text(
+                f"{markdown}\n\n---\n\n",
+                encoding="utf-8",
+            )
+            index_pages[0]["markdown"] = "converted.md"
+            index_pages[0]["status"] = "converted"
+            _write_debugging_index(workspace, index_pages)
+        except Exception as error:
+            raise RemoteBuildError(str(error), stage="conversion") from error
+
+        fragments = [converted_path]
+        fetched = 1
+        skipped = 0
+        failed = 0
+        warnings: list[str] = []
+        reached_limits: list[str] = []
+        if request.mode in {"follow", "site"}:
+            assert max_total_bytes is not None
+            traversal = _traverse_children(
+                request=request,
+                entry_page=page,
+                workspace=workspace,
+                index_pages=index_pages,
+                entry_fragment=converted_path,
+                limits=limits,
+            )
+            fragments = traversal.fragments
+            fetched = traversal.fetched
+            skipped = traversal.skipped
+            failed = traversal.failed
+            warnings = traversal.warnings
+            reached_limits = traversal.reached_limits
+
+        document_path = workspace / "document.md"
+        with document_path.open("wb") as document:
+            for fragment in fragments:
+                with fragment.open("rb") as source:
+                    shutil.copyfileobj(source, document)
+
+        try:
+            staged_destination = _stage_destination(
+                document_path,
+                request.destination,
+            )
+        except OSError as error:
+            raise RemoteBuildError(str(error), stage="destination") from error
+
+        if not request.keep_temp:
+            try:
+                shutil.rmtree(workspace)
+            except OSError as error:
+                message = f"Could not remove temporary workspace: {error}"
+                raise RemoteBuildError(message, stage="cleanup") from error
+
+        try:
+            os.replace(staged_destination, request.destination)
+        except OSError as error:
+            raise RemoteBuildError(str(error), stage="destination") from error
+        staged_destination = None
+
+        return RemoteBuildSummary(
+            fetched=fetched,
+            skipped=skipped,
+            failed=failed,
+            warnings=tuple(warnings),
+            reached_limits=tuple(reached_limits),
+            retained_workspace=workspace if request.keep_temp else None,
+        )
+    except BaseException as error:
+        failure = _remote_build_failure(error)
+        if request.keep_temp or (
+            workspace.exists() and failure.stage == "cleanup"
+        ):
+            failure.retained_workspace = workspace
+        elif workspace.exists():
+            try:
+                shutil.rmtree(workspace)
+            except OSError as cleanup_error:
+                message = (
+                    f"{failure} Additionally, could not remove temporary workspace: "
+                    f"{cleanup_error}"
+                )
+                failure = RemoteBuildError(
+                    message,
+                    stage="cleanup",
+                    retained_workspace=workspace,
+                )
+        if failure is error:
+            raise
+        raise failure from error
+    finally:
+        if staged_destination is not None:
+            try:
+                staged_destination.unlink(missing_ok=True)
+            except OSError:
+                pass

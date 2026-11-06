@@ -73,6 +73,10 @@ ignore = [
     "UP047",   # Generic function should use type parameters
 ]
 
+[tool.mypy]
+# A type: ignore that is no longer needed hides nothing and should go.
+warn_unused_ignores = true
+
 [tool.coverage.run]
 source_pkgs = ["site2md"]
 # Measure the installed site2md commands that the CLI tests run as subprocesses.

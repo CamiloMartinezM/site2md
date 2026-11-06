@@ -11,7 +11,7 @@ import unittest
 from collections.abc import Callable, Mapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 if TYPE_CHECKING:
     from typing_extensions import Self
@@ -20,10 +20,28 @@ Response = tuple[int, dict[str, str], bytes]
 Route = Response | Callable[[BaseHTTPRequestHandler], None]
 
 
-def installed_command() -> Path:
-    """Return the site2md console script installed next to the running Python."""
-    name = "site2md.exe" if sys.platform == "win32" else "site2md"
-    return Path(sys.executable).with_name(name)
+class RecordSchemaDeclaration(TypedDict):
+    """The record-schema part of an Extractor declaration in a provider manifest."""
+
+    id: str
+    version: str
+    schema: dict[str, object]
+
+
+class ExtractorDeclaration(TypedDict):
+    """One Extractor declaration in a provider manifest."""
+
+    id: str
+    interface_version: int
+    implementation_version: str
+    record_schema: RecordSchemaDeclaration
+
+
+class ProviderManifest(TypedDict):
+    """A version-one provider manifest as the tests write it."""
+
+    manifest_version: int
+    extractors: list[ExtractorDeclaration]
 
 
 class RecordingServer:
@@ -98,6 +116,7 @@ class InstalledCliTestCase(unittest.TestCase):
     ) -> subprocess.CompletedProcess[str]:
         """Run the installed command and capture its observable result."""
         environment = os.environ.copy()
+        environment["PYTHONIOENCODING"] = "utf-8"
         if without_wget:
             environment["PATH"] = str(self.command.parent)
         if extra_environment:
@@ -107,6 +126,7 @@ class InstalledCliTestCase(unittest.TestCase):
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             env=environment,
             timeout=timeout,
         )
@@ -134,3 +154,9 @@ class InstalledCliTestCase(unittest.TestCase):
             f"{hook_dir}{os.pathsep}{python_path}" if python_path else str(hook_dir)
         )
         return {"PYTHONPATH": hook_path}
+
+
+def installed_command() -> Path:
+    """Return the site2md console script installed next to the running Python."""
+    name = "site2md.exe" if sys.platform == "win32" else "site2md"
+    return Path(sys.executable).with_name(name)

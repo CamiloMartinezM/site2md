@@ -532,7 +532,10 @@ Request-rate: 2/3
             )
             self.assertGreaterEqual(request_times[1] - request_times[0], 1.4)
             self.assertIn("Reached limit: aggregate content (1 MiB)", result.stdout)
-            self.assertNotIn("<!-- Source: " + server.origin + "/final -->", output.read_text())
+            self.assertNotIn(
+                "<!-- Source: " + server.origin + "/final -->",
+                output.read_text(encoding="utf-8"),
+            )
 
     def test_redirect_hop_body_obeys_per_page_streaming_limit(self) -> None:
         entry = b'<html><body><a href="/redirect">Redirect</a></body></html>'
@@ -671,7 +674,10 @@ Request-rate: 2/3
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(server.requests, ["/entry", "/robots.txt"])
                 self.assertIn("child traversal stopped", result.stdout)
-                self.assertIn(f"<!-- Source: {server.origin}/entry -->", output.read_text())
+                self.assertIn(
+                    f"<!-- Source: {server.origin}/entry -->",
+                    output.read_text(encoding="utf-8"),
+                )
 
     def test_keep_temp_retains_follow_artifacts_and_debugging_index(self) -> None:
         entry = b'<html><body><a href="/good">Good</a><a href="/large">Large</a></body></html>'

@@ -1,5 +1,7 @@
 """Module for finding and sorting HTML files within directories."""
 
+from __future__ import annotations
+
 from pathlib import Path
 
 
