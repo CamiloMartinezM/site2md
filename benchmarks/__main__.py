@@ -59,7 +59,7 @@ def _run(tool_id: str) -> None:
     # The results are written first, so that the table can show "no" for a solution that fails the check.
     if differences:
         raise HarnessError(f"the output does not match the reference: {'; '.join(differences)}")
-    print("The output matches the reference: exactly for the page task, as a set for the crawl task.")
+    print("The output matches the reference: exactly for the page task, in any order for the crawl task.")
 
 
 def _reference() -> None:

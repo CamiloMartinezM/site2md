@@ -13,7 +13,7 @@ from pathlib import Path
 from benchmarks._json import expect_list, expect_object
 from benchmarks._types import CrawlResult, JsonValue, PythonFormatter, ToolResult
 from benchmarks.catalog import Solution, Tool, count_solution, load_tool
-from benchmarks.compare import first_difference, set_difference
+from benchmarks.compare import first_difference, unordered_difference
 from benchmarks.crawl import START_PATH, build_site, extra_pages, shortest_gap
 from benchmarks.environment import (
     HYPERFINE_HINT,
@@ -82,7 +82,7 @@ def _run_crawl(
         run_shell_command(
             build_command(solution, server.origin + START_PATH), variables=environment.variables, cwd=work
         )
-    difference = set_difference(_read_output(work, solution), reference)
+    difference = unordered_difference(_read_output(work, solution), reference)
     lines = count_solution(tool, "crawl", format_python=format_python)
     gap = shortest_gap(server.requests)
     result: CrawlResult = {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 
 from benchmarks._types import JsonValue
 
@@ -49,11 +50,11 @@ def first_difference(output_text: str, expected: JsonValue) -> str | None:
     return _difference(actual, expected, "")
 
 
-def set_difference(output_text: str, expected: JsonValue) -> str | None:
-    """Return what keeps a tool's JSON output from holding the reference records as a set, if anything.
+def unordered_difference(output_text: str, expected: JsonValue) -> str | None:
+    """Return what keeps a tool's JSON output from holding exactly the reference records in any order, if anything.
 
-    Crawlers visit pages in different orders, so order and repeats don't matter. Records are compared
-    through their canonical JSON, which keeps number types apart: 468 is not 468.0.
+    Crawlers visit pages in different orders, but a repeated page would repeat its records. Records are
+    compared through their canonical JSON, which keeps number types apart: 468 is not 468.0.
     """
     try:
         actual: JsonValue = json.loads(output_text)
@@ -61,11 +62,16 @@ def set_difference(output_text: str, expected: JsonValue) -> str | None:
         return f"output is not valid JSON: {error}"
     if not isinstance(actual, list) or not isinstance(expected, list):
         return "output is not a JSON array"
-    actual_records = {json.dumps(record, sort_keys=True) for record in actual}
-    expected_records = {json.dumps(record, sort_keys=True) for record in expected}
+    actual_records = Counter(json.dumps(record, sort_keys=True) for record in actual)
+    expected_records = Counter(json.dumps(record, sort_keys=True) for record in expected)
+    extra = actual_records - expected_records
+    repeated = Counter({record: count for record, count in extra.items() if record in expected_records})
     parts = []
-    if missing := expected_records - actual_records:
-        parts.append(f"{len(missing)} missing records, the first {min(missing)}")
-    if unexpected := actual_records - expected_records:
-        parts.append(f"{len(unexpected)} unexpected records, the first {min(unexpected)}")
+    for label, records in (
+        ("missing", expected_records - actual_records),
+        ("unexpected", extra - repeated),
+        ("repeated", repeated),
+    ):
+        if records:
+            parts.append(f"{records.total()} {label} records, the first {min(records)}")
     return "; ".join(parts) or None

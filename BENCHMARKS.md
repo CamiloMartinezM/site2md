@@ -14,12 +14,12 @@ Extract the 250 countries from a local copy of [Scrape This Site's countries pag
 
 ## The crawl task
 
-Start from the index of a generated local site, crawl breadth first within depth 2 and at most 20 pages, and extract the same 250 countries. The output is the same JSON array of records. It must match the reference **as a set**, because crawlers visit pages in different orders: order and repeated records don't matter, and number types still do.
+Start from the index of a generated local site, crawl breadth first within depth 2 and at most 20 pages, and extract the same 250 countries. The output is the same JSON array of records. It must match the reference **in any order**, because crawlers visit pages in different orders: the order doesn't matter, but every country must appear exactly once, so a repeated record fails, and number types still matter.
 
 - **The site.** The harness generates it from the page copy. The index and 19 pages below it, within depth 2, split the 250 countries between them. Five more pages one level deeper hold decoy countries (`Decoy Country 1` and so on) that must not appear in the output. Every page except the index links back to the index. The copy's own menu links, which return 404 on a local server, are removed. Its `robots.txt` allows everything. [`benchmarks/README.md`](benchmarks/README.md) lists the pages.
 - **Not timed.** Site and follow modes space child requests at least one second apart, and [there is no delay override](https://github.com/CamiloMartinezM/site2md/blob/e6c8a04beb0c386a2d07d6addaf0c9e35598d66e/docs/traversal-policy.md#L35). Against tools at their defaults, site2md would always finish a crawl last. Each crawl runs once to check its output, and nobody times it.
 - **Checks.** They come from the server's request log, never from a tool's own report:
-  - **Crawl output matches:** whether the output matches the reference as a set.
+  - **Crawl output matches:** whether the output matches the reference in any order, with no repeated and no missing records.
   - **Extra pages:** the pages fetched beyond one fetch of each of the 20 expected pages. A decoy, a second fetch of any page, and a path that the site doesn't have each count. `robots.txt` isn't a page.
   - **Shortest gap:** the shortest time between two consecutive child-page requests. The entry page isn't a child, so the gap between it and the first child doesn't count. The server stamps a request when it arrives, so a client that waits exactly one second between request starts can show a gap a few tens of milliseconds under one second.
 - **Tools without a crawler** show "no crawler" in the crawl columns.

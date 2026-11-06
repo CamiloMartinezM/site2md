@@ -83,7 +83,7 @@ The 20 pages within depth 2 split the 250 countries round-robin. Each page links
 
 The check takes the pages and the gaps from the server's request log, never from what a tool reports:
 
-- **Crawl output matches** compares the records with `expected/countries.json` as a set: order and repeated records don't matter, and number types do.
+- **Crawl output matches** compares the records with `expected/countries.json` in any order: every reference record must appear exactly once, so a repeated record fails, and number types matter.
 - **Extra pages** counts every page request beyond one fetch of each of the 20 expected pages: decoys, a second fetch of any page, and paths the site doesn't have. `robots.txt` is not a page.
 - **Shortest gap** is the shortest time between two consecutive child-page requests. The first page request is the entry page, so the gap between it and the first child doesn't count.
 
