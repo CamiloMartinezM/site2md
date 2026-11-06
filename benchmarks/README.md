@@ -28,7 +28,7 @@ The chart shows time only if site2md has the lowest mean time among the tools wh
 1. Checks that hyperfine and uv are installed, and stops with how to install them if not.
 2. Reuses the cached page copy, or downloads it, and checks its SHA-256 against `expected/page.json`.
 3. Creates a fresh uv environment on Python 3.12, installs the tool's pinned requirements, and measures the install. Then it runs the tool's `setup` commands.
-4. Checks that the program of every step resolves to a file inside `.cache`, so that a program installed on the machine can't stand in for the pinned one. Then it serves the page on 127.0.0.1 on a free port, and runs hyperfine on the solution's steps joined with `&&`.
+4. Checks that every step's program, and every program in the tool's `path` folders, resolves to a file inside `.cache`. This stops a program installed on the machine from standing in for the pinned one, including one that a script calls, as pandoc's does. Then it serves the page on 127.0.0.1 on a free port, and runs hyperfine on the solution's steps joined with `&&`.
 5. Compares the last step's output with the reference, counts the solution's lines, and, if the tool has a crawl solution, runs the crawl task once (see below).
 6. Writes `results/<id>.json`. Then it renders the generated files, the same as `render`. If an output differs, or the crawl exits with an error or writes no output, the file records `"matches": false` for that task, and the command prints the first difference and exits with status 1. A page solution that exits with an error stops the run, because there is nothing to time.
 

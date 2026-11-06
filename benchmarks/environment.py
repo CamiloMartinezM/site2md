@@ -145,6 +145,11 @@ def find_program(name: str, hint: str) -> str:
     return path
 
 
+def path_programs(folders: Iterable[Path]) -> list[str]:
+    """Return the names of the programs in the folders that a tool puts first on PATH."""
+    return [file.name for folder in folders for file in folder.iterdir() if shutil.which(file.name, path=str(folder))]
+
+
 def check_programs(programs: Iterable[str], *, path: str, inside: Path) -> None:
     """Stop the harness if a program resolves outside a folder, where the machine's copy would stand in."""
     for program in programs:

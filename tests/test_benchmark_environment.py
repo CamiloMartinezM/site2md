@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from benchmarks.environment import check_programs, child_variables
+from benchmarks.environment import check_programs, child_variables, path_programs
 from benchmarks.errors import HarnessError
 from benchmarks.paths import CACHE_DIRECTORY
 
@@ -64,6 +64,18 @@ class CheckProgramsTests(unittest.TestCase):
     def test_a_program_that_is_nowhere_is_refused(self) -> None:
         with self.assertRaisesRegex(HarnessError, "'tool'.*not found"):
             check_programs(["tool"], path=self.path(self.own, self.machine), inside=self.own)
+
+    def test_a_tool_folder_lists_its_programs_and_not_its_other_files(self) -> None:
+        self.install(self.own, "tool")
+        (self.own / "MANUAL.html").write_text("<p>manual</p>", encoding="utf-8")
+        self.assertEqual(path_programs([self.own]), ["tool.exe" if sys.platform == "win32" else "tool"])
+
+    def test_a_program_from_a_tool_folder_that_the_machine_shadows_is_refused(self) -> None:
+        # pandoc's solution calls pandoc from inside a Python script, so no step names it.
+        self.install(self.own, "tool")
+        self.install(self.machine, "tool")
+        with self.assertRaisesRegex(HarnessError, "'tool.*machine"):
+            check_programs(path_programs([self.own]), path=self.path(self.machine, self.own), inside=self.own)
 
 
 if __name__ == "__main__":

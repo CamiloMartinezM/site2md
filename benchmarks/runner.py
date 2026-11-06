@@ -22,6 +22,7 @@ from benchmarks.environment import (
     find_program,
     fresh_directory,
     install_tool,
+    path_programs,
     run_command,
     run_shell_command,
     venv_program,
@@ -128,8 +129,12 @@ def run_tool(tool: Tool) -> tuple[ToolResult, list[str]]:
     print(f"Installing {tool.name} {tool.version}...")
     environment, install = install_tool(tool)
     # The published numbers must come from the pinned install, so no step may fall back to the machine's program.
+    # A program can also run from inside a solution's script, as pandoc does, so check what the tool's folders hold.
     check_programs(
-        (program for task in tool.tasks.values() for step in task.steps for program in step.run.split()[:1]),
+        [
+            *(program for task in tool.tasks.values() for step in task.steps for program in step.run.split()[:1]),
+            *path_programs(environment.directory / part for part in tool.path),
+        ],
         path=environment.variables["PATH"],
         inside=CACHE_DIRECTORY,
     )
