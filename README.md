@@ -16,10 +16,10 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/benchmark-dark.svg">
   <source media="(prefers-color-scheme: light)" srcset="docs/benchmark-light.svg">
-  <img alt="Bar chart of the time each tool takes to extract the countries." src="docs/benchmark-light.svg">
+  <img alt="Bar chart of the disk space each tool's smallest install uses." src="docs/benchmark-light.svg">
 </picture>
 
-*Extracting the 250 countries from [Scrape This Site's countries page](https://www.scrapethissite.com/pages/simple/) as JSON, from a local copy. [Details](BENCHMARKS.md).*
+*Disk space used by each tool's smallest install that can extract the countries from [Scrape This Site's countries page](https://www.scrapethissite.com/pages/simple/) without a browser. [Details](BENCHMARKS.md).*
 <!-- benchmarks:chart:end -->
 
 [Installation](#-installation) • [Features](#-features) • [Usage](#-usage) • [Remote modes](#choose-a-remote-mode) • [Examples](#-examples) • [Benchmarks](#-benchmarks)
@@ -294,8 +294,17 @@ site2md against the tools you might pick instead. Every tool extracts the same 2
 | Tool | Time | Lines (page) | Lines (crawl) | Install size |
 |---|---|---|---|---|
 | site2md | 1.78 s ± 0.22 s | 54 | – [^1] | 11.5 MB |
+| Scrapling | 321 ms ± 8 ms | 12 [^2] | – [^1] | 242.9 MB [^3] |
+| crawl4ai | 1.10 s ± 0.04 s | 24 [^4] [^2] | – [^1] | 554.8 MB [^5] |
+| MarkItDown | 730 ms ± 25 ms | 10 [^2] | – [^1] | 94.8 MB |
+| pandoc | 252 ms ± 28 ms | 12 [^2] | – [^1] | 239.6 MB [^6] |
 
-[^1]: site2md has no crawler.
+[^1]: No crawler.
+[^2]: Not counted, because they are needed only to serve the page from 127.0.0.1: `import sys`.
+[^3]: The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded.
+[^4]: crawl4ai's `crwl` command line does the task in one line, but it always starts a browser, so that line isn't counted. The count is for the Python solution, which uses the HTTP-only crawler strategy.
+[^5]: crawl4ai requires Playwright and Patchright even for its HTTP-only strategy, so no smaller install exists. They take 110 MB each because each bundles a Node driver. No browser is downloaded.
+[^6]: The unpacked archive: `pandoc.exe`, its manual and its licence files. pandoc is not a Python package, so its package count reads 0.
 <!-- benchmarks:table:end -->
 
 ---

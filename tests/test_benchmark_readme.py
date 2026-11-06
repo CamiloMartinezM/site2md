@@ -49,13 +49,13 @@ class RenderTableTests(unittest.TestCase):
     def test_a_tool_without_a_crawler_gets_a_footnote_where_the_crawl_lines_would_be(self) -> None:
         table = render_table([make_tool("pandoc")], {"pandoc": make_result()})
         self.assertIn("| pandoc | 661 ms ± 10 ms | 54 | – [^1] | 11.5 MB |\n", table)
-        self.assertTrue(table.endswith("\n[^1]: pandoc has no crawler.\n"))
+        self.assertTrue(table.endswith("\n[^1]: No crawler.\n"))
 
     def test_a_tool_with_a_crawl_solution_but_no_crawl_results_says_so(self) -> None:
         tools = [make_tool("scrapling", name="Scrapling", has_crawl_solution=True)]
         table = render_table(tools, {"scrapling": make_result()})
         self.assertIn("| – [^1] |", table)
-        self.assertIn("[^1]: Scrapling has no crawl results yet.\n", table)
+        self.assertIn("[^1]: No crawl results yet.\n", table)
 
     def test_rows_follow_the_documented_tool_order_and_skip_tools_without_results(self) -> None:
         tools = [make_tool(name) for name in ("pandoc", "scrapling", "site2md")]
@@ -73,6 +73,13 @@ class RenderTableTests(unittest.TestCase):
         self.assertIn("| site2md | 661 ms ± 10 ms [^1] | 54 | 31 | 11.5 MB |", table)
         self.assertIn("| pandoc | 661 ms ± 10 ms | 54 [^2] | 7 | 11.5 MB [^3] |", table)
         self.assertTrue(table.endswith("[^1]: Time note.\n[^2]: Lines note.\n[^3]: Size note.\n"))
+
+    def test_rows_that_share_a_note_point_to_one_footnote(self) -> None:
+        tools = [make_tool("markitdown"), make_tool("pandoc")]
+        table = render_table(tools, {"markitdown": make_result(), "pandoc": make_result()})
+        self.assertIn("| markitdown | 661 ms ± 10 ms | 54 | – [^1] |", table)
+        self.assertIn("| pandoc | 661 ms ± 10 ms | 54 | – [^1] |", table)
+        self.assertEqual(table.count("[^1]:"), 1)
 
     def test_lines_needed_only_for_the_local_server_get_a_footnote_that_names_them(self) -> None:
         results = {

@@ -49,9 +49,7 @@ def _local_only_notes(lines: LinesResult) -> list[str]:
 
 def _crawl_gap(tool: Tool) -> str:
     """Say why a tool has no crawl line count."""
-    if "crawl" in tool.tasks:
-        return f"{tool.name} has no crawl results yet."
-    return f"{tool.name} has no crawler."
+    return "No crawl results yet." if "crawl" in tool.tasks else "No crawler."
 
 
 def render_chart_block(measure: ChartMeasure) -> str:
@@ -71,10 +69,11 @@ def render_table(tools: Sequence[Tool], results: Mapping[str, ToolResult]) -> st
     notes: list[str] = []
 
     def mark(text: str, column_notes: Sequence[str]) -> str:
-        """Append a footnote marker per note and remember the note."""
+        """Append a footnote marker per note, and remember each note once however many cells share it."""
         for note in column_notes:
-            notes.append(note)
-            text += f" [^{len(notes)}]"
+            if note not in notes:
+                notes.append(note)
+            text += f" [^{notes.index(note) + 1}]"
         return text
 
     lines = [f"| {' | '.join(_HEADERS)} |", f"|{'---|' * len(_HEADERS)}"]
