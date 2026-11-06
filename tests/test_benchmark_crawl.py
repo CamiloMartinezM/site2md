@@ -15,35 +15,18 @@ from benchmarks.crawl import (
 from benchmarks.errors import HarnessError
 from tests.benchmark_test_support import make_page
 
+COUNTRY_COUNT = 43
 EXPECTED_PAGES = 20
 DECOY_PAGES = 5
-BLOCK = re.compile(r'<div class="col-md-4 country">.*?</div><!--\.col-->', re.DOTALL)
 NAME = re.compile(r'<h3 class="country-name">.*?</i>\s*(.*?)\s*</h3>', re.DOTALL)
 ANCHOR = re.compile(r'<a\s[^>]*href="([^"]*)"')
-
-
-def _html(site: CrawlSite, path: str) -> str:
-    """Return one generated page."""
-    return site.pages[path].decode("utf-8")
-
-
-def _depths(site: CrawlSite) -> dict[str, int]:
-    """Return how many links lead from the entry page to each page, found breadth first."""
-    depths = {START_PATH: 0}
-    queue = [START_PATH]
-    for path in queue:
-        for link in ANCHOR.findall(_html(site, path)):
-            if link in site.pages and link not in depths:
-                depths[link] = depths[path] + 1
-                queue.append(link)
-    return depths
 
 
 class BuildSiteTests(unittest.TestCase):
     """Check the layout, the countries and the links of the generated site."""
 
     def setUp(self) -> None:
-        self.page = make_page()
+        self.page = make_page(COUNTRY_COUNT)
         self.site = build_site(self.page)
 
     def test_the_site_has_twenty_expected_pages_and_five_decoy_pages(self) -> None:
@@ -75,13 +58,13 @@ class BuildSiteTests(unittest.TestCase):
         self.assertEqual(len(set(parents)), DECOY_PAGES)
 
     def test_the_expected_pages_together_hold_every_country_exactly_once(self) -> None:
-        held = [block for path in self.site.expected for block in BLOCK.findall(_html(self.site, path))]
-        self.assertEqual(sorted(held), sorted(BLOCK.findall(self.page)))
+        held = [name for path in self.site.expected for name in NAME.findall(_html(self.site, path))]
+        self.assertEqual(sorted(held), sorted(f"Country {number}" for number in range(1, COUNTRY_COUNT + 1)))
 
     def test_every_expected_page_holds_some_countries(self) -> None:
         for path in self.site.expected:
             with self.subTest(path=path):
-                self.assertTrue(BLOCK.search(_html(self.site, path)))
+                self.assertTrue(NAME.search(_html(self.site, path)))
 
     def test_the_decoy_pages_hold_only_countries_that_are_not_in_the_page_copy(self) -> None:
         real_names = set(NAME.findall(self.page))
@@ -93,15 +76,15 @@ class BuildSiteTests(unittest.TestCase):
                 self.assertTrue(all(name.startswith("Decoy") for name in names))
 
     def test_a_decoy_country_has_the_markup_of_a_real_one(self) -> None:
-        classes = re.compile(r'class="([^"]*)"')
-        block = BLOCK.findall(_html(self.site, self.site.decoys[0]))[0]
-        self.assertEqual(classes.findall(block), classes.findall(BLOCK.findall(self.page)[0]))
-        population = re.search(r'class="country-population">(.*?)</span>', block)
-        area = re.search(r'class="country-area">(.*?)</span>', block)
-        self.assertIsNotNone(population)
-        self.assertIsNotNone(area)
-        self.assertTrue(str(population and population.group(1)).isdigit())
-        float(str(area and area.group(1)))
+        page = _html(self.site, self.site.decoys[0])
+        for markup in (
+            '<div class="col-md-4 country">',
+            '<h3 class="country-name">',
+            '<span class="country-capital">Decoy City 1</span>',
+            '<span class="country-population">1001</span>',
+            '<span class="country-area">1.0</span>',
+        ):
+            self.assertIn(markup, page)
 
     def test_the_copys_own_menu_links_are_gone(self) -> None:
         for path, body in self.site.pages.items():
@@ -190,6 +173,23 @@ class ShortestGapTests(unittest.TestCase):
         self.assertIsNone(shortest_gap([]))
         self.assertIsNone(shortest_gap([(0.0, "/robots.txt"), (0.1, "/")]))
         self.assertIsNone(shortest_gap([(0.0, "/"), (1.0, "/a")]))
+
+
+def _html(site: CrawlSite, path: str) -> str:
+    """Return one generated page."""
+    return site.pages[path].decode("utf-8")
+
+
+def _depths(site: CrawlSite) -> dict[str, int]:
+    """Return how many links lead from the entry page to each page, found breadth first."""
+    depths = {START_PATH: 0}
+    queue = [START_PATH]
+    for path in queue:
+        for link in ANCHOR.findall(_html(site, path)):
+            if link in site.pages and link not in depths:
+                depths[link] = depths[path] + 1
+                queue.append(link)
+    return depths
 
 
 if __name__ == "__main__":

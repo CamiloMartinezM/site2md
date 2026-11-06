@@ -12,17 +12,6 @@ from tests.benchmark_test_support import make_result, make_tool
 SVG = "{http://www.w3.org/2000/svg}"
 
 
-def _texts(chart: str) -> list[str]:
-    """Return the text of every label in an SVG chart, in document order."""
-    return [element.text or "" for element in ET.fromstring(chart).iter(f"{SVG}text")]
-
-
-def _names(chart: str) -> list[str]:
-    """Return the tool names on the left of the bars, from the top down."""
-    labels = ET.fromstring(chart).iter(f"{SVG}text")
-    return [label.text or "" for label in labels if label.get("text-anchor") == "end"]
-
-
 class ChooseMeasureTests(unittest.TestCase):
     """Check the rule from #40: time only if site2md is the fastest tool whose output matches."""
 
@@ -127,6 +116,17 @@ class RenderChartTests(unittest.TestCase):
         texts = _texts(render_chart([make_tool("site2md")], results, "size", "light"))
         for tick in ("0 MB", "200 MB", "400 MB", "600 MB"):
             self.assertIn(tick, texts)
+
+
+def _texts(chart: str) -> list[str]:
+    """Return the text of every label in an SVG chart, in document order."""
+    return [element.text or "" for element in ET.fromstring(chart).iter(f"{SVG}text")]
+
+
+def _names(chart: str) -> list[str]:
+    """Return the tool names on the left of the bars, from the top down."""
+    labels = ET.fromstring(chart).iter(f"{SVG}text")
+    return [label.text or "" for label in labels if label.get("text-anchor") == "end"]
 
 
 if __name__ == "__main__":

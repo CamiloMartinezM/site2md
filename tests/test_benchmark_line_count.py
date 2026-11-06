@@ -9,11 +9,6 @@ from pathlib import Path
 from benchmarks.line_count import LineCount, count_lines, format_with_ruff
 
 
-def _unformatted(source: str) -> str:
-    """Stand in for the formatter when a test is not about formatting."""
-    return source
-
-
 class CountLinesTests(unittest.TestCase):
     """Check what counts as one line of a solution, per file type."""
 
@@ -95,6 +90,11 @@ class RuffFormattingTests(unittest.TestCase):
         formatted = format_with_ruff(source, command=(str(self.ruff),))
         self.assertGreater(len(formatted.splitlines()), 1)
         self.assertTrue(all(len(line) <= 88 for line in formatted.splitlines()))
+
+
+def _unformatted(source: str) -> str:
+    """Stand in for the formatter when a test is not about formatting."""
+    return source
 
 
 if __name__ == "__main__":

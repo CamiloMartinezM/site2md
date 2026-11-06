@@ -18,15 +18,6 @@ INSTALL_ARCHIVE = TOOLS_DIRECTORY / "pandoc" / "install_archive.py"
 ARCHIVE_PATH = "/releases/tool-1.0.zip"
 
 
-def _zip_of(files: dict[str, bytes]) -> bytes:
-    """Return a zip archive that holds the given files."""
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w") as archive:
-        for name, contents in files.items():
-            archive.writestr(name, contents)
-    return buffer.getvalue()
-
-
 class InstallArchiveTests(unittest.TestCase):
     """Check that an archive is unpacked only when its SHA-256 is the pinned one."""
 
@@ -74,6 +65,15 @@ class InstallArchiveTests(unittest.TestCase):
         self.assertIn(ARCHIVE_PATH, completed.stderr)
         self.assertNotIn("Traceback", completed.stderr)
         self.assertFalse(self.destination.exists())
+
+
+def _zip_of(files: dict[str, bytes]) -> bytes:
+    """Return a zip archive that holds the given files."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for name, contents in files.items():
+            archive.writestr(name, contents)
+    return buffer.getvalue()
 
 
 if __name__ == "__main__":

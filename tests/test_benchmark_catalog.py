@@ -13,11 +13,6 @@ from benchmarks.line_count import LineCount
 from benchmarks.paths import TOOLS_DIRECTORY
 
 
-def _unformatted(source: str) -> str:
-    """Stand in for the formatter, since these files are already formatted."""
-    return source
-
-
 class ToolDirectoryTestCase(unittest.TestCase):
     """Provide a temporary tool folder that tests fill with files."""
 
@@ -187,6 +182,11 @@ class CommittedToolsTests(unittest.TestCase):
                 self.assertEqual(tool.id, tool_id)
                 for task in tool.tasks:
                     count_solution(tool, task, format_python=_unformatted)
+
+
+def _unformatted(source: str) -> str:
+    """Stand in for the formatter, since these files are already formatted."""
+    return source
 
 
 if __name__ == "__main__":

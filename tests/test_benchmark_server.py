@@ -9,15 +9,6 @@ import urllib.request
 from benchmarks.server import FixtureServer
 
 
-def _get(url: str) -> tuple[int, str, str]:
-    """Return the status, content type and body of one response."""
-    try:
-        with urllib.request.urlopen(url, timeout=10) as response:
-            return response.status, response.headers["Content-Type"], response.read().decode("utf-8")
-    except urllib.error.HTTPError as error:
-        return error.code, error.headers["Content-Type"], error.read().decode("utf-8")
-
-
 class FixtureServerTests(unittest.TestCase):
     """Check what the server answers and what it records."""
 
@@ -57,6 +48,15 @@ class FixtureServerTests(unittest.TestCase):
     def test_servers_running_at_the_same_time_use_different_ports(self) -> None:
         with FixtureServer({}) as first, FixtureServer({}) as second:
             self.assertNotEqual(first.origin, second.origin)
+
+
+def _get(url: str) -> tuple[int, str, str]:
+    """Return the status, content type and body of one response."""
+    try:
+        with urllib.request.urlopen(url, timeout=10) as response:
+            return response.status, response.headers["Content-Type"], response.read().decode("utf-8")
+    except urllib.error.HTTPError as error:
+        return error.code, error.headers["Content-Type"], error.read().decode("utf-8")
 
 
 if __name__ == "__main__":
