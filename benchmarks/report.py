@@ -10,21 +10,19 @@ from benchmarks.page import read_pin
 from benchmarks.paths import TOOLS_DIRECTORY
 from benchmarks.results import load_results
 
-START_MARKER = "<!-- benchmarks:generated:start -->"
-END_MARKER = "<!-- benchmarks:generated:end -->"
 # The order of the tools in #40; any other tool follows by name.
 TOOL_ORDER = ("site2md", "scrapling", "crawl4ai", "markitdown", "pandoc")
 HEADERS = ("Tool", "Version", "Output matches", "Time", "Lines", "Install size", "Packages")
 
 
-def _time_text(time: TimeResult) -> str:
+def time_text(time: TimeResult) -> str:
     """Show a mean and standard deviation in milliseconds below one second, in seconds above."""
     if time["mean"] < 1:
         return f"{time['mean'] * 1000:.0f} ms ± {time['stddev'] * 1000:.0f} ms"
     return f"{time['mean']:.2f} s ± {time['stddev']:.2f} s"
 
 
-def _local_only_note(lines: Sequence[str]) -> str:
+def local_only_note(lines: Sequence[str]) -> str:
     """Name the lines that were not counted because only the local server needs them."""
     named = ", ".join(f"`{line}`" for line in lines)
     return f"Not counted, because they are needed only to serve the page from 127.0.0.1: {named}."
@@ -63,12 +61,12 @@ def render_results(tools: Sequence[Tool], results: Mapping[str, ToolResult]) -> 
             for column in ("time", "lines", "size")
         }
         if page["lines"]["local_only"]:
-            by_column["lines"].append(_local_only_note(page["lines"]["local_only"]))
+            by_column["lines"].append(local_only_note(page["lines"]["local_only"]))
         cells = (
             tool.name,
             result["version"],
             "yes" if page["matches"] else "no",
-            mark(_time_text(page["time"]), by_column["time"]),
+            mark(time_text(page["time"]), by_column["time"]),
             mark(str(page["lines"]["counted"]), by_column["lines"]),
             mark(f"{result['install']['size_bytes'] / 1e6:.1f} MB", by_column["size"]),
             str(len(result["install"]["packages"])),
@@ -116,13 +114,15 @@ def render_generated(
     )
 
 
-def splice_generated(document: str, generated: str) -> str:
-    """Replace the text between the generated-block markers, leaving the rest as it is."""
-    start = document.find(START_MARKER)
-    end = document.find(END_MARKER)
+def splice_generated(document: str, generated: str, *, block: str = "generated") -> str:
+    """Replace the text between a block's markers, leaving the rest as it is."""
+    start_marker = f"<!-- benchmarks:{block}:start -->"
+    end_marker = f"<!-- benchmarks:{block}:end -->"
+    start = document.find(start_marker)
+    end = document.find(end_marker)
     if start == -1 or end < start:
-        raise ValueError(f"the document needs a {START_MARKER} line followed by an {END_MARKER} line")
-    return f"{document[: start + len(START_MARKER)]}\n{generated}{document[end:]}"
+        raise ValueError(f"the document needs a {start_marker} line followed by an {end_marker} line")
+    return f"{document[: start + len(start_marker)]}\n{generated}{document[end:]}"
 
 
 def render_document(document: str) -> str:

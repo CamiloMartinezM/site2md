@@ -5,10 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from benchmarks._types import ToolResult
-from benchmarks.catalog import Footnote, Tool
+from benchmarks.catalog import Footnote, Solution, Step, Tool
 
 
-def make_tool(tool_id: str, *footnotes: Footnote, name: str | None = None) -> Tool:
+def make_tool(
+    tool_id: str, *footnotes: Footnote, name: str | None = None, has_crawl_solution: bool = False
+) -> Tool:
     """Return a tool that has only the fields the renderers read."""
     return Tool(
         id=tool_id,
@@ -17,7 +19,7 @@ def make_tool(tool_id: str, *footnotes: Footnote, name: str | None = None) -> To
         version="1",
         solution=f"The solution of {tool_id}.",
         requirements=(),
-        tasks={},
+        tasks={"crawl": Solution(steps=(Step(run="crawl"),))} if has_crawl_solution else {},
         footnotes=footnotes,
     )
 
@@ -29,9 +31,11 @@ def make_result(
     lines: int = 54,
     local_only: tuple[str, ...] = (),
     matches: bool = True,
+    crawl_lines: int | None = None,
+    crawl_local_only: tuple[str, ...] = (),
 ) -> ToolResult:
     """Return a results file's content with the values a test cares about."""
-    return {
+    result: ToolResult = {
         "version": "1.0",
         "date": "2026-11-06",
         "environment": {
@@ -55,3 +59,9 @@ def make_result(
             "lines": {"counted": lines, "local_only": list(local_only)},
         },
     }
+    if crawl_lines is not None:
+        result["crawl"] = {
+            "matches": True,
+            "lines": {"counted": crawl_lines, "local_only": list(crawl_local_only)},
+        }
+    return result

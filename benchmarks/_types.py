@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from typing import Literal, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict
+
+if TYPE_CHECKING:
+    # typing.NotRequired needs Python 3.11, and the harness runs on 3.10.
+    from typing_extensions import NotRequired
 
 JsonValue = None | bool | int | float | str | Sequence["JsonValue"] | Mapping[str, "JsonValue"]
 SourceKind = Literal["python", "json", "toml"]
@@ -55,6 +59,13 @@ class PageResult(TypedDict):
     lines: LinesResult
 
 
+class CrawlResult(TypedDict):
+    """A tool's results for the crawl task."""
+
+    matches: bool
+    lines: LinesResult
+
+
 class ToolResult(TypedDict):
     """The content of one tool's committed results file."""
 
@@ -63,3 +74,5 @@ class ToolResult(TypedDict):
     environment: EnvironmentResult
     install: InstallResult
     page: PageResult
+    # A tool without a crawl solution has no crawl results.
+    crawl: NotRequired[CrawlResult]
