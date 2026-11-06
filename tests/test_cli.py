@@ -618,6 +618,20 @@ remote_build.shutil.rmtree = fail_cleanup
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertIn(expected, output.read_text(encoding="utf-8"))
 
+    def test_missing_output_folder_fails_before_any_request(self) -> None:
+        routes = {"/page": (200, {"Content-Type": "text/html"}, self.valid_html())}
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            missing_folder = Path(temp_dir) / "missing"
+
+            result = self.run_site2md(
+                "build", f"{server.origin}/page", "--output", missing_folder / "out.md"
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(server.requests, [])
+            self.assertIn(f"Output folder '{missing_folder}' does not exist.", result.stdout)
+            self.assertFalse(missing_folder.exists())
+
     def test_unimplemented_modes_are_rejected_without_fetching(self) -> None:
         with RecordingServer({}) as server, tempfile.TemporaryDirectory() as temp_dir:
             output = Path(temp_dir) / "result.md"
@@ -658,6 +672,22 @@ remote_build.shutil.rmtree = fail_cleanup
             positions = [markdown.index(source) for source in sources]
             self.assertEqual(positions, sorted(positions))
             self.assertEqual(markdown.count("\n\n---\n\n"), 3)
+
+    def test_local_build_with_missing_output_folder_fails_before_scanning(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "input"
+            root.mkdir()
+            (root / "index.html").write_text(
+                "<html><body><main><h1>Index</h1></main></body></html>", encoding="utf-8"
+            )
+            missing_folder = Path(temp_dir) / "missing"
+
+            result = self.run_site2md("build", root, "--output", missing_folder / "local.md")
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(f"Output folder '{missing_folder}' does not exist.", result.stdout)
+            self.assertNotIn("Scanning", result.stdout)
+            self.assertFalse(missing_folder.exists())
 
 
 if __name__ == "__main__":
