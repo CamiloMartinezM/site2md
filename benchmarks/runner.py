@@ -19,6 +19,7 @@ from benchmarks.environment import (
     HYPERFINE_HINT,
     UV_HINT,
     Environment,
+    check_programs,
     find_program,
     fresh_directory,
     install_tool,
@@ -126,6 +127,12 @@ def run_tool(tool: Tool) -> tuple[ToolResult, list[str]]:
     reference = _load_reference()
     print(f"Installing {tool.name} {tool.version}...")
     environment, install = install_tool(tool)
+    # The published numbers must come from the pinned install, so no step may fall back to the machine's program.
+    check_programs(
+        (program for task in tool.tasks.values() for step in task.steps for program in step.run.split()[:1]),
+        path=environment.variables["PATH"],
+        inside=CACHE_DIRECTORY,
+    )
     solution = tool.tasks["page"]
     work = _prepare_work(tool, solution, tool.id)
     print("Timing the page task...")

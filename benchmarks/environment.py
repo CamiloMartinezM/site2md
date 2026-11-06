@@ -6,7 +6,7 @@ import os
 import shutil
 import subprocess
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -141,6 +141,19 @@ def find_program(name: str, hint: str) -> str:
     if path is None:
         raise HarnessError(hint)
     return path
+
+
+def check_programs(programs: Iterable[str], *, path: str, inside: Path) -> None:
+    """Stop the harness if a program resolves outside a folder, where the machine's copy would stand in."""
+    for program in programs:
+        found = shutil.which(program, path=path)
+        if found is None:
+            raise HarnessError(f"'{program}' was not found on the tool's PATH")
+        if inside not in Path(found).parents:
+            raise HarnessError(
+                f"'{program}' would run {found}, which is outside {inside}: "
+                "the tool's own install must provide it, not the machine"
+            )
 
 
 def install_tool(tool: Tool) -> tuple[Environment, InstallResult]:
