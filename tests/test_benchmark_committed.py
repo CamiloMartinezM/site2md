@@ -29,14 +29,32 @@ class CommittedBenchmarksTests(unittest.TestCase):
             for item in value:
                 yield from CommittedBenchmarksTests._strings(item)
 
+    @staticmethod
+    def _offenders(result: dict[str, JsonValue]) -> list[str]:
+        """Return the strings of a results file that name a path or a machine."""
+        absolute_path = re.compile(r"^[A-Za-z]:[\\/]|^/|\\\\|/Users/|/home/|\\Users\\")
+        # The pages that a crawl fetched are paths on the fixture server, so they start with a slash.
+        crawl = result.get("crawl")
+        pages = crawl.get("extra_pages") if isinstance(crawl, dict) else None
+        server_paths = {str(page) for page in pages} if isinstance(pages, list) else set()
+        texts = [text for text in CommittedBenchmarksTests._strings(result) if text not in server_paths]
+        return [
+            *(text for text in texts if absolute_path.search(text)),
+            *(page for page in sorted(server_paths) if not re.fullmatch(r"/[\w./-]*", page)),
+        ]
+
+    def test_a_crawled_page_is_a_server_path_but_a_file_path_is_still_found(self) -> None:
+        self.assertEqual(self._offenders({"crawl": {"extra_pages": ["/", "/level-3/page-1.html"]}}), [])
+        file_path = "C:\\Users\\me\\page.html"
+        self.assertEqual(self._offenders({"crawl": {"extra_pages": [file_path]}}), [file_path])
+        self.assertEqual(self._offenders({"install": {"packages": {file_path: "1"}}}), [file_path])
+
     def test_committed_results_name_neither_a_path_nor_a_machine(self) -> None:
         paths = sorted(RESULTS_DIRECTORY.glob("*.json"))
         self.assertTrue(paths, "no results are committed")
-        absolute_path = re.compile(r"^[A-Za-z]:[\\/]|^/|\\\\|/Users/|/home/|\\Users\\")
         for path in paths:
-            for text in self._strings(json.loads(path.read_text(encoding="utf-8"))):
-                with self.subTest(file=path.name, text=text):
-                    self.assertIsNone(absolute_path.search(text))
+            with self.subTest(file=path.name):
+                self.assertEqual(self._offenders(json.loads(path.read_text(encoding="utf-8"))), [])
             environment = json.loads(path.read_text(encoding="utf-8"))["environment"]
             with self.subTest(file=path.name, part="environment keys"):
                 self.assertEqual(sorted(environment), ["hyperfine", "os", "python", "ruff", "uv"])
