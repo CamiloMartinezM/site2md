@@ -3,8 +3,8 @@
 The harness behind [BENCHMARKS.md](../BENCHMARKS.md). It uses only the standard library, and it never becomes a site2md dependency: the wheel packages `src/site2md` alone.
 
 ```
-python -m benchmarks run <tool>   # measure one tool, write results/<tool>.json, refresh BENCHMARKS.md
-python -m benchmarks render       # rebuild BENCHMARKS.md's generated part from every results file
+python -m benchmarks run <tool>   # measure one tool, write results/<tool>.json, then render
+python -m benchmarks render       # rebuild BENCHMARKS.md, the README's chart and table and docs/benchmark-*.svg
 python -m benchmarks reference    # download the page afresh, pin it, rebuild expected/countries.json
 ```
 
@@ -17,9 +17,11 @@ python -m benchmarks reference    # download the page afresh, pin it, rebuild ex
 | `expected/countries.json` | The reference records |
 | `expected/page.json` | The page copy's URL, download date and SHA-256 |
 | `.cache/` | Git-ignored. The page copy, the environments, uv's cache, temporary files and work folders |
-| `*.py` | The harness. `catalog` loads tools and counts lines, `runner` runs a tool, `report` renders BENCHMARKS.md |
+| `*.py` | The harness. `catalog` loads tools and counts lines, `runner` runs a tool, `report` renders BENCHMARKS.md, `chart` picks the chart's measure and draws the SVGs, `readme` renders the README's two blocks, `render` renders every file at once |
 
-BENCHMARKS.md is the only file rendered from all the results. Rerun `python -m benchmarks render` to resolve a merge conflict in it.
+Four files are rendered from all the results: BENCHMARKS.md's generated part, the README's chart block and benchmark table (each between `<!-- benchmarks:... -->` markers), and the charts `docs/benchmark-light.svg` and `docs/benchmark-dark.svg`. Rerun `python -m benchmarks render` to resolve a merge conflict in any of them. A tool added later gets its row and its bar without any change to the renderers.
+
+The chart shows time only if site2md has the lowest mean time among the tools whose output matches the reference, and install size otherwise. A tool whose output doesn't match has no bar.
 
 ## What a run does
 
@@ -27,7 +29,7 @@ BENCHMARKS.md is the only file rendered from all the results. Rerun `python -m b
 2. Reuses the cached page copy, or downloads it, and checks its SHA-256 against `expected/page.json`.
 3. Creates a fresh uv environment on Python 3.12, installs the tool's pinned requirements, and measures the install. Then it runs the tool's `setup` commands.
 4. Serves the page on 127.0.0.1 on a free port, and runs hyperfine on the solution's steps joined with `&&`.
-5. Compares the last step's output with the reference, counts the solution's lines, and writes `results/<id>.json`. Then it refreshes BENCHMARKS.md, the same as `render`. If the output differs, the file records `"matches": false`, and the command prints the first difference and exits with status 1.
+5. Compares the last step's output with the reference, counts the solution's lines, and writes `results/<id>.json`. Then it renders the generated files, the same as `render`. If the output differs, the file records `"matches": false`, and the command prints the first difference and exits with status 1.
 
 Every child process gets `UV_CACHE_DIR` and the temporary-file variables pointing into `.cache`, so a run writes nowhere else. `UV_PYTHON_DOWNLOADS=never` makes a missing Python 3.12 an error instead of a download into uv's own folder; `uv python install 3.12` fixes it.
 
@@ -80,4 +82,4 @@ The size of the environment's site-packages, without bytecode caches, plus anyth
 
 ## Tests
 
-`tests/test_benchmark_*.py` run in CI without any benchmarked tool: the line counter, the output comparison, the hyperfine summary, the report and the fixture server. Two of them check the committed files: no results file names a path or a machine, and BENCHMARKS.md matches what `render` produces.
+`tests/test_benchmark_*.py` run in CI without any benchmarked tool: the line counter, the output comparison, the hyperfine summary, the report, the chart and the README blocks, and the fixture server. Two of them check the committed files: no results file names a path or a machine, and every generated file matches what `render` produces.
