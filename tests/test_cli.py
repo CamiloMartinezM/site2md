@@ -134,6 +134,70 @@ class Site2mdCliTests(InstalledCliTestCase):
             self.assertIn("Content inside the main element.", markdown)
             self.assertIn("Content after the main element.", markdown)
 
+    def test_page_mode_drops_navigation_scripts_and_theme_chrome(self) -> None:
+        html = b"""<html><head><style>p { color: red }</style><script>var head = 1;</script></head>
+<body>
+<nav><a href="/menu">Menu</a></nav>
+<div class="skip-link">Skip link text</div>
+<div class="bd-header"><nav>Header navigation</nav>Header text</div>
+<div class="layout bd-sidebar sticky">Sidebar text</div>
+<div class="bd-footer">Footer text</div>
+<div class="pst-scroll-pixel-helper">Scroll helper text</div>
+<div class="pst-async-banner-revealer">Banner text</div>
+<noscript>Enable JavaScript text</noscript>
+<h1>Title<a class="headerlink" href="#title">&para;</a></h1>
+<p class="nav script">Paragraph with look-alike classes.</p>
+<div class="bd-sidebar-extra">Longer class name.</div>
+<p>Words <script>var inline = 3;</script> around a removed script.</p>
+<script>var body = 2;</script>
+<style>.late { color: blue }</style>
+</body></html>"""
+        with RecordingServer(
+            {"/chrome": (200, {"Content-Type": "text/html"}, html)}
+        ) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "chrome.md"
+
+            result = self.run_site2md("build", f"{server.origin}/chrome", "--output", output)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                output.read_text(encoding="utf-8"),
+                f"\n\n<!-- Source: {server.origin}/chrome -->\n\n"
+                "# Title\n\nParagraph with look-alike classes.\n\nLonger class name."
+                "\n\nWords around a removed script.\n\n---\n\n",
+            )
+
+    def test_local_build_converts_the_main_article_content_or_body_region(self) -> None:
+        pages = {
+            "a_main.html": "<html><body><p>Intro</p><article>Article text</article>"
+            "<main>Main text</main></body></html>",
+            "b_article.html": '<html><body><p>Intro</p><div class="bd-content">Content text</div>'
+            "<article>Article text</article></body></html>",
+            "c_content.html": '<html><body><p>Intro</p><div class="bd-content">Content text</div>'
+            "</body></html>",
+            "d_body.html": "<html><body><p>Intro</p><p>Outro</p></body></html>",
+            "e_cleaned_first.html": "<html><body><nav><main>Hidden main</main></nav>"
+            "<p>Visible</p></body></html>",
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "input"
+            root.mkdir()
+            for name, html in pages.items():
+                (root / name).write_text(html, encoding="utf-8")
+            output = Path(temp_dir) / "regions.md"
+
+            result = self.run_site2md("build", root, "--output", output)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                output.read_text(encoding="utf-8"),
+                "\n\n<!-- Source: a_main.html -->\n\nMain text\n\n---\n\n"
+                "\n\n<!-- Source: b_article.html -->\n\nArticle text\n\n---\n\n"
+                "\n\n<!-- Source: c_content.html -->\n\nContent text\n\n---\n\n"
+                "\n\n<!-- Source: d_body.html -->\n\nIntro\n\nOutro\n\n---\n\n"
+                "\n\n<!-- Source: e_cleaned_first.html -->\n\nVisible\n\n---\n\n",
+            )
+
     def test_remote_conversion_failure_does_not_replace_output(self) -> None:
         routes = {"/page": (200, {"Content-Type": "text/html"}, self.valid_html())}
         with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
