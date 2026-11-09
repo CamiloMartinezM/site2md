@@ -48,6 +48,10 @@ _Avoid_: Raw scrape, parsed page
 A source-specific interpretation that derives structured records from a converted document.
 _Avoid_: Parser, scraper
 
+**Extractor provider**:
+An installed package that supplies one or more Extractors.
+_Avoid_: Plug-in package, extension
+
 **Source section**:
 An ordered portion of a converted document attributed to one source marker.
 _Avoid_: Page, file fragment
