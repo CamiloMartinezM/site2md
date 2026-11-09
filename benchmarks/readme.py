@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from benchmarks._types import ChartMeasure, ChartTheme, CrawlResult, ToolResult
+from benchmarks._types import ChartTheme, CrawlResult, ToolResult
 from benchmarks.catalog import Tool
-from benchmarks.chart import choose_measure
 from benchmarks.page import PAGE_URL
 from benchmarks.paths import CHART_FILES, REPOSITORY_ROOT
 from benchmarks.report import (
@@ -22,17 +21,11 @@ from benchmarks.report import (
 
 _HEADERS = ("Tool", "Time", "Lines (page)", "Lines (crawl)", "Install size")
 _PAGE_LINK = f"[Scrape This Site's countries page]({PAGE_URL})"
-_CAPTIONS: Mapping[ChartMeasure, str] = {
-    "time": f"Extracting the 250 countries from {_PAGE_LINK} as JSON, from a local copy.",
-    "size": (
-        "Disk space used by each tool's smallest install that can extract the countries from "
-        f"{_PAGE_LINK} without a browser."
-    ),
-}
-_ALTERNATIVE_TEXTS: Mapping[ChartMeasure, str] = {
-    "time": "Bar chart of the time each tool takes to extract the countries.",
-    "size": "Bar chart of the disk space each tool's smallest install uses.",
-}
+_CAPTION = (
+    f"Install size and time to extract the 250 countries from a local copy of {_PAGE_LINK} as JSON, "
+    "for each tool's smallest install that does it without a browser."
+)
+_ALTERNATIVE_TEXT = "Bar chart of each tool's install size and the time it takes to extract the countries."
 _MISMATCH_NOTE = "Its output doesn't match the reference, so the chart leaves it out."
 _CRAWL_MISMATCH_NOTE = "Its crawl output doesn't match the reference, or the crawl exited with an error."
 
@@ -73,15 +66,15 @@ def _table_row(tool: Tool, result: ToolResult, footnotes: Footnotes) -> list[str
     ]
 
 
-def render_chart_block(measure: ChartMeasure) -> str:
-    """Render the picture that goes under the tagline, with the caption for the charted measure."""
+def render_chart_block() -> str:
+    """Render the picture that goes under the tagline, with its caption."""
     return (
         "<picture>\n"
         f'  <source media="(prefers-color-scheme: dark)" srcset="{_chart_path("dark")}">\n'
         f'  <source media="(prefers-color-scheme: light)" srcset="{_chart_path("light")}">\n'
-        f'  <img alt="{_ALTERNATIVE_TEXTS[measure]}" src="{_chart_path("light")}">\n'
+        f'  <img alt="{_ALTERNATIVE_TEXT}" src="{_chart_path("light")}">\n'
         "</picture>\n\n"
-        f"*{_CAPTIONS[measure]} [Details](BENCHMARKS.md).*\n"
+        f"*{_CAPTION} [Details](BENCHMARKS.md).*\n"
     )
 
 
@@ -94,5 +87,5 @@ def render_table(tools: Sequence[Tool], results: Mapping[str, ToolResult]) -> st
 
 def render_readme(document: str, tools: Sequence[Tool], results: Mapping[str, ToolResult]) -> str:
     """Return the README with its chart block and table rebuilt from the results."""
-    chart = splice_generated(document, render_chart_block(choose_measure(results)), block="chart")
+    chart = splice_generated(document, render_chart_block(), block="chart")
     return splice_generated(chart, render_table(tools, results), block="table")

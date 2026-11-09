@@ -15,22 +15,22 @@ class RenderChartBlockTests(unittest.TestCase):
     """Check the picture under the tagline and its caption."""
 
     def test_the_picture_follows_the_reader_theme_with_the_light_chart_as_the_fallback(self) -> None:
-        block = render_chart_block("size")
+        block = render_chart_block()
         self.assertIn('<source media="(prefers-color-scheme: dark)" srcset="docs/benchmark-dark.svg">', block)
         self.assertIn('<source media="(prefers-color-scheme: light)" srcset="docs/benchmark-light.svg">', block)
         self.assertIn('src="docs/benchmark-light.svg"', block)
 
-    def test_the_time_caption_links_to_the_details(self) -> None:
+    def test_the_caption_describes_both_measures_and_links_to_the_details(self) -> None:
         self.assertIn(
-            f"*Extracting the 250 countries from {PAGE} as JSON, from a local copy. [Details](BENCHMARKS.md).*\n",
-            render_chart_block("time"),
+            f"*Install size and time to extract the 250 countries from a local copy of {PAGE} as JSON, "
+            "for each tool's smallest install that does it without a browser. [Details](BENCHMARKS.md).*\n",
+            render_chart_block(),
         )
 
-    def test_the_install_size_caption_links_to_the_details(self) -> None:
+    def test_the_alternative_text_names_both_measures(self) -> None:
         self.assertIn(
-            "*Disk space used by each tool's smallest install that can extract the countries from "
-            f"{PAGE} without a browser. [Details](BENCHMARKS.md).*\n",
-            render_chart_block("size"),
+            'alt="Bar chart of each tool\'s install size and the time it takes to extract the countries."',
+            render_chart_block(),
         )
 
 
@@ -150,10 +150,11 @@ class RenderReadmeTests(unittest.TestCase):
             "<picture>\n"
             '  <source media="(prefers-color-scheme: dark)" srcset="docs/benchmark-dark.svg">\n'
             '  <source media="(prefers-color-scheme: light)" srcset="docs/benchmark-light.svg">\n'
-            '  <img alt="Bar chart of the time each tool takes to extract the countries." '
+            '  <img alt="Bar chart of each tool\'s install size and the time it takes to extract the countries." '
             'src="docs/benchmark-light.svg">\n'
             "</picture>\n\n"
-            f"*Extracting the 250 countries from {PAGE} as JSON, from a local copy. [Details](BENCHMARKS.md).*\n"
+            f"*Install size and time to extract the 250 countries from a local copy of {PAGE} as JSON, "
+            "for each tool's smallest install that does it without a browser. [Details](BENCHMARKS.md).*\n"
             "<!-- benchmarks:chart:end -->\n\n"
             "Links.\n\n## Benchmarks\n\nHand-written introduction.\n\n"
             "<!-- benchmarks:table:start -->\n"
@@ -162,13 +163,6 @@ class RenderReadmeTests(unittest.TestCase):
             "| site2md | 661 ms ± 12 ms | 54 | 31 | 11.5 MB |\n"
             "<!-- benchmarks:table:end -->\n\nThe rest.\n",
         )
-
-    def test_the_caption_names_the_measure_that_the_rule_picks(self) -> None:
-        tools = [make_tool("site2md"), make_tool("scrapling")]
-        fastest = render_readme(self.DOCUMENT, tools, {"site2md": make_result(mean=0.4), "scrapling": make_result(mean=0.5)})
-        slower = render_readme(self.DOCUMENT, tools, {"site2md": make_result(mean=0.6), "scrapling": make_result(mean=0.5)})
-        self.assertIn("as JSON, from a local copy.", fastest)
-        self.assertIn("Disk space used by each tool's smallest install", slower)
 
     def test_rendering_twice_changes_nothing_more(self) -> None:
         tools, results = [make_tool("site2md")], {"site2md": make_result()}

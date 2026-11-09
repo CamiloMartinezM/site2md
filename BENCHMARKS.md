@@ -39,7 +39,7 @@ Start from the index of a generated local site, crawl breadth first within depth
 
 ## The chart
 
-The chart at the top of the [README](README.md) shows time only if site2md has the lowest mean time among the tools whose output matches the reference. Otherwise it shows install size. The rule was fixed before any numbers. A tool whose output doesn't match has no bar, and its row in the README's table says so. The chart is two SVGs, `docs/benchmark-light.svg` and `docs/benchmark-dark.svg`, and the README shows the one that matches the reader's theme.
+The chart at the top of the [README](README.md) gives each tool whose output matches the reference two bars: its install size in blue, and the mean time of the page task in orange. Each bar is labelled with its value, and the rows run from the smallest install to the largest. The two measures have different units, so each is scaled to its own largest value and the chart has no shared axis or gridlines. Compare a bar with the bars of the same colour, never with the other colour. A tool whose output doesn't match has no bars, and its row in the README's table says so. The chart is two SVGs, `docs/benchmark-light.svg` and `docs/benchmark-dark.svg`, and the README shows the one that matches the reader's theme.
 
 ## Results
 

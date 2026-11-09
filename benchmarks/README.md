@@ -17,11 +17,11 @@ python -m benchmarks reference    # download the page afresh, pin it, rebuild ex
 | `expected/countries.json` | The reference records |
 | `expected/page.json` | The page copy's URL, download date and SHA-256 |
 | `.cache/` | Git-ignored. The page copy, the environments, uv's cache, temporary files and work folders |
-| `*.py` | The harness. `catalog` loads tools and counts lines, `runner` runs a tool, `report` renders BENCHMARKS.md, `chart` picks the chart's measure and draws the SVGs, `readme` renders the README's two blocks, `render` renders every file at once |
+| `*.py` | The harness. `catalog` loads tools and counts lines, `runner` runs a tool, `report` renders BENCHMARKS.md, `chart` draws the SVGs, `readme` renders the README's two blocks, `render` renders every file at once |
 
-Four files are rendered from all the results: BENCHMARKS.md's generated part, the README's chart block and benchmark table (each between `<!-- benchmarks:... -->` markers), and the charts `docs/benchmark-light.svg` and `docs/benchmark-dark.svg`. Rerun `python -m benchmarks render` to resolve a merge conflict in any of them. A tool added later gets its row and its bar without any change to the renderers.
+Four files are rendered from all the results: BENCHMARKS.md's generated part, the README's chart block and benchmark table (each between `<!-- benchmarks:... -->` markers), and the charts `docs/benchmark-light.svg` and `docs/benchmark-dark.svg`. Rerun `python -m benchmarks render` to resolve a merge conflict in any of them. A tool added later gets its row and its bars without any change to the renderers.
 
-The chart shows time only if site2md has the lowest mean time among the tools whose output matches the reference, and install size otherwise. A tool whose output doesn't match has no bar.
+The chart gives each tool two bars, its install size and the mean time of the page task, each scaled to its own largest value. A tool whose output doesn't match the reference has no bars.
 
 ## What a run does
 

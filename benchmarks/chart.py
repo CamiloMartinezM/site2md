@@ -1,121 +1,121 @@
-"""Choose the README chart's measure and render the chart as an SVG."""
+"""Render the README chart: two bars per tool, its install size and the time of the page task, as an SVG."""
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from xml.sax.saxutils import escape
 
-from benchmarks._types import ChartMeasure, ChartTheme, ToolResult
+from benchmarks._types import ChartTheme, ToolResult
 from benchmarks.catalog import Tool
-from benchmarks.report import measured_tools
+from benchmarks.report import measured_tools, size_text
 
-# The tool the README is about: the chart shows time only if this tool is the fastest.
+# The tool the README is about: the chart sets its name and values in bold.
 SUBJECT = "site2md"
-_BAR_COLOUR = "#0969DA"
-_GRID_COLOUR = "#7F7F7F"
+# Blue for install size and orange for time. The dataviz skill's validator passes each pair, for colour-blind
+# readers and for 3:1 contrast, on GitHub's page colours: light on #ffffff and dark on #0d1117.
+_SIZE_COLOURS: Mapping[ChartTheme, str] = {"light": "#2A78D6", "dark": "#3987E5"}
+_TIME_COLOURS: Mapping[ChartTheme, str] = {"light": "#EB6834", "dark": "#D95926"}
 _TEXT_COLOURS: Mapping[ChartTheme, str] = {"light": "#333333", "dark": "#C9D1D9"}
+_NOTE_COLOURS: Mapping[ChartTheme, str] = {"light": "#57606A", "dark": "#8B949E"}
+_LEGEND_LABELS = ("Install size", "Time")
+_NOTE = "Each measure has its own scale"
 _FONT_FAMILY = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
 _FONT_SIZE = 12
 _PLOT_WIDTH = 400
-_ROW_HEIGHT = 22
-_BAR_HEIGHT = 14
-_AXIS_HEIGHT = 22
+_BAR_HEIGHT = 12
+# The surface shows between the two bars of a tool, so that they read as two marks.
+_BAR_GAP = 2
+_PAIR_HEIGHT = 2 * _BAR_HEIGHT + _BAR_GAP
+_ROW_HEIGHT = _PAIR_HEIGHT + 12
+_LEGEND_HEIGHT = 24
+_SWATCH = 10
 _GAP = 8
 # shortcut: label widths are estimated at 7.5 px a character, not measured; use a font library if a label clips.
 _CHARACTER_WIDTH = 7.5
-_VALUE_FORMATS: Mapping[ChartMeasure, str] = {"time": "{:.2f}s", "size": "{:.1f} MB"}
-_TICK_FORMATS: Mapping[ChartMeasure, str] = {"time": "{:g}s", "size": "{:g} MB"}
-_TITLES: Mapping[ChartMeasure, str] = {
-    "time": "Time each tool takes to extract the countries",
-    "size": "Disk space each tool's smallest install uses",
-}
 
 
 @dataclass(frozen=True)
 class _Row:
-    """One bar: a tool's name, its value in seconds or megabytes, and whether the chart stresses it."""
+    """One tool's pair of bars: its name, install size in bytes and mean time in seconds."""
 
     name: str
-    value: float
+    size_bytes: int
+    seconds: float
     stressed: bool
 
 
-def _value(measure: ChartMeasure, result: ToolResult) -> float:
-    """Read the charted value of a result: mean seconds, or install megabytes."""
-    return result["page"]["time"]["mean"] if measure == "time" else result["install"]["size_bytes"] / 1e6
-
-
-def _rows(tools: Sequence[Tool], results: Mapping[str, ToolResult], measure: ChartMeasure) -> list[_Row]:
-    """List the bars, smallest first: only tools whose output matches the reference have one."""
+def _rows(tools: Sequence[Tool], results: Mapping[str, ToolResult]) -> list[_Row]:
+    """List the rows, smallest install first: only tools whose output matches the reference have one."""
     rows = [
-        _Row(tool.name, _value(measure, results[tool.id]), tool.id == SUBJECT)
+        _Row(
+            tool.name,
+            results[tool.id]["install"]["size_bytes"],
+            results[tool.id]["page"]["time"]["mean"],
+            tool.id == SUBJECT,
+        )
         for tool in measured_tools(tools, results)
         if results[tool.id]["page"]["matches"]
     ]
-    return sorted(rows, key=lambda row: row.value)
+    return sorted(rows, key=lambda row: row.size_bytes)
 
 
-def _ticks(maximum: float) -> list[float]:
-    """Return the axis values: 0, then multiples of a round step, up to the first one at or past the maximum."""
-    raw_step = maximum / 4
-    magnitude = 10 ** math.floor(math.log10(raw_step))
-    step = next(factor * magnitude for factor in (1, 2, 5, 10) if factor * magnitude >= raw_step)
-    return [step * index for index in range(math.ceil(maximum / step) + 1)]
+def _time_text(seconds: float) -> str:
+    """Show a mean time in milliseconds below one second and in seconds above, as the README's table does."""
+    return f"{seconds * 1000:.0f} ms" if seconds < 1 else f"{seconds:.2f} s"
 
 
-def choose_measure(results: Mapping[str, ToolResult]) -> ChartMeasure:
-    """Pick time if the subject has the lowest mean among the tools whose output matches, else install size."""
-    matching = {tool_id: result["page"] for tool_id, result in results.items() if result["page"]["matches"]}
-    if SUBJECT not in matching:
-        return "size"
-    fastest = min(page["time"]["mean"] for page in matching.values())
-    return "time" if matching[SUBJECT]["time"]["mean"] <= fastest else "size"
-
-
-def render_chart(
-    tools: Sequence[Tool],
-    results: Mapping[str, ToolResult],
-    measure: ChartMeasure,
-    theme: ChartTheme,
-) -> str:
+def render_chart(tools: Sequence[Tool], results: Mapping[str, ToolResult], theme: ChartTheme) -> str:
     """Render the horizontal bar chart as an SVG, in the colours of one theme."""
-    rows = _rows(tools, results, measure)
-    texts = [_VALUE_FORMATS[measure].format(row.value) for row in rows]
-    ticks = _ticks(max((row.value for row in rows), default=1))
+    rows = _rows(tools, results)
+    size_labels = [size_text(row.size_bytes) for row in rows]
+    time_labels = [_time_text(row.seconds) for row in rows]
+    # Each measure has its own unit, so each is scaled to its own largest value and nothing suggests a shared axis.
+    longest_size = max((row.size_bytes for row in rows), default=1)
+    longest_time = max((row.seconds for row in rows), default=1)
     left = max((len(row.name) for row in rows), default=0) * _CHARACTER_WIDTH + _GAP
-    right = max((len(text) for text in texts), default=0) * _CHARACTER_WIDTH + _GAP
-    scale = _PLOT_WIDTH / ticks[-1]
+    right = max((len(label) for label in [*size_labels, *time_labels]), default=0) * _CHARACTER_WIDTH + _GAP
     width = left + _PLOT_WIDTH + right
-    plot_height = len(rows) * _ROW_HEIGHT
+    height = _LEGEND_HEIGHT + len(rows) * _ROW_HEIGHT
+    colours = (_SIZE_COLOURS[theme], _TIME_COLOURS[theme])
+    legend = []
+    legend_x = left
+    for label, colour in zip(_LEGEND_LABELS, colours, strict=True):
+        legend.append(
+            f'<rect x="{legend_x:g}" y="6" width="{_SWATCH}" height="{_SWATCH}" fill="{colour}"/>'
+            f'<text x="{legend_x + _SWATCH + 6:g}" y="15">{label}</text>'
+        )
+        legend_x += _SWATCH + 6 + len(label) * _CHARACTER_WIDTH + 16
     marks = [
-        f'<line x1="{left + tick * scale:.1f}" y1="0" x2="{left + tick * scale:.1f}" y2="{plot_height}"/>'
-        for tick in ticks
+        f'<g class="legend">{"".join(legend)}</g>',
+        f'<text x="{width:g}" y="15" text-anchor="end" fill="{_NOTE_COLOURS[theme]}">{_NOTE}</text>',
     ]
-    marks[0] = f'<g stroke="{_GRID_COLOUR}" stroke-opacity="0.25">{marks[0]}'
-    marks[-1] += "</g>"
-    for tick in ticks:
-        x = left + tick * scale
-        marks.append(
-            f'<text x="{x:.1f}" y="{plot_height + _AXIS_HEIGHT - 6}" text-anchor="middle">'
-            f"{_TICK_FORMATS[measure].format(tick)}</text>"
-        )
-    for index, (row, text) in enumerate(zip(rows, texts, strict=True)):
-        top = index * _ROW_HEIGHT + (_ROW_HEIGHT - _BAR_HEIGHT) / 2
-        baseline = top + _BAR_HEIGHT - 2
+    for index, (row, size_label, time_label) in enumerate(zip(rows, size_labels, time_labels, strict=True)):
+        top = _LEGEND_HEIGHT + index * _ROW_HEIGHT + (_ROW_HEIGHT - _PAIR_HEIGHT) / 2
         weight = ' font-weight="bold"' if row.stressed else ""
-        bar_width = row.value * scale
-        marks.append(
-            f'<rect x="{left:g}" y="{top:g}" width="{bar_width:.1f}" height="{_BAR_HEIGHT}" fill="{_BAR_COLOUR}"/>'
-            f'<text x="{left - _GAP:g}" y="{baseline:g}" text-anchor="end"{weight}>{escape(row.name)}</text>'
-            f'<text x="{left + bar_width + _GAP:.1f}" y="{baseline:g}"{weight}>{text}</text>'
+        name_y = top + _PAIR_HEIGHT / 2 + 4
+        pair = [f'<text x="{left - _GAP:g}" y="{name_y:g}" text-anchor="end"{weight}>{escape(row.name)}</text>']
+        bars = (
+            (row.size_bytes / longest_size, colours[0], size_label),
+            (row.seconds / longest_time, colours[1], time_label),
         )
-    height = plot_height + _AXIS_HEIGHT
-    description = ", ".join(f"{row.name} {text}" for row, text in zip(rows, texts, strict=True))
-    opening = (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:g}" height="{height}" viewBox="0 0 {width:g} {height}" '
-        f'role="img" font-family="{_FONT_FAMILY}" font-size="{_FONT_SIZE}" fill="{_TEXT_COLOURS[theme]}">'
+        for position, (share, colour, label) in enumerate(bars):
+            bar_top = top + position * (_BAR_HEIGHT + _BAR_GAP)
+            bar_width = share * _PLOT_WIDTH
+            pair.append(
+                f'<rect x="{left:g}" y="{bar_top:g}" width="{bar_width:.1f}" height="{_BAR_HEIGHT}" fill="{colour}"/>'
+                f'<text x="{left + bar_width + _GAP:.1f}" y="{bar_top + _BAR_HEIGHT - 2:g}"{weight}>{label}</text>'
+            )
+        marks.append(f'<g class="row">{"".join(pair)}</g>')
+    description = "; ".join(
+        f"{row.name}: {size_label}, {time_label}"
+        for row, size_label, time_label in zip(rows, size_labels, time_labels, strict=True)
     )
-    parts = [opening, f"<title>{_TITLES[measure]}</title>", f"<desc>{escape(description)}</desc>", *marks, "</svg>"]
-    return "\n".join(parts) + "\n"
+    opening = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:g}" height="{height:g}" '
+        f'viewBox="0 0 {width:g} {height:g}" role="img" font-family="{_FONT_FAMILY}" font-size="{_FONT_SIZE}" '
+        f'fill="{_TEXT_COLOURS[theme]}">'
+    )
+    title = "Install size and time each tool takes to extract the countries"
+    lines = [opening, f"<title>{title}</title>", f"<desc>{escape(description)}</desc>", *marks, "</svg>"]
+    return "\n".join(lines) + "\n"
