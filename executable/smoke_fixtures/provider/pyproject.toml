@@ -1,0 +1,10 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "smoke-headings"
+version = "0"
+
+[project.entry-points."site2md.extractors.v1"]
+"smoke.headings" = "smoke_headings:create_extractor"

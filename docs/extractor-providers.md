@@ -2,6 +2,8 @@
 
 An Extractor provider is a normal Python distribution that derives source-specific records from a converted document. Install providers with `pip` or another standard package tool, then inspect them with `site2md extractors`.
 
+The standalone executable finds providers differently; see [Using a provider with the executable](#using-a-provider-with-the-executable).
+
 > [!WARNING]
 > Providers are trusted, in-process Python code. `site2md` does not sandbox them. Interface version 1 also has no per-run provider configuration; publish materially different behavior under a separate exact Extractor ID.
 
@@ -93,6 +95,29 @@ def create_extractor() -> Extractor:
 A source span identifies one section and an exact range in the original Markdown. `start` and `end` are zero-based, half-open character offsets; `start_line` and `end_line` are one-based inclusive line numbers; `source_section` is a zero-based section index. Every record candidate needs at least one ordered span. The first is primary evidence, and additional spans can represent corroborating or joined content.
 
 Return an `Extraction` containing ordered `RecordCandidate` and `Diagnostic` values. Candidate values must contain only JSON-native values, finite numbers, and string object keys. A diagnostic has `severity` (`warning` or `error`), a stable provider-qualified `code`, a human-readable `message`, and optional provenance. Warnings are retained in successful results; any error diagnostic fails the whole extraction. The host owns final result identity, schema validation, provenance validation, and deterministic JSON serialization.
+
+## Using a provider with the executable
+
+The standalone executable carries its own Python, so it can't see providers that pip installed into another environment, and it ignores `PYTHONPATH`. Install a provider into a folder of its own, then name the folder in `SITE2MD_PROVIDER_PATH`:
+
+```shell
+python3.12 -m pip install --target providers example-catalog
+SITE2MD_PROVIDER_PATH=providers site2md extractors
+```
+
+In PowerShell, set the variable first: `$env:SITE2MD_PROVIDER_PATH = "providers"`.
+
+`pip install --target` puts the provider and its dependencies in the folder. The variable holds one or more folders, separated as in `PATH`: `:` on Linux and `;` on Windows. The executable adds them after its own folders and before it looks for Extractors, and it processes `.pth` files in them. An empty entry is skipped, and a folder that doesn't exist has no effect and isn't reported. Only the executable reads the variable. The package finds providers in its own environment, as before.
+
+If a provider depends on site2md, pip puts a second copy of site2md in the folder, and `site2md extractors` then reports the built-in Extractor as a conflict. Pass `--no-deps` and install the provider's other dependencies by name.
+
+Inside the executable, a provider has three limits:
+
+- **Standard library.** Only the standard-library modules that the bundle includes are available. A provider that imports another one, such as `sqlite3`, `zoneinfo` or `xml.etree`, fails with `ModuleNotFoundError`.
+- **Compiled code.** Extension modules must be built for Python 3.12 on the same platform as the executable. Use a Python 3.12 of that platform to run `pip`. Pure-Python providers work as they are.
+- **Bundled libraries.** A provider can't replace a library that the bundle already has, such as `marko` or `jsonschema`. The provider's folders come after the bundle's, so the bundled copy wins even when the folder holds another version.
+
+Anyone who hits one of these limits should use the package instead.
 
 ## Testing and publishing
 
