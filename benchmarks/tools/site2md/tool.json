@@ -1,18 +1,17 @@
 {
   "name": "site2md",
-  "version": "0.4.6",
-  "solution": "`build` converts the page, `extract` runs a minimal Extractor written for this benchmark, and one last step writes the record values. The crawl runs `build` in site mode with `--max-pages 20 --max-depth 2` and reuses the same Extractor across the document's source sections. Both commands run in their opt-in fast modes, `build --no-progress` and `extract --entry-points-only`. site2md is installed from its release tag, because the PyPI name belongs to a different project.",
+  "version": "0.5.0",
+  "solution": "One `build --extract` step converts the page, runs a minimal Extractor written for this benchmark on the saved Markdown, and writes only the record values. The crawl runs the same step in site mode with `--max-pages 20 --max-depth 2` and reuses the same Extractor across the document's source sections. The step runs in the opt-in fast modes `--no-progress`, `--entry-points-only` and `--values-only`. site2md is installed from its release tag, because the PyPI name belongs to a different project. This is the Python package: the table also lists site2md's executable, and the chart shows the executable instead.",
   "requirements": [
     "site2md @ git+https://github.com/CamiloMartinezM/site2md@v{version}"
   ],
   "setup": [
     ["uv", "pip", "install", "--no-config", "--python", "{python}", "{tool}/extractor"]
   ],
+  "in_chart": false,
   "page": {
     "steps": [
-      {"run": "site2md build {url} --no-progress --output page.md"},
-      {"run": "site2md extract benchmark.countries page.md --entry-points-only --output result.json"},
-      {"run": "python records.py", "file": "records.py"}
+      {"run": "site2md build {url} --no-progress --output page.md --extract benchmark.countries --entry-points-only --values-only"}
     ],
     "files": [
       "extractor/pyproject.toml",
@@ -22,9 +21,7 @@
   },
   "crawl": {
     "steps": [
-      {"run": "site2md build {url} --mode site --max-pages 20 --max-depth 2 --no-progress --output page.md"},
-      {"run": "site2md extract benchmark.countries page.md --entry-points-only --output result.json"},
-      {"run": "python records.py", "file": "records.py"}
+      {"run": "site2md build {url} --mode site --max-pages 20 --max-depth 2 --no-progress --output page.md --extract benchmark.countries --entry-points-only --values-only"}
     ],
     "files": [
       "extractor/pyproject.toml",

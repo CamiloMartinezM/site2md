@@ -34,12 +34,13 @@ Start from the index of a generated local site, crawl breadth first within depth
   - A command-line program qualifies only if it runs without a browser.
   - Installing a tool, or site2md's benchmark Extractor, isn't counted.
   - Lines needed only because the page is served from 127.0.0.1, such as a port in an allowed-domains list, aren't counted. A footnote under the table names them.
-- **Install size.** The size on disk of the installed packages, and their number, in a fresh environment. It is the smallest install that runs every task the tool appears in, without a browser. site2md's benchmark Extractor is installed after the measurement. For pandoc, it is the unpacked archive.
-- **Environments.** Each tool runs in its own uv environment on Python 3.12, at an exact pinned version.
+- **Install size.** The size on disk of the installed packages, and their number, in a fresh environment. It is the smallest install that runs every task the tool appears in, without a browser. site2md's benchmark Extractor is installed after the measurement. For pandoc and for site2md's executable, it is the unpacked archive.
+- **Environments.** Each tool runs in its own uv environment on Python 3.12, at an exact pinned version. pandoc and site2md's executable are not Python packages: their environments hold only the unpacked archive, and the executable carries its own Python 3.12.
+- **Two rows for site2md.** The table lists site2md twice. "site2md" is the Python package, installed from its release tag. "site2md executable" is the standalone executable, unpacked from the Windows release archive, whose SHA-256 is checked before anything is unpacked. Both run the same solution: one `build --extract` step in site2md's opt-in fast modes, with the same Extractor, so both have the same line counts. The executable finds the Extractor in a folder that `SITE2MD_PROVIDER_PATH` names. The chart shows the executable and leaves the package to the tables.
 
 ## The chart
 
-The chart at the top of the [README](README.md) gives each tool whose output matches the reference two bars: its install size in blue, and the mean time of the page task in orange. Each bar is labelled with its value, and the rows run from the smallest install to the largest. The two measures have different units, so each is scaled to its own largest value and the chart has no shared axis or gridlines. Compare a bar with the bars of the same colour, never with the other colour. A tool whose output doesn't match has no bars, and its row in the README's table says so. The chart is two SVGs, `docs/benchmark-light.svg` and `docs/benchmark-dark.svg`, and the README shows the one that matches the reader's theme.
+The chart at the top of the [README](README.md) gives each charted tool whose output matches the reference two bars: its install size in blue, and the mean time of the page task in orange. Every tool is charted except site2md's package: the chart's site2md row is the executable, labelled "site2md executable" and set in bold, with the executable's time and install size. That makes site2md the one tool whose row isn't its smallest install, because the package is smaller. The package stays in the table. Each bar is labelled with its value, and the rows run from the smallest install to the largest. The two measures have different units, so each is scaled to its own largest value and the chart has no shared axis or gridlines. Compare a bar with the bars of the same colour, never with the other colour. A tool whose output doesn't match has no bars, and its row in the README's table says so. The chart is two SVGs, `docs/benchmark-light.svg` and `docs/benchmark-dark.svg`, and the README shows the one that matches the reader's theme.
 
 ## Results
 
@@ -60,25 +61,28 @@ The page copy was downloaded on 2026-11-06. Its SHA-256 is `4c68c2a54000607a0fa5
 
 | Tool | Version | Output matches | Time | Lines | Install size | Packages | Crawl output matches | Extra pages | Shortest gap | Crawl lines |
 |---|---|---|---|---|---|---|---|---|---|---|
-| site2md | 0.4.6 | yes | 870 ms ± 14 ms | 54 | 11.5 MB | 20 | yes | 0 | 1.017 s | 54 |
-| Scrapling | 0.5.1 | yes | 338 ms ± 9 ms | 12 [^1] | 242.9 MB [^2] | 23 | yes [^3] | 0 | 0.000 s [^4] | 19 [^1] |
-| crawl4ai | 0.9.5 | yes | 1.04 s ± 0.01 s | 24 [^5] [^1] | 554.8 MB [^6] | 96 | yes [^7] | 0 | 0.000 s [^8] | 38 [^1] |
-| MarkItDown | 0.1.9 | yes | 632 ms ± 16 ms | 10 [^1] | 94.8 MB | 19 | no crawler | no crawler | no crawler | no crawler |
-| pandoc | 3.13 | yes | 250 ms ± 7 ms | 12 [^1] | 239.6 MB [^9] | 0 | no crawler | no crawler | no crawler | no crawler |
+| site2md | 0.5.0 | yes | 625 ms ± 10 ms | 49 | 11.5 MB | 20 | yes | 0 | 1.028 s | 49 |
+| site2md executable | 0.5.0 | yes | 497 ms ± 17 ms | 49 | 27.5 MB [^1] | 0 | yes | 0 | 1.029 s | 49 |
+| Scrapling | 0.5.1 | yes | 334 ms ± 6 ms | 12 [^2] | 242.8 MB [^3] | 23 | yes [^4] | 0 | 0.000 s [^5] | 19 [^2] |
+| crawl4ai | 0.9.5 | yes | 1.07 s ± 0.04 s | 24 [^6] [^2] | 554.8 MB [^7] | 96 | yes [^8] | 0 | 0.000 s [^9] | 38 [^2] |
+| MarkItDown | 0.1.9 | yes | 635 ms ± 18 ms | 10 [^2] | 94.8 MB | 19 | no crawler | no crawler | no crawler | no crawler |
+| pandoc | 3.13 | yes | 254 ms ± 12 ms | 12 [^2] | 239.6 MB [^10] | 0 | no crawler | no crawler | no crawler | no crawler |
 
-[^1]: Not counted: `import sys`. The harness passes the local server's 127.0.0.1 URL on the command line, and this code only reads it. A solution for the live site writes the URL inline.
-[^2]: The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded.
-[^3]: Scrapling's spiders have no depth limit, and the `max_pages` of its Markdown spider limits what it converts, not what it fetches. The spider therefore carries each page's depth in its requests and keeps its own set of the pages it has queued. Without them it fetches the five decoy pages.
-[^4]: At its defaults a spider fetches up to four pages at once and adds no delay, and it doesn't request robots.txt unless asked to, so several requests reach the server together.
-[^5]: crawl4ai's `crwl` command line does the task in one line, but it always starts a browser, so that line isn't counted. The count is for the Python solution, which uses the HTTP-only crawler strategy.
-[^6]: crawl4ai requires Playwright and Patchright even for its HTTP-only strategy, so no smaller install exists. They take 110 MB each because each bundles a Node driver. No browser is downloaded.
-[^7]: crawl4ai's breadth-first crawl never marks the entry page as visited, so every page that links back to it queues it again. A filter keeps it out. Without the filter the entry page is fetched twice, and the second fetch uses one of the 20 pages, so a country page is left out.
-[^8]: At its defaults crawl4ai runs up to five fetches at once, with a random delay of 0.1 to 0.4 s per host that doesn't carry over from one level to the next, so some requests reach the server together.
-[^9]: The unpacked archive: `pandoc.exe`, its manual and its licence files. pandoc is not a Python package, so its package count reads 0.
+[^1]: The unpacked archive: `site2md.exe`, which holds site2md and its pure-Python libraries, and the `_internal` folder, which holds the Python 3.12 runtime, OpenSSL and the compiled modules. It is a bundle, not a set of pip packages, so its package count reads 0.
+[^2]: Not counted: `import sys`. The harness passes the local server's 127.0.0.1 URL on the command line, and this code only reads it. A solution for the live site writes the URL inline.
+[^3]: The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded.
+[^4]: Scrapling's spiders have no depth limit, and the `max_pages` of its Markdown spider limits what it converts, not what it fetches. The spider therefore carries each page's depth in its requests and keeps its own set of the pages it has queued. Without them it fetches the five decoy pages.
+[^5]: At its defaults a spider fetches up to four pages at once and adds no delay, and it doesn't request robots.txt unless asked to, so several requests reach the server together.
+[^6]: crawl4ai's `crwl` command line does the task in one line, but it always starts a browser, so that line isn't counted. The count is for the Python solution, which uses the HTTP-only crawler strategy.
+[^7]: crawl4ai requires Playwright and Patchright even for its HTTP-only strategy, so no smaller install exists. They take 110 MB each because each bundles a Node driver. No browser is downloaded.
+[^8]: crawl4ai's breadth-first crawl never marks the entry page as visited, so every page that links back to it queues it again. A filter keeps it out. Without the filter the entry page is fetched twice, and the second fetch uses one of the 20 pages, so a country page is left out.
+[^9]: At its defaults crawl4ai runs up to five fetches at once, with a random delay of 0.1 to 0.4 s per host that doesn't carry over from one level to the next, so some requests reach the server together.
+[^10]: The unpacked archive: `pandoc.exe`, its manual and its licence files. pandoc is not a Python package, so its package count reads 0.
 
 ### Solutions
 
-- **site2md**: `build` converts the page, `extract` runs a minimal Extractor written for this benchmark, and one last step writes the record values. The crawl runs `build` in site mode with `--max-pages 20 --max-depth 2` and reuses the same Extractor across the document's source sections. Both commands run in their opt-in fast modes, `build --no-progress` and `extract --entry-points-only`. site2md is installed from its release tag, because the PyPI name belongs to a different project.
+- **site2md**: One `build --extract` step converts the page, runs a minimal Extractor written for this benchmark on the saved Markdown, and writes only the record values. The crawl runs the same step in site mode with `--max-pages 20 --max-depth 2` and reuses the same Extractor across the document's source sections. The step runs in the opt-in fast modes `--no-progress`, `--entry-points-only` and `--values-only`. site2md is installed from its release tag, because the PyPI name belongs to a different project. This is the Python package: the table also lists site2md's executable, and the chart shows the executable instead.
+- **site2md executable**: The same one `build --extract` step as site2md's package, run by the standalone executable, which carries its own Python and starts no Python environment. The harness unpacks the official Windows release archive after it checks the archive's SHA-256 against the pinned one, which is the digest in the release's `SHA256SUMS`, and puts the archive's folder first on PATH. The benchmark Extractor is installed after the install is measured, with `uv pip install --target` and `--no-deps` into a folder that `SITE2MD_PROVIDER_PATH` names, because the executable ignores `PYTHONPATH`. The chart's site2md row is this executable.
 - **Scrapling**: Scrapling's HTTP fetcher gets the page and CSS selectors read each country. The `fetchers` extra is the smallest one that provides the fetcher, and no browser is downloaded or started. The crawl is a spider that reads the same selectors on every page it follows and writes the records with its own JSON export.
 - **crawl4ai**: Its HTTP-only crawler strategy fetches the page and its CSS extraction strategy reads each country as text, then a short loop converts the numbers and the missing capital. The crawl is its breadth-first deep crawl with the same extraction strategy. No browser is downloaded or started. Its home folder, where it keeps logs and a robots.txt cache, is moved into the benchmark's cache.
 - **MarkItDown**: `MarkItDown().convert` fetches the page and converts it to Markdown, and a regular expression parses the Markdown into the records. It has no crawler.
@@ -88,7 +92,8 @@ The page copy was downloaded on 2026-11-06. Its SHA-256 is `4c68c2a54000607a0fa5
 
 | Tool | Version | Date | Raw results |
 |---|---|---|---|
-| site2md | 0.4.6 | 2026-11-09 | [site2md.json](benchmarks/results/site2md.json) |
+| site2md | 0.5.0 | 2026-11-09 | [site2md.json](benchmarks/results/site2md.json) |
+| site2md executable | 0.5.0 | 2026-11-09 | [site2md-executable.json](benchmarks/results/site2md-executable.json) |
 | Scrapling | 0.5.1 | 2026-11-09 | [scrapling.json](benchmarks/results/scrapling.json) |
 | crawl4ai | 0.9.5 | 2026-11-09 | [crawl4ai.json](benchmarks/results/crawl4ai.json) |
 | MarkItDown | 0.1.9 | 2026-11-09 | [markitdown.json](benchmarks/results/markitdown.json) |

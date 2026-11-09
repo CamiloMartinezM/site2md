@@ -7,8 +7,8 @@ import re
 import unittest
 from collections.abc import Iterator
 
-from benchmarks._types import JsonValue
-from benchmarks.catalog import load_tool
+from benchmarks._types import JsonValue, TaskName
+from benchmarks.catalog import count_solution, load_tool
 from benchmarks.paths import RESULTS_DIRECTORY, TOOLS_DIRECTORY
 
 
@@ -76,6 +76,85 @@ class Crawl4aiToolTests(unittest.TestCase):
     def test_the_command_line_footnote_explains_why_its_one_line_is_not_counted(self) -> None:
         notes = [note.text for note in self.tool.footnotes if note.column == "lines"]
         self.assertTrue(any("crwl" in note and "browser" in note for note in notes), notes)
+
+
+class Site2mdToolsTests(unittest.TestCase):
+    """Check what the two site2md entries promise, since CI cannot install either to see it."""
+
+    ARCHIVE = "https://github.com/CamiloMartinezM/site2md/releases/download/v0.5.0/site2md-0.5.0-windows-x86_64.zip"
+    ARCHIVE_SHA256 = "0b5a0d96149b633c1fcce8447258c211780dffee414e77672e967b7b8dd3e023"
+
+    def setUp(self) -> None:
+        self.package = load_tool(TOOLS_DIRECTORY / "site2md")
+        self.executable = load_tool(TOOLS_DIRECTORY / "site2md-executable")
+
+    def test_the_package_installs_the_0_5_0_tag(self) -> None:
+        self.assertEqual(self.package.version, "0.5.0")
+        self.assertEqual(
+            self.package.requirements, ("site2md @ git+https://github.com/CamiloMartinezM/site2md@v0.5.0",)
+        )
+
+    def test_the_executable_is_pinned_to_the_0_5_0_archive_and_its_checksum(self) -> None:
+        self.assertEqual(self.executable.name, "site2md executable")
+        self.assertEqual(self.executable.version, "0.5.0")
+        self.assertEqual(self.executable.requirements, ())
+        (install,) = self.executable.install[:1]
+        self.assertEqual(install[2:4], (self.ARCHIVE, self.ARCHIVE_SHA256))
+
+    def test_the_executables_folder_is_put_on_the_path_where_the_archive_unpacks_it(self) -> None:
+        self.assertEqual(self.executable.path, ("site2md-0.5.0-windows-x86_64",))
+
+    def test_the_chart_shows_the_executable_and_leaves_the_package_to_the_tables(self) -> None:
+        self.assertFalse(self.package.in_chart)
+        self.assertTrue(self.executable.in_chart)
+
+    def test_each_task_is_one_build_extract_step_in_both_entries(self) -> None:
+        expected: dict[TaskName, str] = {
+            "page": "site2md build {url} --no-progress --output page.md "
+            "--extract benchmark.countries --entry-points-only --values-only",
+            "crawl": "site2md build {url} --mode site --max-pages 20 --max-depth 2 --no-progress --output page.md "
+            "--extract benchmark.countries --entry-points-only --values-only",
+        }
+        for tool in (self.package, self.executable):
+            for task, command in expected.items():
+                with self.subTest(tool=tool.id, task=task):
+                    self.assertEqual([step.run for step in tool.tasks[task].steps], [command])
+                    self.assertEqual([step.file for step in tool.tasks[task].steps], [None])
+
+    def test_both_entries_count_the_same_extractor_files_and_so_the_same_lines(self) -> None:
+        for task in ("page", "crawl"):
+            with self.subTest(task=task):
+                # The executable names the package's Extractor files by a path through the sibling folder.
+                self.assertEqual(
+                    [(self.executable.directory / name).resolve() for name in self.executable.tasks[task].files],
+                    [(self.package.directory / name).resolve() for name in self.package.tasks[task].files],
+                )
+                self.assertEqual(
+                    count_solution(self.executable, task, format_python=_unformatted),
+                    count_solution(self.package, task, format_python=_unformatted),
+                )
+
+    def test_the_executable_finds_the_extractor_in_a_folder_installed_without_dependencies(self) -> None:
+        (command,) = self.executable.setup
+        self.assertIn("--no-deps", command)
+        folder = command[command.index("--target") + 1]
+        self.assertEqual((self.executable.env or {}).get("SITE2MD_PROVIDER_PATH"), folder)
+
+    def test_the_package_never_reads_the_provider_path(self) -> None:
+        self.assertNotIn("SITE2MD_PROVIDER_PATH", self.package.env or {})
+
+    def test_the_executables_package_count_is_explained(self) -> None:
+        notes = [note.text for note in self.executable.footnotes if note.column == "size"]
+        self.assertTrue(any("package count reads 0" in note for note in notes), notes)
+
+    def test_both_solutions_say_which_row_the_chart_shows(self) -> None:
+        self.assertIn("chart", self.package.solution)
+        self.assertIn("chart", self.executable.solution)
+
+
+def _unformatted(source: str) -> str:
+    """Stand in for the formatter, since these files are already formatted."""
+    return source
 
 
 if __name__ == "__main__":

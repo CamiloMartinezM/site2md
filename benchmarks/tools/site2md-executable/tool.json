@@ -1,0 +1,50 @@
+{
+  "name": "site2md executable",
+  "version": "0.5.0",
+  "solution": "The same one `build --extract` step as site2md's package, run by the standalone executable, which carries its own Python and starts no Python environment. The harness unpacks the official Windows release archive after it checks the archive's SHA-256 against the pinned one, which is the digest in the release's `SHA256SUMS`, and puts the archive's folder first on PATH. The benchmark Extractor is installed after the install is measured, with `uv pip install --target` and `--no-deps` into a folder that `SITE2MD_PROVIDER_PATH` names, because the executable ignores `PYTHONPATH`. The chart's site2md row is this executable.",
+  "requirements": [],
+  "install": [
+    [
+      "{python}",
+      "{tool}/../install_archive.py",
+      "https://github.com/CamiloMartinezM/site2md/releases/download/v0.5.0/site2md-0.5.0-windows-x86_64.zip",
+      "0b5a0d96149b633c1fcce8447258c211780dffee414e77672e967b7b8dd3e023",
+      "{environment}"
+    ],
+    ["{environment}/site2md-0.5.0-windows-x86_64/site2md.exe", "--version"]
+  ],
+  "setup": [
+    [
+      "uv", "pip", "install", "--no-config", "--python", "{python}",
+      "--target", "{environment}/providers", "--no-deps", "{tool}/../site2md/extractor"
+    ]
+  ],
+  "path": ["site2md-0.5.0-windows-x86_64"],
+  "env": {"SITE2MD_PROVIDER_PATH": "{environment}/providers"},
+  "page": {
+    "steps": [
+      {"run": "site2md build {url} --no-progress --output page.md --extract benchmark.countries --entry-points-only --values-only"}
+    ],
+    "files": [
+      "../site2md/extractor/pyproject.toml",
+      "../site2md/extractor/benchmark_countries/__init__.py",
+      "../site2md/extractor/benchmark_countries/provider-manifest-v1.json"
+    ]
+  },
+  "crawl": {
+    "steps": [
+      {"run": "site2md build {url} --mode site --max-pages 20 --max-depth 2 --no-progress --output page.md --extract benchmark.countries --entry-points-only --values-only"}
+    ],
+    "files": [
+      "../site2md/extractor/pyproject.toml",
+      "../site2md/extractor/benchmark_countries/__init__.py",
+      "../site2md/extractor/benchmark_countries/provider-manifest-v1.json"
+    ]
+  },
+  "footnotes": [
+    {
+      "column": "size",
+      "text": "The unpacked archive: `site2md.exe`, which holds site2md and its pure-Python libraries, and the `_internal` folder, which holds the Python 3.12 runtime, OpenSSL and the compiled modules. It is a bundle, not a set of pip packages, so its package count reads 0."
+    }
+  ]
+}

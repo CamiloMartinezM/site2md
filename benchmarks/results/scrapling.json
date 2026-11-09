@@ -9,10 +9,10 @@
     "ruff": "0.17.4"
   },
   "install": {
-    "size_bytes": 242874231,
+    "size_bytes": 242840618,
     "packages": {
       "anyio": "4.16.0",
-      "apify_fingerprint_datapoints": "0.15.0",
+      "apify_fingerprint_datapoints": "0.16.0",
       "browserforge": "1.2.4",
       "certifi": "2026.10.23",
       "cffi": "2.1.1",
@@ -39,22 +39,22 @@
   "page": {
     "matches": true,
     "time": {
-      "mean": 0.338401,
-      "stddev": 0.009463,
-      "median": 0.336522,
-      "min": 0.326938,
-      "max": 0.356577,
+      "mean": 0.33441,
+      "stddev": 0.006324,
+      "median": 0.331699,
+      "min": 0.32849,
+      "max": 0.348425,
       "times": [
-        0.356577,
-        0.331661,
-        0.336966,
-        0.338792,
-        0.329514,
-        0.333725,
-        0.336079,
-        0.3517,
-        0.326938,
-        0.34206
+        0.32849,
+        0.3399,
+        0.335568,
+        0.330583,
+        0.338648,
+        0.328657,
+        0.332291,
+        0.348425,
+        0.33043,
+        0.331107
       ]
     },
     "lines": {
@@ -67,7 +67,7 @@
   "crawl": {
     "matches": true,
     "extra_pages": [],
-    "shortest_gap": 0.000362,
+    "shortest_gap": 0.000258,
     "lines": {
       "counted": 19,
       "local_only": [
