@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 import hashlib
 import html
 import json
@@ -586,7 +587,9 @@ def _discovery_sort_key(extractor: _DiscoveredExtractor) -> tuple[str, str, str]
     )
 
 
-def _converted_document(markdown: str) -> ConvertedDocument:
+def _converted_document(
+    markdown: str, line_starts: Sequence[int]
+) -> ConvertedDocument:
     """Translate Marko output into provider-facing site2md nodes."""
     normalized, original_offsets = _normalize_markdown(markdown)
     marko_document = marko.Markdown(extensions=["gfm"]).parse(normalized)
@@ -609,7 +612,7 @@ def _converted_document(markdown: str) -> ConvertedDocument:
             continue
         section_index = len(section_nodes) - 1
         section_nodes[section_index].append(
-            _owned_node(markdown, original_offsets, marko_node, section_index)
+            _owned_node(line_starts, original_offsets, marko_node, section_index)
         )
 
     sections = tuple(
@@ -654,7 +657,7 @@ def _source_marker(
 
 
 def _owned_node(
-    markdown: str,
+    line_starts: Sequence[int],
     original_offsets: tuple[int, ...],
     marko_node: object,
     section_index: int,
@@ -673,7 +676,7 @@ def _owned_node(
         text = _code_text(raw_children)
     elif isinstance(raw_children, list):
         children = tuple(
-            _owned_node(markdown, original_offsets, child, section_index)
+            _owned_node(line_starts, original_offsets, child, section_index)
             for child in raw_children
             if getattr(child, "source_span", None) is not None
         )
@@ -722,7 +725,7 @@ def _owned_node(
         attributes=attributes,
         children=children,
         span=_source_span(
-            markdown,
+            line_starts,
             original_offsets,
             section_index,
             start,
@@ -763,7 +766,7 @@ def _decode_entity(match: re.Match[str]) -> str:
 
 
 def _source_span(
-    markdown: str,
+    line_starts: Sequence[int],
     original_offsets: tuple[int, ...],
     section_index: int,
     normalized_start: int,
@@ -776,25 +779,26 @@ def _source_span(
         source_section=section_index,
         start=start,
         end=end,
-        start_line=_line_number(markdown, start),
-        end_line=_line_number(markdown, max(start, end - 1)),
+        start_line=_line_number(line_starts, start),
+        end_line=_line_number(line_starts, max(start, end - 1)),
     )
 
 
-def _line_number(markdown: str, offset: int) -> int:
-    """Return the one-based line containing one original character offset."""
-    line = 1
-    for line_ending in LINE_ENDING.finditer(markdown):
-        if line_ending.end() > offset:
-            break
-        line += 1
-    return line
+def _line_starts(markdown: str) -> tuple[int, ...]:
+    """Return the original offset at which each line begins."""
+    return (0, *(line_ending.end() for line_ending in LINE_ENDING.finditer(markdown)))
+
+
+def _line_number(line_starts: Sequence[int], offset: int) -> int:
+    """Return the one-based line containing one non-negative original offset."""
+    return bisect.bisect_right(line_starts, offset)
 
 
 def _validated_diagnostics(
     diagnostics: tuple[Diagnostic, ...],
     extractor_id: str,
     document: ConvertedDocument,
+    line_starts: Sequence[int],
 ) -> tuple[Diagnostic, ...]:
     """Validate ordered provider diagnostics at the host boundary."""
     if not isinstance(diagnostics, tuple):
@@ -831,6 +835,7 @@ def _validated_diagnostics(
             _validate_span(
                 span,
                 document,
+                line_starts,
                 context=f"diagnostic {index} provenance {span_index}",
             )
     return diagnostics
@@ -839,6 +844,7 @@ def _validated_diagnostics(
 def _validated_records(
     records: tuple[RecordCandidate, ...],
     document: ConvertedDocument,
+    line_starts: Sequence[int],
 ) -> tuple[tuple[RecordCandidate, ...], list[dict[str, Any]]]:
     """Validate candidate values and provenance without changing their order."""
     if not isinstance(records, tuple):
@@ -874,6 +880,7 @@ def _validated_records(
             _validate_span(
                 span,
                 document,
+                line_starts,
                 context=f"record candidate {index} provenance {span_index}",
             )
         native = _json_native(candidate.value)
@@ -936,6 +943,7 @@ def _validate_json_value(
 def _validate_span(
     span: SourceSpan,
     document: ConvertedDocument,
+    line_starts: Sequence[int],
     *,
     context: str,
 ) -> None:
@@ -980,8 +988,8 @@ def _validate_span(
             "site2md.provenance_invalid",
             f"{context} falls outside its source section",
         )
-    start_line = _line_number(document._markdown, span.start)
-    end_line = _line_number(document._markdown, span.end - 1)
+    start_line = _line_number(line_starts, span.start)
+    end_line = _line_number(line_starts, span.end - 1)
     if (span.start_line, span.end_line) != (start_line, end_line):
         raise ExtractionError(
             "site2md.provenance_invalid",
@@ -1139,7 +1147,8 @@ def extract(markdown: str, extractor_id: str) -> ExtractionResult:
             "site2md.extractor_interface_invalid",
             f"Extractor factory {extractor_id} returned an incompatible object",
         ) from interface_cause
-    document = _converted_document(markdown)
+    line_starts = _line_starts(markdown)
+    document = _converted_document(markdown, line_starts)
     try:
         provider_result = extractor.extract(document)
     except Exception as cause:
@@ -1156,6 +1165,7 @@ def extract(markdown: str, extractor_id: str) -> ExtractionResult:
         provider_result.diagnostics,
         extractor_id,
         document,
+        line_starts,
     )
     if any(diagnostic.severity == "error" for diagnostic in diagnostics):
         raise ExtractionError(
@@ -1163,7 +1173,9 @@ def extract(markdown: str, extractor_id: str) -> ExtractionResult:
             f"Extractor {extractor_id} reported an error",
             diagnostics=diagnostics,
         )
-    records, values = _validated_records(provider_result.records, document)
+    records, values = _validated_records(
+        provider_result.records, document, line_starts
+    )
     validation_errors = sorted(
         Draft202012Validator(schema).iter_errors(values),
         key=lambda error: (

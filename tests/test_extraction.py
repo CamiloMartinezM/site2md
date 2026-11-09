@@ -21,6 +21,25 @@ from site2md.extractors.v1 import (
     SourceSpan,
 )
 
+# One line per entry, so entry N is line N + 1 once the endings are joined in.
+SAMPLE_LINES = (
+    "# Title",
+    "",
+    "First wrapped",
+    "paragraph.",
+    "",
+    "- item a",
+    "- item b",
+    "",
+    "Last.",
+)
+LINE_ENDING_STYLES = {
+    "lf": ("\n",),
+    "crlf": ("\r\n",),
+    "cr": ("\r",),
+    "mixed": ("\n", "\r\n", "\r"),
+}
+
 
 class ObservingExtractor:
     """Capture the converted document through the public provider interface."""
@@ -54,6 +73,47 @@ class ObservingExtractor:
                     ),
                 ),
             )
+        )
+
+
+class SpanClaimingExtractor:
+    """Return a valid record, claiming provider-supplied spans as provenance."""
+
+    def __init__(
+        self,
+        *,
+        record_spans: tuple[SourceSpan, ...] = (),
+        diagnostic_spans: tuple[SourceSpan, ...] = (),
+    ) -> None:
+        self.record_spans = record_spans
+        self.diagnostic_spans = diagnostic_spans
+
+    def extract(self, document: ConvertedDocument) -> Extraction:
+        """Claim the configured spans, defaulting the record to the first node."""
+        diagnostics: tuple[Diagnostic, ...] = ()
+        if self.diagnostic_spans:
+            diagnostics = (
+                Diagnostic(
+                    severity="warning",
+                    code="site2md.scrapethissite.countries.claimed",
+                    message="Claimed spans",
+                    provenance=self.diagnostic_spans,
+                ),
+            )
+        return Extraction(
+            records=(
+                RecordCandidate(
+                    value={
+                        "name": "Title",
+                        "capital": None,
+                        "population": 1,
+                        "area_km2": 2.0,
+                    },
+                    provenance=self.record_spans
+                    or (document.sections[0].nodes[0].span,),
+                ),
+            ),
+            diagnostics=diagnostics,
         )
 
 
@@ -360,6 +420,99 @@ Evidence.
         self.assertEqual(document.source_text(paragraph.span), "Evidence.\r")
         self.assertEqual((paragraph.span.start_line, paragraph.span.end_line), (4, 4))
 
+    def test_node_lines_are_exact_for_every_line_ending_style(self) -> None:
+        expected = [
+            ("heading", 1, 1),
+            ("text", 1, 1),
+            ("paragraph", 3, 4),
+            ("text", 3, 3),
+            ("line_break", 3, 3),
+            ("text", 4, 4),
+            ("list", 6, 7),
+            ("list_item", 6, 6),
+            ("paragraph", 6, 6),
+            ("text", 6, 6),
+            ("list_item", 7, 7),
+            ("paragraph", 7, 7),
+            ("text", 7, 7),
+            ("paragraph", 9, 9),
+            ("text", 9, 9),
+        ]
+        for style, endings in LINE_ENDING_STYLES.items():
+            for trailing in (False, True):
+                with self.subTest(style=style, trailing=trailing):
+                    observer = ObservingExtractor()
+
+                    with patch(
+                        "site2md.extractors.countries.create_extractor",
+                        return_value=observer,
+                    ):
+                        extract(
+                            _sample_markdown(endings, trailing=trailing),
+                            "site2md.scrapethissite.countries",
+                        )
+
+                    self.assertEqual(
+                        [
+                            (node.kind, node.span.start_line, node.span.end_line)
+                            for node in observer.documents[0].walk()
+                        ],
+                        expected,
+                    )
+
+    def test_provider_spans_with_correct_lines_are_accepted_for_every_line_ending_style(
+        self,
+    ) -> None:
+        for style, endings in LINE_ENDING_STYLES.items():
+            for trailing in (False, True):
+                markdown = _sample_markdown(endings, trailing=trailing)
+                title_end = markdown.index("Title") + len("Title")
+                second_line = markdown.index("paragraph.")
+                spans = tuple(
+                    SourceSpan(0, start, end, start_line, end_line)
+                    for start, end, start_line, end_line in (
+                        (0, title_end, 1, 1),  # the first line
+                        (0, 1, 1, 1),  # the first character
+                        (markdown.index("First"), second_line, 3, 3),  # ends after its line ending
+                        (second_line - 1, second_line, 3, 3),  # only the last character of a line ending
+                        (second_line, second_line + len("paragraph."), 4, 4),  # starts a line
+                        (markdown.index("First"), markdown.index("- item b") + 1, 3, 7),  # crosses lines
+                        (markdown.index("Last."), len(markdown), 9, 9),  # the last line
+                    )
+                )
+
+                with self.subTest(style=style, trailing=trailing):
+                    _extract_claiming_spans(markdown, record_spans=spans)
+                    _extract_claiming_spans(markdown, diagnostic_spans=spans)
+
+    def test_provider_spans_with_wrong_lines_are_rejected_for_every_line_ending_style(
+        self,
+    ) -> None:
+        for style, endings in LINE_ENDING_STYLES.items():
+            markdown = _sample_markdown(endings, trailing=False)
+            start = markdown.index("First")
+            end = markdown.index("- item b") + 1  # the true lines are 3 to 7
+            wrong_start = SourceSpan(0, start, end, 4, 7)
+            wrong_end = SourceSpan(0, start, end, 3, 8)
+            claims = (
+                {"record_spans": (wrong_start,)},
+                {"record_spans": (wrong_end,)},
+                {"diagnostic_spans": (wrong_end,)},
+            )
+            for claim in claims:
+                with self.subTest(style=style, claim=claim):
+                    with self.assertRaises(ExtractionError) as raised:
+                        _extract_claiming_spans(markdown, **claim)
+
+                    self.assertEqual(
+                        raised.exception.code,
+                        "site2md.provenance_invalid",
+                    )
+                    self.assertIn(
+                        "line numbers inconsistent",
+                        str(raised.exception),
+                    )
+
     def test_leading_blank_markdown_keeps_an_unknown_source_section(self) -> None:
         markdown = "\r\n\r\n<!-- Source: one -->\r\n# One\r\n\r\nEvidence.\r\n"
         observer = ObservingExtractor()
@@ -579,6 +732,32 @@ Evidence.
         self.assertNotIn("\\u00c5", serialized)
         self.assertTrue(serialized.endswith("\n"))
         self.assertFalse(serialized.endswith("\n\n"))
+
+
+def _sample_markdown(endings: tuple[str, ...], *, trailing: bool) -> str:
+    """Join the sample lines, taking each ending in turn and repeating the cycle."""
+    last = len(SAMPLE_LINES) - 1
+    return "".join(
+        line + (endings[index % len(endings)] if trailing or index < last else "")
+        for index, line in enumerate(SAMPLE_LINES)
+    )
+
+
+def _extract_claiming_spans(
+    markdown: str,
+    *,
+    record_spans: tuple[SourceSpan, ...] = (),
+    diagnostic_spans: tuple[SourceSpan, ...] = (),
+) -> None:
+    """Run extraction with a provider that claims the spans as provenance."""
+    with patch(
+        "site2md.extractors.countries.create_extractor",
+        return_value=SpanClaimingExtractor(
+            record_spans=record_spans,
+            diagnostic_spans=diagnostic_spans,
+        ),
+    ):
+        extract(markdown, "site2md.scrapethissite.countries")
 
 
 if __name__ == "__main__":
