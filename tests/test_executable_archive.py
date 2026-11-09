@@ -121,6 +121,13 @@ class ArchiveCommandTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(len(list(self.destination.iterdir())), 1)
 
+    def test_an_empty_tag_is_no_tag(self) -> None:
+        # A manual run has no release, and the workflow passes the empty tag along.
+        status, _ = self.run_main("--tag", "")
+
+        self.assertEqual(status, 0)
+        self.assertEqual(len(list(self.destination.iterdir())), 1)
+
     def test_a_tag_that_names_another_version_is_refused_before_anything_is_written(self) -> None:
         status, stderr = self.run_main("--tag", "v9.9.9")
 

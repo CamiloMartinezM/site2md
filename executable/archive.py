@@ -49,13 +49,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("folder", type=Path, help="the folder that executable/build.py wrote, dist/site2md")
     parser.add_argument("destination", type=Path, help="the folder that receives the archive")
-    parser.add_argument("--tag", help="the release tag, which must name the version that was built")
+    parser.add_argument("--tag", help="the release tag, which must name the version that was built; empty for none")
     arguments = parser.parse_args(argv)
     if not arguments.folder.is_dir():
         print(f"Error: Folder '{arguments.folder}' does not exist. Build it first.", file=sys.stderr)
         return 1
     built_version = metadata.version("site2md")
-    if arguments.tag is not None and arguments.tag != f"v{built_version}":
+    if arguments.tag and arguments.tag != f"v{built_version}":
         print(f"Error: Tag '{arguments.tag}' does not name the built version {built_version}.", file=sys.stderr)
         return 1
 
