@@ -239,7 +239,7 @@ os.replace = observing_replace
             "extraction": (
                 """from site2md import extraction
 
-def fail_extraction(markdown, extractor_id):
+def fail_extraction(markdown, extractor_id, **options):
     raise extraction.ExtractionError(
         "site2md.test.extraction_failed", "forced extraction failure"
     )

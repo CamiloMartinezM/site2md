@@ -46,6 +46,8 @@ The installed distribution must contain exactly one file named `provider-manifes
 
 Entry-point names and manifest IDs must agree exactly. Include the manifest in wheel metadata as package data. Multiple distributions claiming the same ID create a visible conflict; installation order never selects a winner.
 
+A distribution that ships a manifest but declares no entry point is still inspected: `site2md extractors` lists it, and `site2md extract` reports a conflict or an unavailable Extractor if it claims the requested ID. `site2md extract --entry-points-only` (or `site2md.extraction.extract(..., entry_points_only=True)`) skips every distribution that declares no `site2md.extractors.v1` entry point, so it never reads that distribution's installed-file list. With the option, `extract` doesn't notice such a distribution, though `site2md extractors` always keeps the full scan. A provider that declares its entry points as above gives the same result with and without the option.
+
 Keep the three versions independent:
 
 - `interface_version` is the integer `1`, matching the entry-point group.
