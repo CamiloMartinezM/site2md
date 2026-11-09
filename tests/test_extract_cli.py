@@ -280,12 +280,12 @@ extraction.ExtractionResult.to_json = fail_serialization
                 b"forced serialization failure",
             ),
             "output": (
-                """from site2md import main
+                """import os
 
 def fail_replace(source, destination):
     raise OSError("forced output failure")
 
-main.os.replace = fail_replace
+os.replace = fail_replace
 """,
                 b"forced output failure",
             ),
@@ -573,16 +573,16 @@ ctypes.CDLL = lambda *args, **kwargs: BrokenRuntime()
         with tempfile.TemporaryDirectory() as temp_dir:
             environment = self.startup_hook_environment(
                 Path(temp_dir),
-                """from site2md import main
+                """import os
 
-real_write = main.os.write
+real_write = os.write
 
 def fail_standard_output(descriptor, contents):
     if descriptor == 1:
         raise OSError("forced pre-emission failure")
     return real_write(descriptor, contents)
 
-main.os.write = fail_standard_output
+os.write = fail_standard_output
 """,
             )
             result = self.run_site2md(
@@ -608,9 +608,9 @@ main.os.write = fail_standard_output
         with tempfile.TemporaryDirectory() as temp_dir:
             environment = self.startup_hook_environment(
                 Path(temp_dir),
-                """from site2md import main
+                """import os
 
-real_write = main.os.write
+real_write = os.write
 shortened = False
 
 def short_standard_output_write(descriptor, contents):
@@ -620,7 +620,7 @@ def short_standard_output_write(descriptor, contents):
         return real_write(descriptor, contents[:7])
     return real_write(descriptor, contents)
 
-main.os.write = short_standard_output_write
+os.write = short_standard_output_write
 """,
             )
             result = self.run_site2md(
