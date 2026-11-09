@@ -31,8 +31,9 @@ def extract(
 
     Args:
         values_only: Write only a JSON array of the record values, in record order. This drops
-            the provenance, the Extractor, provider and record schema identity, the input digest
-            and the source sections.
+            the format version, the provenance, the Extractor, provider and record schema
+            identity, the input digest, the source sections and the diagnostics. Warnings then
+            go only to standard error.
         entry_points_only: Look up the Extractor faster by skipping installed distributions
             that declare no Extractor entry point. Extract then doesn't notice a distribution
             that ships a manifest without an entry point, though site2md extractors still
