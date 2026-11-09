@@ -10,6 +10,7 @@ Whenever possible, a module reads top to bottom in this order:
 
 1. The module docstring, then `from __future__ import annotations`.
 2. Imports. Ruff sorts them into groups: standard library, third party, then site2md.
+   - A function-level import is allowed when it keeps a slow module out of the runs that don't use it. Add a one-line comment that says why.
 3. Module constants, such as `USER_AGENT`.
 4. Types, but only those that can't live in the types module (rule 2).
 5. Classes.
