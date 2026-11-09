@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from rich.console import Console
-from rich.progress import Progress
 
 from site2md._types import RemoteMode
 from site2md.converter import convert_html_to_markdown
@@ -15,6 +16,20 @@ from site2md.merger import merge_markdowns
 from site2md.remote_build import RemoteBuildError, RemoteBuildRequest, build_remote
 
 console = Console()
+
+
+@contextmanager
+def _progress_bar(description: str, total: int, *, is_shown: bool) -> Iterator[Callable[[], None]]:
+    """Draw a progress bar while the block runs, and yield the function that advances it."""
+    if not is_shown:
+        yield lambda: None
+        return
+    # Imported here so that --no-progress never loads rich.progress.
+    from rich.progress import Progress
+
+    with Progress() as progress:
+        task = progress.add_task(description, total=total)
+        yield lambda: progress.advance(task)
 
 
 def build(
@@ -29,6 +44,7 @@ def build(
     include_query: bool = False,
     max_total_size_mib: int | None = None,
     max_page_size_mib: int | None = None,
+    progress: bool = True,
 ) -> None:
     """Build a single Markdown file from a local HTML directory or remote page.
 
@@ -43,6 +59,7 @@ def build(
         include_query: Include query-bearing links discovered in site mode.
         max_total_size_mib: Positive traversal body budget (default: 250).
         max_page_size_mib: Positive MiB limit for one remote page (default: 25).
+        progress: Draw a progress bar. Pass --no-progress to skip it, for scripts and benchmarks.
     """
     markdown_contents: list[str] = []
     is_remote = input_source.startswith(("http://", "https://"))
@@ -68,8 +85,7 @@ def build(
         sys.exit(1)
 
     if is_remote:
-        with Progress() as progress:
-            task = progress.add_task("[cyan]Building remote page...", total=1)
+        with _progress_bar("[cyan]Building remote page...", 1, is_shown=progress) as advance:
             try:
                 summary = build_remote(
                     RemoteBuildRequest(
@@ -103,7 +119,7 @@ def build(
                         soft_wrap=True,
                     )
                 sys.exit(1)
-            progress.advance(task)
+            advance()
 
         for warning in summary.warnings:
             console.print(f"[yellow]Warning:[/yellow] {warning}")
@@ -136,13 +152,12 @@ def build(
         sys.exit(0)
 
     console.print(f"Found [bold]{len(html_files)}[/bold] HTML files.")
-    with Progress() as progress:
-        task = progress.add_task(
-            "[cyan]Converting HTML to Markdown...", total=len(html_files)
-        )
+    with _progress_bar(
+        "[cyan]Converting HTML to Markdown...", len(html_files), is_shown=progress
+    ) as advance:
         for html_file in html_files:
             markdown_contents.append(convert_html_to_markdown(html_file))
-            progress.advance(task)
+            advance()
 
     console.print(
         f"[bold green]Merging[/bold green] {len(markdown_contents)} files into {output}..."

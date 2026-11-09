@@ -95,9 +95,14 @@ site2md build ./input_folder --output manual.md
 
 # Fetch and convert one remote page
 site2md build https://example.com/article --output article.md
+
+# Skip the progress bar, for scripts and benchmarks
+site2md build https://example.com/article --output article.md --no-progress
 ```
 
 If you omit `--output`, `site2md build` writes `complete_manual.md`.
+
+`site2md build` draws a progress bar in every mode. `--no-progress` skips it and changes nothing else: the output file, the other messages and the exit status stay the same. It also keeps Rich's progress module from loading, which saves about 20 ms per page build.
 
 Remote input accepts three explicit modes. `page` is the default. `site2md` doesn't infer a broader mode from another option.
 
