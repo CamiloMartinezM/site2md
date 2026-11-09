@@ -134,6 +134,17 @@ class LoadToolTests(ToolDirectoryTestCase):
         with self.assertRaisesRegex(HarnessError, "crawl.*gone.py"):
             load_tool(self.directory)
 
+    def test_a_tool_is_in_the_chart_unless_its_definition_leaves_it_out(self) -> None:
+        self.write_definition()
+        self.assertTrue(load_tool(self.directory).in_chart)
+        self.write_definition(in_chart=False)
+        self.assertFalse(load_tool(self.directory).in_chart)
+
+    def test_the_chart_setting_must_be_true_or_false(self) -> None:
+        self.write_definition(in_chart="no")
+        with self.assertRaisesRegex(HarnessError, "example/tool.json.in_chart must be a boolean"):
+            load_tool(self.directory)
+
     def test_a_value_of_the_wrong_type_is_named(self) -> None:
         self.write_definition(requirements="example==1.0")
         with self.assertRaisesRegex(HarnessError, "example/tool.json.requirements must be a list"):

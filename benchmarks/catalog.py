@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import get_args
 
-from benchmarks._json import expect_list, expect_object, expect_string
+from benchmarks._json import expect_boolean, expect_list, expect_object, expect_string
 from benchmarks._types import (
     FootnoteColumn,
     JsonValue,
@@ -78,6 +78,8 @@ class Tool:
     path: tuple[str, ...] = ()
     env: Mapping[str, str] | None = None
     footnotes: tuple[Footnote, ...] = ()
+    # False keeps the tool in the tables and leaves it out of the chart, as site2md's package is.
+    in_chart: bool = True
 
 
 def _strings(value: JsonValue, where: str) -> tuple[str, ...]:
@@ -166,7 +168,7 @@ def _read_tool(directory: Path) -> Tool:
     _check_keys(
         data,
         required=("name", "version", "solution", "requirements", "page"),
-        optional=("crawl", "install", "setup", "path", "env", "footnotes"),
+        optional=("crawl", "install", "setup", "path", "env", "footnotes", "in_chart"),
         where=where,
     )
     version = expect_string(data["version"], f"{where}.version")
@@ -197,6 +199,7 @@ def _read_tool(directory: Path) -> Tool:
             _footnote(raw, f"{where}.footnotes[{index}]")
             for index, raw in enumerate(expect_list(data.get("footnotes", []), f"{where}.footnotes"))
         ),
+        in_chart=expect_boolean(data.get("in_chart", True), f"{where}.in_chart"),
     )
 
 

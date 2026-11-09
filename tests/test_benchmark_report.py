@@ -40,6 +40,16 @@ class RenderResultsTests(unittest.TestCase):
         self.assertEqual(rows[:3], ["site2md", "crawl4ai", "pandoc"])
         self.assertEqual(rows[3:5], ["alpha", "zeta"])
 
+    def test_a_tool_left_out_of_the_chart_still_has_its_row_next_to_the_executable_that_the_chart_shows(self) -> None:
+        tools = [
+            make_tool("pandoc"),
+            make_tool("site2md-executable", name="site2md executable"),
+            make_tool("site2md", in_chart=False),
+        ]
+        results = {tool.id: make_result() for tool in tools}
+        rows = [line.split("|")[1].strip() for line in render_results(tools, results).splitlines()[2:5]]
+        self.assertEqual(rows, ["site2md", "site2md executable", "pandoc"])
+
     def test_a_tool_without_results_has_no_row(self) -> None:
         table = render_results([make_tool("site2md"), make_tool("scrapling")], {"site2md": make_result()})
         self.assertNotIn("scrapling", table)

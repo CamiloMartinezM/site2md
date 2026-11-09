@@ -10,8 +10,9 @@ from benchmarks._types import ChartTheme, ToolResult
 from benchmarks.catalog import Tool
 from benchmarks.report import measured_tools, size_text
 
-# The tool the README is about: the chart sets its name and values in bold.
-SUBJECT = "site2md"
+# The tool the README is about: the chart sets its name and values in bold. It is site2md's executable, and the
+# package stays in the tables only (#72).
+SUBJECT = "site2md-executable"
 # Blue for install size and orange for time. The dataviz skill's validator passes each pair, for colour-blind
 # readers and for 3:1 contrast, on GitHub's page colours: light on #ffffff and dark on #0d1117.
 _SIZE_COLOURS: Mapping[ChartTheme, str] = {"light": "#2A78D6", "dark": "#3987E5"}
@@ -46,7 +47,7 @@ class _Row:
 
 
 def _rows(tools: Sequence[Tool], results: Mapping[str, ToolResult]) -> list[_Row]:
-    """List the rows, smallest install first: only tools whose output matches the reference have one."""
+    """List the rows, smallest install first: only charted tools whose output matches the reference have one."""
     rows = [
         _Row(
             tool.name,
@@ -55,7 +56,7 @@ def _rows(tools: Sequence[Tool], results: Mapping[str, ToolResult]) -> list[_Row
             tool.id == SUBJECT,
         )
         for tool in measured_tools(tools, results)
-        if results[tool.id]["page"]["matches"]
+        if tool.in_chart and results[tool.id]["page"]["matches"]
     ]
     return sorted(rows, key=lambda row: row.size_bytes)
 

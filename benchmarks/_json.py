@@ -26,6 +26,13 @@ def expect_string(value: JsonValue, where: str) -> str:
     return value
 
 
+def expect_boolean(value: JsonValue, where: str) -> bool:
+    """Return a JSON boolean, or raise an error that names where it was expected."""
+    if not isinstance(value, bool):
+        raise TypeError(f"{where} must be a boolean")
+    return value
+
+
 def expect_number(value: JsonValue, where: str) -> float:
     """Return a JSON number, or raise an error that names where it was expected."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
