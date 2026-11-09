@@ -604,8 +604,8 @@ def _write_debugging_index(
             temporary_file.write(
                 json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
             )
+            # No fsync: the index is throwaway debugging data, so durability isn't worth the cost.
             temporary_file.flush()
-            os.fsync(temporary_file.fileno())
         temporary_path.replace(workspace / "index.json")
         temporary_path = None
     finally:
