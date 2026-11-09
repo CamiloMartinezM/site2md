@@ -1,4 +1,4 @@
-"""Tests for the script that installs a tool from a release archive, such as pandoc."""
+"""Tests for the script that installs a tool from a release archive, such as pandoc or site2md's executable."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from pathlib import Path
 from benchmarks.paths import TOOLS_DIRECTORY
 from benchmarks.server import FixtureServer
 
-INSTALL_ARCHIVE = TOOLS_DIRECTORY / "pandoc" / "install_archive.py"
+INSTALL_ARCHIVE = TOOLS_DIRECTORY / "install_archive.py"
 ARCHIVE_PATH = "/releases/tool-1.0.zip"
 
 

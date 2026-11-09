@@ -13,6 +13,7 @@ python -m benchmarks reference    # download the page afresh, pin it, rebuild ex
 | Path | Holds |
 |---|---|
 | `tools/<id>/` | One tool: `tool.json`, its solution files, and anything its install needs. Nothing outside this folder changes when a tool is added |
+| `tools/install_archive.py` | The script that installs a tool from a release archive, for pandoc and `site2md-executable` |
 | `results/<id>.json` | That tool's committed results. One file per tool, so tools merge without conflicts |
 | `expected/countries.json` | The reference records |
 | `expected/page.json` | The page copy's URL, download date and SHA-256 |
@@ -21,7 +22,7 @@ python -m benchmarks reference    # download the page afresh, pin it, rebuild ex
 
 Four files are rendered from all the results: BENCHMARKS.md's generated part, the README's chart block and benchmark table (each between `<!-- benchmarks:... -->` markers), and the charts `docs/benchmark-light.svg` and `docs/benchmark-dark.svg`. Rerun `python -m benchmarks render` to resolve a merge conflict in any of them. A tool added later gets its row and its bars without any change to the renderers.
 
-The chart gives each tool two bars, its install size and the mean time of the page task, each scaled to its own largest value. A tool whose output doesn't match the reference has no bars.
+The chart gives each tool two bars, its install size and the mean time of the page task, each scaled to its own largest value. A tool whose output doesn't match the reference has no bars, and neither does a tool whose `tool.json` sets `"in_chart": false`, which stays in the tables. site2md's package is left out that way, so that the chart's site2md row is `site2md-executable`, the one the chart sets in bold.
 
 ## What a run does
 
@@ -56,9 +57,10 @@ Create `tools/<id>/tool.json` and the files it names, then run `python -m benchm
 | `setup` | Optional argument lists that run after the measurement, such as installing site2md's benchmark Extractor. Same placeholders |
 | `path` | Optional folders of `{environment}` to put on PATH, besides the Python environment's own scripts folder |
 | `env` | Optional environment variables for the solution, not for `install` or `setup`. Values accept the same placeholders |
+| `in_chart` | Optional, `true` by default. `false` keeps the tool in the tables and leaves it out of the chart |
 | `footnotes` | Optional notes: `{"column": "time" \| "lines" \| "size" \| "crawl" \| "gap", "text": "..."}`. The report numbers them and puts them under the table. `crawl` explains the crawl output check, and also appears in the README's table on the crawl line count. `gap` explains the shortest gap |
 | `page.steps` | The solution, in order. See below |
-| `page.files` | Other files that the solution needs and that count toward its lines, such as an Extractor |
+| `page.files` | Other files that the solution needs and that count toward its lines, such as an Extractor. A path may reach into another tool's folder: `site2md-executable` names the Extractor files of `site2md` that way, so that the two entries count and install the same ones |
 | `page.output_file` | Optional. Where the last step writes the records. By default its standard output is saved as `output.json` |
 | `crawl` | Optional. The crawl solution, with the same `steps`, `files` and `output_file` as `page`. A tool without it shows "no crawler" in the crawl columns |
 
@@ -101,7 +103,7 @@ The results file gains a `crawl` object with `matches`, `extra_pages` (the paths
 
 ### Install size
 
-The size of the environment's site-packages, without bytecode caches, plus anything an `install` command unpacked into `{environment}` outside `venv/`. The packages are the `.dist-info` folders. A tool that is not a Python package, such as pandoc, unpacks its archive into `{environment}`, checks the archive's checksum in its own `install` command, and adds the unpacked folder to `path`. `tools/pandoc/install_archive.py` does the first two for a zip: it refuses an archive whose SHA-256 is not the pinned one before it unpacks anything.
+The size of the environment's site-packages, without bytecode caches, plus anything an `install` command unpacked into `{environment}` outside `venv/`. The packages are the `.dist-info` folders. A tool that is not a Python package, such as pandoc or site2md's executable, unpacks its archive into `{environment}`, checks the archive's checksum in its own `install` command, and adds the unpacked folder to `path`. `tools/install_archive.py` does the first two for a zip: it refuses an archive whose SHA-256 is not the pinned one before it unpacks anything. Its `install` command is `["{python}", "{tool}/../install_archive.py", URL, SHA256, "{environment}"]`. A `setup` command runs after the measurement, so what it installs, such as the Extractor that `site2md-executable` puts in `{environment}/providers`, is not part of the size.
 
 ## Tests
 

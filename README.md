@@ -357,20 +357,22 @@ site2md against the tools you might pick instead. Every tool extracts the same 2
 <!-- benchmarks:table:start -->
 | Tool | Time | Lines (page) | Lines (crawl) | Install size |
 |---|---|---|---|---|
-| site2md | 870 ms ± 14 ms | 54 | 54 | 11.5 MB |
-| Scrapling | 338 ms ± 9 ms | 12 [^1] | 19 [^2] [^1] | 242.9 MB [^3] |
-| crawl4ai | 1.04 s ± 0.01 s | 24 [^4] [^1] | 38 [^5] [^1] | 554.8 MB [^6] |
-| MarkItDown | 632 ms ± 16 ms | 10 [^1] | – [^7] | 94.8 MB |
-| pandoc | 250 ms ± 7 ms | 12 [^1] | – [^7] | 239.6 MB [^8] |
+| site2md | 625 ms ± 10 ms | 49 | 49 | 11.5 MB |
+| site2md executable | 497 ms ± 17 ms | 49 | 49 | 27.5 MB [^1] |
+| Scrapling | 334 ms ± 6 ms | 12 [^2] | 19 [^3] [^2] | 242.8 MB [^4] |
+| crawl4ai | 1.07 s ± 0.04 s | 24 [^5] [^2] | 38 [^6] [^2] | 554.8 MB [^7] |
+| MarkItDown | 635 ms ± 18 ms | 10 [^2] | – [^8] | 94.8 MB |
+| pandoc | 254 ms ± 12 ms | 12 [^2] | – [^8] | 239.6 MB [^9] |
 
-[^1]: Not counted: `import sys`. The harness passes the local server's 127.0.0.1 URL on the command line, and this code only reads it. A solution for the live site writes the URL inline.
-[^2]: Scrapling's spiders have no depth limit, and the `max_pages` of its Markdown spider limits what it converts, not what it fetches. The spider therefore carries each page's depth in its requests and keeps its own set of the pages it has queued. Without them it fetches the five decoy pages.
-[^3]: The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded.
-[^4]: crawl4ai's `crwl` command line does the task in one line, but it always starts a browser, so that line isn't counted. The count is for the Python solution, which uses the HTTP-only crawler strategy.
-[^5]: crawl4ai's breadth-first crawl never marks the entry page as visited, so every page that links back to it queues it again. A filter keeps it out. Without the filter the entry page is fetched twice, and the second fetch uses one of the 20 pages, so a country page is left out.
-[^6]: crawl4ai requires Playwright and Patchright even for its HTTP-only strategy, so no smaller install exists. They take 110 MB each because each bundles a Node driver. No browser is downloaded.
-[^7]: No crawler.
-[^8]: The unpacked archive: `pandoc.exe`, its manual and its licence files. pandoc is not a Python package, so its package count reads 0.
+[^1]: The unpacked archive: `site2md.exe`, which holds site2md and its pure-Python libraries, and the `_internal` folder, which holds the Python 3.12 runtime, OpenSSL and the compiled modules. It is a bundle, not a set of pip packages, so its package count reads 0.
+[^2]: Not counted: `import sys`. The harness passes the local server's 127.0.0.1 URL on the command line, and this code only reads it. A solution for the live site writes the URL inline.
+[^3]: Scrapling's spiders have no depth limit, and the `max_pages` of its Markdown spider limits what it converts, not what it fetches. The spider therefore carries each page's depth in its requests and keeps its own set of the pages it has queued. Without them it fetches the five decoy pages.
+[^4]: The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded.
+[^5]: crawl4ai's `crwl` command line does the task in one line, but it always starts a browser, so that line isn't counted. The count is for the Python solution, which uses the HTTP-only crawler strategy.
+[^6]: crawl4ai's breadth-first crawl never marks the entry page as visited, so every page that links back to it queues it again. A filter keeps it out. Without the filter the entry page is fetched twice, and the second fetch uses one of the 20 pages, so a country page is left out.
+[^7]: crawl4ai requires Playwright and Patchright even for its HTTP-only strategy, so no smaller install exists. They take 110 MB each because each bundles a Node driver. No browser is downloaded.
+[^8]: No crawler.
+[^9]: The unpacked archive: `pandoc.exe`, its manual and its licence files. pandoc is not a Python package, so its package count reads 0.
 <!-- benchmarks:table:end -->
 
 ---
