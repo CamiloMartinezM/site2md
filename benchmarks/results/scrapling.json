@@ -1,6 +1,6 @@
 {
   "version": "0.5.1",
-  "date": "2026-11-06",
+  "date": "2026-11-09",
   "environment": {
     "os": "Windows 11",
     "python": "3.12.14",
@@ -9,14 +9,14 @@
     "ruff": "0.17.4"
   },
   "install": {
-    "size_bytes": 242872110,
+    "size_bytes": 242874231,
     "packages": {
       "anyio": "4.16.0",
       "apify_fingerprint_datapoints": "0.15.0",
       "browserforge": "1.2.4",
       "certifi": "2026.10.23",
       "cffi": "2.1.1",
-      "click": "8.5.0",
+      "click": "8.5.1",
       "cssselect": "1.6.0",
       "curl_cffi": "0.17.0",
       "frostwork": "0.2.2",
@@ -39,22 +39,22 @@
   "page": {
     "matches": true,
     "time": {
-      "mean": 0.302389,
-      "stddev": 0.01084,
-      "median": 0.301416,
-      "min": 0.286808,
-      "max": 0.315879,
+      "mean": 0.338401,
+      "stddev": 0.009463,
+      "median": 0.336522,
+      "min": 0.326938,
+      "max": 0.356577,
       "times": [
-        0.297253,
-        0.296157,
-        0.286808,
-        0.295686,
-        0.305579,
-        0.31586,
-        0.315879,
-        0.315048,
-        0.289781,
-        0.305838
+        0.356577,
+        0.331661,
+        0.336966,
+        0.338792,
+        0.329514,
+        0.333725,
+        0.336079,
+        0.3517,
+        0.326938,
+        0.34206
       ]
     },
     "lines": {
@@ -67,7 +67,7 @@
   "crawl": {
     "matches": true,
     "extra_pages": [],
-    "shortest_gap": 0.000242,
+    "shortest_gap": 0.000362,
     "lines": {
       "counted": 19,
       "local_only": [
