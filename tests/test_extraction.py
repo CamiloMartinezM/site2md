@@ -172,6 +172,42 @@ class ExtractionTests(unittest.TestCase):
         )
         self.assertTrue(first.to_json().endswith("\n"))
 
+    def test_record_values_serialize_in_record_order_without_provenance(self) -> None:
+        markdown = """<!-- Source: https://example.test/countries -->
+### Curaçao
+
+**Capital:** Willemstad
+**Population:** 150000
+**Area (km2):** 444
+
+### Aruba
+
+**Capital:** Oranjestad
+**Population:** 106000
+**Area (km2):** 180
+"""
+
+        values_json = extract(markdown, "site2md.scrapethissite.countries").values_to_json()
+
+        self.assertEqual(
+            values_json,
+            """[
+  {
+    "name": "Curaçao",
+    "capital": "Willemstad",
+    "population": 150000,
+    "area_km2": 444.0
+  },
+  {
+    "name": "Aruba",
+    "capital": "Oranjestad",
+    "population": 106000,
+    "area_km2": 180.0
+  }
+]
+""",
+        )
+
     def test_provider_observes_exact_complete_document_once(self) -> None:
         markdown = (
             "Before the first marker.\r\n\r\n"

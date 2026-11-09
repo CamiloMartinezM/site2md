@@ -224,9 +224,14 @@ site2md extract site2md.scrapethissite.countries converted.md --output records.j
 
 # Look up the Extractor faster by skipping distributions without an entry point
 site2md extract site2md.scrapethissite.countries converted.md --entry-points-only
+
+# Write only the record values, without the provenance and the rest of the result
+site2md extract site2md.scrapethissite.countries converted.md --values-only
 ```
 
 Without `--output`, `extract` writes only the JSON document to standard output. Warnings are included in that document and repeated concisely on standard error. Markdown input must be UTF-8. Failures before standard-output emission leave standard output empty. If an output stream accepts a prefix and then fails, that prefix cannot be rolled back; the command exits with status `1` and the stream can contain incomplete JSON. An existing output file is replaced only after the complete JSON document has been serialized and flushed successfully.
+
+`--values-only` writes a JSON array of the record values instead of the extraction result. The array keeps record order and uses the same serialization as the result: UTF-8, a two-space indent, non-ASCII characters kept, and a trailing newline. The option drops the provenance, the Extractor, provider and record schema identity, the input digest, and the source sections, so the output no longer says which Extractor produced it or from which input. Warnings then appear only on standard error, and a failure still writes nothing.
 
 Extractor IDs are exact and case-sensitive; `site2md` never guesses which Extractor to use. `extractors` lists installed providers from their static metadata without importing their code. Extractors are trusted, in-process Python plug-ins: they are not sandboxed, and interface version 1 does not provide per-run configuration. Install or remove third-party provider packages with normal Python package tooling. See the [Extractor provider guide](docs/extractor-providers.md) for the complete contract.
 

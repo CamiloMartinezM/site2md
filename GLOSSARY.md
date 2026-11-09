@@ -56,6 +56,10 @@ _Avoid_: Page, file fragment
 One structured entity identified in a converted document according to an extractor's record schema.
 _Avoid_: Item, parsed object
 
+**Record value**:
+The data of one record, shaped by its record schema, without its provenance.
+_Avoid_: Plain record, raw record, payload
+
 **Record schema**:
 A versioned contract that defines the meaning and shape of records produced by an extractor.
 _Avoid_: Output format, universal schema

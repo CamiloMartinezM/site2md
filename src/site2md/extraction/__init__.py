@@ -163,12 +163,11 @@ class ExtractionResult:
 
     def to_json(self) -> str:
         """Serialize the result deterministically as JSON."""
-        return json.dumps(
-            _json_native(self.payload),
-            ensure_ascii=False,
-            indent=2,
-            allow_nan=False,
-        ) + "\n"
+        return _dump_json(self.payload)
+
+    def values_to_json(self) -> str:
+        """Serialize only the record values, in record order, as to_json does."""
+        return _dump_json([record["value"] for record in self.payload["records"]])
 
 
 def _selected_extractor(
@@ -1037,6 +1036,16 @@ def _json_native(value: Any) -> Any:
     ):
         return [_json_native(nested) for nested in value]
     return value
+
+
+def _dump_json(value: Any) -> str:
+    """Serialize a value as indented UTF-8-ready JSON with a trailing newline."""
+    return json.dumps(
+        _json_native(value),
+        ensure_ascii=False,
+        indent=2,
+        allow_nan=False,
+    ) + "\n"
 
 
 def _result_payload(
