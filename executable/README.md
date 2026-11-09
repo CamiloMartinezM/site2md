@@ -35,7 +35,7 @@ To test the workflow without a release, start it from the Actions tab with "Run 
 ## Files
 
 - `entry.py` is the script that PyInstaller freezes. It reads `SITE2MD_PROVIDER_PATH` and then runs the CLI. Only the executable reads the variable.
-- `build.py` holds the PyInstaller flags. Each one has a comment that says what breaks without it.
+- `build.py` holds the PyInstaller flags, which take the place of a `.spec` file. PyInstaller writes the spec it generates under `build/pyinstaller`, which git ignores, so none is committed. Each flag has a comment that says what breaks without it.
 - `smoke.py` and `smoke_fixtures/` are the smoke test and its synthetic fixtures.
 - `archive.py` archives the built folder for a release.
 
