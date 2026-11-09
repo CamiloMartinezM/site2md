@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import tempfile
+import time
 import unittest
+from http.server import BaseHTTPRequestHandler
+from itertools import pairwise
 from pathlib import Path
 
 from tests.cli_test_support import InstalledCliTestCase, RecordingServer, Route
@@ -379,6 +382,36 @@ remote_build.convert_remote_page_to_markdown = convert
             ]
             positions = [markdown.index(source) for source in sources]
             self.assertEqual(positions, sorted(positions))
+
+    def test_server_sees_child_requests_at_least_one_second_apart(self) -> None:
+        children = [f"/page-{number}" for number in range(1, 6)]
+        links = "".join(f'<a href="{path}">{path}</a>' for path in children)
+        request_times: list[float] = []
+
+        def child(handler: BaseHTTPRequestHandler) -> None:
+            request_times.append(time.perf_counter())
+            body = b"<html><body>child</body></html>"
+            handler.send_response(200)
+            handler.send_header("Content-Type", "text/html")
+            handler.send_header("Content-Length", str(len(body)))
+            handler.end_headers()
+            handler.wfile.write(body)
+
+        routes: dict[str, Route] = {
+            "/entry": (200, {"Content-Type": "text/html"}, f"<html><body>{links}</body></html>".encode()),
+            "/robots.txt": (404, {"Content-Type": "text/plain"}, b"missing"),
+            **{path: child for path in children},
+        }
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "site.md"
+
+            result = self.run_site2md("build", f"{server.origin}/entry", "--mode", "site", "--output", output)
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            gaps = [later - earlier for earlier, later in pairwise(request_times)]
+            self.assertEqual(len(gaps), len(children) - 1)
+            # Without a robots policy the delay is the one-second default, and the server must never see less.
+            self.assertGreaterEqual(min(gaps), 1.0)
 
 
 if __name__ == "__main__":

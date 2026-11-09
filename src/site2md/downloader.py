@@ -51,7 +51,7 @@ class TraversalRequestPolicy:
     origin: tuple[str, str, int]
     robots: urllib.robotparser.RobotFileParser
     delay_seconds: float
-    last_request_at: float | None = None
+    last_response_at: float | None = None
 
     @classmethod
     def for_entry(
@@ -78,11 +78,16 @@ class TraversalRequestPolicy:
                 f"Robots policy disallows {url}.",
                 policy_rejection="robots",
             )
-        if self.last_request_at is not None:
-            elapsed = time.monotonic() - self.last_request_at
+        if self.last_response_at is not None:
+            # perf_counter has no 15.6 ms tick on Windows, unlike monotonic before Python 3.13.
+            elapsed = time.perf_counter() - self.last_response_at
             if elapsed < self.delay_seconds:
                 time.sleep(self.delay_seconds - elapsed)
-        self.last_request_at = time.monotonic()
+
+    def finish_request(self) -> None:
+        """Start the next delay now that a response or failure has arrived."""
+        # The server has logged a request before its response arrives, so it never sees a shorter gap.
+        self.last_response_at = time.perf_counter()
 
 
 @dataclass
@@ -206,6 +211,7 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
         if old_scheme == "https" and new_scheme == "http":
             raise RemoteFetchError("Refusing HTTPS-to-HTTP redirect downgrade.")
         if self.request_policy is not None:
+            self.request_policy.finish_request()
             self.request_policy.prepare_request(newurl)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
@@ -251,7 +257,12 @@ def _fetch_page(
             _SafeRedirectHandler(accounting, request_policy, content_path)
         )
         request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-        with opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+        try:
+            opened = opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS)
+        finally:
+            if request_policy is not None:
+                request_policy.finish_request()
+        with opened as response:
             status = getattr(response, "status", response.getcode())
             if status < 200 or status >= 300:
                 raise RemoteFetchError(f"Final response returned HTTP {status}.")

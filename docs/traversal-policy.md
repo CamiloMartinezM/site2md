@@ -32,7 +32,7 @@ Every received page-body byte counts toward the aggregate limit, including redir
 
 Before requesting children, traversal retrieves `/robots.txt` for the traversal origin with the versioned user agent. A successful policy is enforced. An unavailable `4xx` policy permits traversal; a server error, network failure, or oversized policy stops child traversal because policy is uncertain. The entry page remains a direct user request.
 
-Child requests are sequential. The delay is the greatest of one second, an applicable `crawl-delay`, or the interval implied by an applicable `request-rate`. There is no delay override. Use traversal only where the site's robots policy and terms permit it; policy denial is expected enforcement and must not be bypassed.
+Child requests are sequential. The delay is the greatest of one second, an applicable `crawl-delay`, or the interval implied by an applicable `request-rate`. Each delay starts when the previous child response arrives, redirect responses included, so the server never receives two child requests closer together than the delay. There is no delay override. Use traversal only where the site's robots policy and terms permit it; policy denial is expected enforcement and must not be bypassed.
 
 ## Outcomes and debugging
 
