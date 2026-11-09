@@ -1038,7 +1038,7 @@ def _json_native(value: Any) -> Any:
     return value
 
 
-def _dump_json(value: Any) -> str:
+def _dump_json(value: object) -> str:
     """Serialize a value as indented UTF-8-ready JSON with a trailing newline."""
     return json.dumps(
         _json_native(value),
