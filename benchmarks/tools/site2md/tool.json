@@ -1,0 +1,41 @@
+{
+  "name": "site2md",
+  "version": "0.4.3",
+  "solution": "`build` converts the page, `extract` runs a minimal Extractor written for this benchmark, and one last step writes the record values. The crawl runs `build` in site mode with `--max-pages 20 --max-depth 2` and reuses the same Extractor across the document's source sections. site2md is installed from its release tag, because the PyPI name belongs to a different project.",
+  "requirements": [
+    "site2md @ git+https://github.com/CamiloMartinezM/site2md@v{version}"
+  ],
+  "footnotes": [
+    {
+      "column": "gap",
+      "text": "site2md waits one second from the start of one request to the start of the next, as its traversal policy says. It times that second with `time.monotonic()`, which ticks every 15.6 ms on Windows under Python 3.12, so it can start a child request up to one tick early. Variation in how long each request takes to reach the server can add a few milliseconds, so the shortest gap in the server's log can be slightly under one second."
+    }
+  ],
+  "setup": [
+    ["uv", "pip", "install", "--no-config", "--python", "{python}", "{tool}/extractor"]
+  ],
+  "page": {
+    "steps": [
+      {"run": "site2md build {url} --output page.md"},
+      {"run": "site2md extract benchmark.countries page.md --output result.json"},
+      {"run": "python records.py", "file": "records.py"}
+    ],
+    "files": [
+      "extractor/pyproject.toml",
+      "extractor/benchmark_countries/__init__.py",
+      "extractor/benchmark_countries/provider-manifest-v1.json"
+    ]
+  },
+  "crawl": {
+    "steps": [
+      {"run": "site2md build {url} --mode site --max-pages 20 --max-depth 2 --output page.md"},
+      {"run": "site2md extract benchmark.countries page.md --output result.json"},
+      {"run": "python records.py", "file": "records.py"}
+    ],
+    "files": [
+      "extractor/pyproject.toml",
+      "extractor/benchmark_countries/__init__.py",
+      "extractor/benchmark_countries/provider-manifest-v1.json"
+    ]
+  }
+}

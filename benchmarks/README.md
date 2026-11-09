@@ -1,0 +1,108 @@
+# Benchmark harness
+
+The harness behind [BENCHMARKS.md](../BENCHMARKS.md). It uses only the standard library, and it never becomes a site2md dependency: the wheel packages `src/site2md` alone.
+
+```
+python -m benchmarks run <tool>   # measure one tool, write results/<tool>.json, then render
+python -m benchmarks render       # rebuild BENCHMARKS.md, the README's chart and table and docs/benchmark-*.svg
+python -m benchmarks reference    # download the page afresh, pin it, rebuild expected/countries.json
+```
+
+## Layout
+
+| Path | Holds |
+|---|---|
+| `tools/<id>/` | One tool: `tool.json`, its solution files, and anything its install needs. Nothing outside this folder changes when a tool is added |
+| `results/<id>.json` | That tool's committed results. One file per tool, so tools merge without conflicts |
+| `expected/countries.json` | The reference records |
+| `expected/page.json` | The page copy's URL, download date and SHA-256 |
+| `.cache/` | Git-ignored. The page copy, the environments, uv's cache, temporary files and work folders |
+| `*.py` | The harness. `catalog` loads tools and counts lines, `runner` runs a tool, `report` renders BENCHMARKS.md, `chart` picks the chart's measure and draws the SVGs, `readme` renders the README's two blocks, `render` renders every file at once |
+
+Four files are rendered from all the results: BENCHMARKS.md's generated part, the README's chart block and benchmark table (each between `<!-- benchmarks:... -->` markers), and the charts `docs/benchmark-light.svg` and `docs/benchmark-dark.svg`. Rerun `python -m benchmarks render` to resolve a merge conflict in any of them. A tool added later gets its row and its bar without any change to the renderers.
+
+The chart shows time only if site2md has the lowest mean time among the tools whose output matches the reference, and install size otherwise. A tool whose output doesn't match has no bar.
+
+## What a run does
+
+1. Checks that hyperfine and uv are installed, and stops with how to install them if not.
+2. Reuses the cached page copy, or downloads it, and checks its SHA-256 against `expected/page.json`.
+3. Creates a fresh uv environment on Python 3.12, installs the tool's pinned requirements, and measures the install. Then it runs the tool's `setup` commands.
+4. Checks that every step's program, and every program in the tool's `path` folders, resolves to a file inside `.cache`. This stops a program installed on the machine from standing in for the pinned one, including one that a script calls, as pandoc's does. Then it serves the page on 127.0.0.1 on a free port, and runs hyperfine on the solution's steps joined with `&&`.
+5. Compares the last step's output with the reference, counts the solution's lines, and, if the tool has a crawl solution, runs the crawl task once (see below).
+6. Writes `results/<id>.json`. Then it renders the generated files, the same as `render`. If an output differs, or the crawl exits with an error or writes no output, the file records `"matches": false` for that task, and the command prints the first difference and exits with status 1. A page solution that exits with an error stops the run, because there is nothing to time.
+
+Every child process gets `UV_CACHE_DIR`, `UV_TOOL_DIR` and the temporary-file variables pointing into `.cache`, so a run writes nowhere else. `UV_PYTHON_DOWNLOADS=never` makes a missing Python 3.12 an error instead of a download into uv's own folder; `uv python install 3.12` fixes it.
+
+## Adding a tool
+
+Create `tools/<id>/tool.json` and the files it names, then run `python -m benchmarks run <id>`. No harness code changes. `tools/site2md` is the worked example.
+
+```json
+{
+  "name": "Display name",
+  "version": "1.2.3",
+  "solution": "One sentence for BENCHMARKS.md.",
+  "requirements": ["package=={version}"],
+  "page": {"steps": [{"run": "python solution.py {url}", "file": "solution.py"}]}
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `name`, `version`, `solution` | What BENCHMARKS.md shows. `{version}` in a requirement is replaced by `version`, so the pin lives in one place |
+| `requirements` | Requirement strings for `uv pip install`. Pin each tool to an exact version. An empty list is fine |
+| `install` | Optional argument lists that run after the requirements and before the install is measured. Their placeholders are `{python}`, `{environment}`, `{cache}` and `{tool}` |
+| `setup` | Optional argument lists that run after the measurement, such as installing site2md's benchmark Extractor. Same placeholders |
+| `path` | Optional folders of `{environment}` to put on PATH, besides the Python environment's own scripts folder |
+| `env` | Optional environment variables for the solution, not for `install` or `setup`. Values accept the same placeholders |
+| `footnotes` | Optional notes: `{"column": "time" \| "lines" \| "size" \| "crawl" \| "gap", "text": "..."}`. The report numbers them and puts them under the table. `crawl` explains the crawl output check, and also appears in the README's table on the crawl line count. `gap` explains the shortest gap |
+| `page.steps` | The solution, in order. See below |
+| `page.files` | Other files that the solution needs and that count toward its lines, such as an Extractor |
+| `page.output_file` | Optional. Where the last step writes the records. By default its standard output is saved as `output.json` |
+| `crawl` | Optional. The crawl solution, with the same `steps`, `files` and `output_file` as `page`. A tool without it shows "no crawler" in the crawl columns |
+
+Unknown keys are errors, and so is a file that doesn't exist.
+
+### The solution
+
+Each step is `{"run": "<command>"}`, typed as a user would type it. The commands run in a work folder, through the platform shell, with the environment's scripts folder first on PATH. `{url}` is the page's URL. A step may name a Python `file`, which is copied into the work folder under its own name. A shell needs `{{` and `}}` for literal braces.
+
+The last step must produce the JSON array of records, as `{"name", "capital", "population", "area_km2"}` objects in page order, with an integer population, a number for the area and `null` for a missing capital. Write the file with UTF-8 encoding, or print ASCII-only JSON, because Windows consoles and files default to a legacy code page.
+
+### The crawl solution
+
+A `crawl` solution has the same shape as `page`, but `{url}` is the entry page of a site that `crawl.py` generates from the page copy: `http://127.0.0.1:<port>/`. The last step must write the records of every page it crawled, in any order. The solution keeps its own limits: breadth first, depth 2 and at most 20 pages. It runs once through the platform shell and isn't timed.
+
+| Pages | Depth | Hold |
+|---|---|---|
+| `/` | 0 | a share of the 250 countries |
+| `/level-1/page-1.html` to `page-4.html` | 1 | a share |
+| `/level-2/page-1.html` to `page-15.html` | 2 | a share |
+| `/level-3/page-1.html` to `page-5.html`, each linked from one of the first five level-2 pages | 3 | two decoy countries each, named `Decoy Country N`, which must not be in the output |
+
+The 20 pages within depth 2 split the 250 countries round-robin. Each page links to its children and, except the entry page, back to the entry page, as many sites do. The page copy's own menu links are removed, because they would return 404 here. Its link to the data source on another site stays, so that a crawler has to stay on the site. `robots.txt` allows everything.
+
+The check takes the pages and the gaps from the server's request log, never from what a tool reports:
+
+- **Crawl output matches** compares the records with `expected/countries.json` in any order: every reference record must appear exactly once, so a repeated record fails, and number types matter.
+- **Extra pages** counts every page request beyond one fetch of each of the 20 expected pages: decoys, a second fetch of any page, and paths the site doesn't have. `robots.txt` is not a page.
+- **Shortest gap** is the shortest time between two consecutive child-page requests. The first page request is the entry page, so the gap between it and the first child doesn't count.
+
+The results file gains a `crawl` object with `matches`, `extra_pages` (the paths), `shortest_gap` (seconds, or `null` when there were fewer than two child requests) and `lines`. A results file without it, from before the crawl task or from a tool without a crawler, still loads.
+
+### Line counts
+
+`python -m benchmarks` counts each solution under the rules in BENCHMARKS.md:
+
+- A step counts one line. A step with a `file` counts that file's lines instead.
+- Python is formatted with `ruff format` (88 columns, ignoring the project's settings) at the version in `line_count.py`, and then its non-blank, non-comment lines are counted. Docstrings count. JSON is re-indented with two spaces. TOML counts as written, so write one key per line.
+- A line needed only because the page is served from 127.0.0.1 isn't counted. In Python and TOML, end the line with `# 127.0.0.1-only`. The report adds a footnote that names those lines.
+
+### Install size
+
+The size of the environment's site-packages, without bytecode caches, plus anything an `install` command unpacked into `{environment}` outside `venv/`. The packages are the `.dist-info` folders. A tool that is not a Python package, such as pandoc, unpacks its archive into `{environment}`, checks the archive's checksum in its own `install` command, and adds the unpacked folder to `path`. `tools/pandoc/install_archive.py` does the first two for a zip: it refuses an archive whose SHA-256 is not the pinned one before it unpacks anything.
+
+## Tests
+
+`tests/test_benchmark_*.py` run in CI without any benchmarked tool: the line counter, the output comparisons, the hyperfine summary, the report, the chart and the README blocks, the fixture server, and the crawl site and request-log readers. Two of them check the committed files: no results file names a path or a machine, and every generated file matches what `render` produces.
