@@ -171,7 +171,9 @@ class ExtractionResult:
         ) + "\n"
 
 
-def _selected_extractor(extractor_id: str) -> _DiscoveredExtractor:
+def _selected_extractor(
+    extractor_id: str, *, entry_points_only: bool
+) -> _DiscoveredExtractor:
     """Resolve one exact, statically valid, unambiguous Extractor."""
     if EXTRACTOR_ID.fullmatch(extractor_id) is None:
         raise ExtractionError(
@@ -180,7 +182,7 @@ def _selected_extractor(extractor_id: str) -> _DiscoveredExtractor:
         )
     claimants = [
         extractor
-        for extractor in _discover_extractors()
+        for extractor in _discover_extractors(entry_points_only=entry_points_only)
         if extractor.info.id == extractor_id
     ]
     if not claimants:
@@ -208,8 +210,14 @@ def _selected_extractor(extractor_id: str) -> _DiscoveredExtractor:
     return selected
 
 
-def _discover_extractors() -> tuple[_DiscoveredExtractor, ...]:
-    """Inspect installed distribution metadata without importing provider code."""
+def _discover_extractors(
+    *, entry_points_only: bool = False
+) -> tuple[_DiscoveredExtractor, ...]:
+    """Inspect installed distribution metadata without importing provider code.
+
+    With ``entry_points_only``, a distribution that declares no Extractor entry point is
+    skipped before its installed-file list is read, even if it ships a provider manifest.
+    """
     discovered: list[_DiscoveredExtractor] = []
     for provider in distributions():
         metadata_errors: list[str] = []
@@ -222,6 +230,8 @@ def _discover_extractors() -> tuple[_DiscoveredExtractor, ...]:
         except Exception as cause:
             entry_points = ()
             metadata_errors.append(f"entry-point metadata could not be read: {cause}")
+        if entry_points_only and not entry_points:
+            continue
         try:
             manifest_files = tuple(
                 file
@@ -1109,9 +1119,15 @@ def list_extractors() -> tuple[ExtractorInfo, ...]:
     return tuple(extractor.info for extractor in _discover_extractors())
 
 
-def extract(markdown: str, extractor_id: str) -> ExtractionResult:
-    """Extract validated records from Markdown using one exact Extractor ID."""
-    selected = _selected_extractor(extractor_id)
+def extract(
+    markdown: str, extractor_id: str, *, entry_points_only: bool = False
+) -> ExtractionResult:
+    """Extract validated records from Markdown using one exact Extractor ID.
+
+    With ``entry_points_only``, the lookup skips distributions that declare no Extractor
+    entry point, so a distribution that ships a manifest without one goes unnoticed.
+    """
+    selected = _selected_extractor(extractor_id, entry_points_only=entry_points_only)
     provider = selected.provider
     declaration = selected.declaration
     entry_point = selected.entry_point

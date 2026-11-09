@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import importlib
+import importlib.metadata
 import json
 import os
 import subprocess
@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from site2md.extraction import ExtractionError, extract, list_extractors
-from tests.cli_test_support import ProviderManifest
+from tests.cli_test_support import ProviderManifest, installed_command
 
 
 class ExtractorDiscoveryTests(unittest.TestCase):
@@ -433,6 +433,202 @@ def create_extractor():
         )
 
 
+class EntryPointsOnlyLookupTests(unittest.TestCase):
+    """Compare the default lookup with the opt-in one that skips distributions without entry points."""
+
+    def test_default_lookup_reports_a_manifest_only_distribution_claiming_a_provided_id(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            _install_shared_id_providers(root)
+
+            with _installed(root, "shared_id_provider"), self.assertRaises(
+                ExtractionError
+            ) as raised:
+                extract("# Shared\n", "example.shared")
+
+        self.assertEqual(raised.exception.code, "site2md.extractor_conflict")
+        self.assertEqual(
+            raised.exception.providers,
+            ("manifest-only-provider 2.3.0", "valid-provider 2.3.0"),
+        )
+
+    def test_entry_points_only_lookup_does_not_notice_a_manifest_only_distribution(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            _install_shared_id_providers(root)
+
+            with _installed(root, "shared_id_provider"):
+                result = extract("# Shared\n", "example.shared", entry_points_only=True)
+
+        self.assertEqual(json.loads(result.to_json())["records"][0]["value"], {"instance": 1})
+
+    def test_entry_points_only_lookup_calls_a_manifest_only_id_unknown_not_unavailable(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            _install_provider(
+                root,
+                distribution_name="orphan-provider",
+                extractor_id="example.orphan",
+                module_name="orphan_provider",
+                module_source="raise RuntimeError('must not import')\n",
+                declares_entry_point=False,
+            )
+
+            with _installed(root, "orphan_provider"):
+                with self.assertRaises(ExtractionError) as default:
+                    extract("# Orphan\n", "example.orphan")
+                with self.assertRaises(ExtractionError) as narrowed:
+                    extract("# Orphan\n", "example.orphan", entry_points_only=True)
+
+        self.assertEqual(default.exception.code, "site2md.extractor_unavailable")
+        self.assertIn("entry point", str(default.exception))
+        self.assertEqual(narrowed.exception.code, "site2md.extractor_unknown")
+
+
+class EntryPointsOnlyCliTests(unittest.TestCase):
+    """Exercise the opt-in lookup through the installed commands."""
+
+    @staticmethod
+    def run_site2md(
+        root: Path, *arguments: str, input_bytes: bytes | None = None, **environment: str
+    ) -> subprocess.CompletedProcess[bytes]:
+        """Run the installed command with the synthetic distributions in ``root`` on its path."""
+        existing_path = os.environ.get("PYTHONPATH")
+        return subprocess.run(
+            [str(installed_command()), *arguments],
+            check=False,
+            capture_output=True,
+            input=input_bytes,
+            env={
+                **os.environ,
+                "PYTHONPATH": f"{root}{os.pathsep}{existing_path}" if existing_path else str(root),
+                **environment,
+            },
+        )
+
+    def test_output_is_byte_identical_when_every_provider_declares_an_entry_point(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            _install_shared_id_providers(root, with_manifest_only=False)
+
+            default = self.run_site2md(
+                root, "extract", "example.shared", "-", input_bytes=b"# Shared\n"
+            )
+            narrowed = self.run_site2md(
+                root,
+                "extract",
+                "example.shared",
+                "-",
+                "--entry-points-only",
+                input_bytes=b"# Shared\n",
+            )
+
+        self.assertEqual(default.returncode, 0, default.stderr.decode())
+        self.assertEqual(narrowed.returncode, 0, narrowed.stderr.decode())
+        self.assertEqual(narrowed.stdout, default.stdout)
+        self.assertEqual(narrowed.stderr, default.stderr)
+        self.assertEqual(json.loads(default.stdout)["records"][0]["value"], {"instance": 1})
+
+    def test_option_alone_decides_whether_a_manifest_only_distribution_is_noticed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            _install_shared_id_providers(root)
+
+            default = self.run_site2md(
+                root, "extract", "example.shared", "-", input_bytes=b"# Shared\n"
+            )
+            narrowed = self.run_site2md(
+                root,
+                "extract",
+                "example.shared",
+                "-",
+                "--entry-points-only",
+                input_bytes=b"# Shared\n",
+            )
+            listing = self.run_site2md(root, "extractors")
+
+        self.assertEqual(default.returncode, 1)
+        self.assertEqual(default.stdout, b"")
+        self.assertIn(b"site2md.extractor_conflict", default.stderr)
+        self.assertEqual(narrowed.returncode, 0, narrowed.stderr.decode())
+        self.assertEqual(json.loads(narrowed.stdout)["records"][0]["value"], {"instance": 1})
+        self.assertEqual(listing.returncode, 0, listing.stderr.decode())
+        self.assertIn("manifest-only-provider 2.3.0", listing.stdout.decode())
+        self.assertIn("conflict", listing.stdout.decode())
+
+    def test_extractors_has_no_narrower_lookup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = self.run_site2md(Path(temp_dir), "extractors", "--entry-points-only")
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, b"")
+        self.assertNotIn(b"Traceback", result.stderr)
+
+    def test_option_reads_installed_file_lists_only_for_distributions_with_entry_points(
+        self,
+    ) -> None:
+        recorder = """import importlib.metadata as metadata
+import os
+
+real_files = metadata.Distribution.files
+
+def recording_files(self):
+    with open(os.environ["SITE2MD_TEST_FILES_AUDIT"], "a", encoding="utf-8") as audit:
+        audit.write(f"{self.metadata['Name']}\\n")
+    return real_files.fget(self)
+
+metadata.Distribution.files = property(recording_files)
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            _install_shared_id_providers(root)
+            # root is on the command's PYTHONPATH, so this module runs when its interpreter starts.
+            (root / "sitecustomize.py").write_text(recorder, encoding="utf-8")
+            read_by: dict[str, set[str]] = {}
+            for label, flags in (("default", ()), ("narrowed", ("--entry-points-only",))):
+                audit = root / f"{label}-audit"
+                self.run_site2md(
+                    root,
+                    "extract",
+                    "example.shared",
+                    "-",
+                    *flags,
+                    input_bytes=b"# Shared\n",
+                    SITE2MD_TEST_FILES_AUDIT=str(audit),
+                )
+                read_by[label] = set(audit.read_text(encoding="utf-8").splitlines())
+            with _installed(root):
+                declaring_entry_points = {
+                    str(installed.metadata["Name"])
+                    for installed in importlib.metadata.distributions()
+                    if any(
+                        entry_point.group == "site2md.extractors.v1"
+                        for entry_point in installed.entry_points
+                    )
+                }
+
+        self.assertIn("manifest-only-provider", read_by["default"])
+        self.assertEqual(read_by["narrowed"], declaring_entry_points)
+        self.assertIn("valid-provider", read_by["narrowed"])
+        self.assertNotIn("manifest-only-provider", read_by["narrowed"])
+
+    def test_help_says_what_the_option_skips(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = self.run_site2md(Path(temp_dir), "extract", "--help", COLUMNS="500")
+
+        help_text = " ".join(result.stdout.decode().split())
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertIn("--entry-points-only", help_text)
+        self.assertIn("manifest without an entry point", help_text)
+        self.assertIn("site2md extractors", help_text)
+
+
 class ExtractorsCliTests(unittest.TestCase):
     """Exercise the installed human-readable listing command."""
 
@@ -566,6 +762,33 @@ def _manifest(extractor_id: str, interface_version: int = 1) -> ProviderManifest
     }
 
 
+def _install_shared_id_providers(root: Path, *, with_manifest_only: bool = True) -> None:
+    """Install a working provider, and by default a manifest-only distribution claiming its ID."""
+    _install_provider(
+        root,
+        distribution_name="valid-provider",
+        extractor_id="example.shared",
+        module_name="shared_id_provider",
+        module_source='''from site2md.extractors.v1 import Extraction, RecordCandidate
+class SharedExtractor:
+    def extract(self, document):
+        first = document.sections[0].nodes[0]
+        return Extraction(records=(RecordCandidate(value={"instance": 1}, provenance=(first.span,)),))
+def create_extractor():
+    return SharedExtractor()
+''',
+    )
+    if with_manifest_only:
+        _install_provider(
+            root,
+            distribution_name="manifest-only-provider",
+            extractor_id="example.shared",
+            module_name="manifest_only_provider",
+            module_source="raise RuntimeError('must not import')\n",
+            declares_entry_point=False,
+        )
+
+
 def _install_provider(
     root: Path,
     *,
@@ -576,6 +799,7 @@ def _install_provider(
     manifest: object | None = None,
     entry_point_id: str | None = None,
     extra_manifest: bool = False,
+    declares_entry_point: bool = True,
 ) -> None:
     """Create importable package metadata for one synthetic distribution."""
     normalized_name = distribution_name.replace("-", "_")
@@ -587,11 +811,12 @@ def _install_provider(
         "Version: 2.3.0\n",
         encoding="utf-8",
     )
-    (dist_info / "entry_points.txt").write_text(
-        "[site2md.extractors.v1]\n"
-        f"{entry_point_id or extractor_id} = {module_name}:create_extractor\n",
-        encoding="utf-8",
-    )
+    if declares_entry_point:
+        (dist_info / "entry_points.txt").write_text(
+            "[site2md.extractors.v1]\n"
+            f"{entry_point_id or extractor_id} = {module_name}:create_extractor\n",
+            encoding="utf-8",
+        )
     (root / f"{module_name}.py").write_text(module_source, encoding="utf-8")
 
     data_dir = root / f"{normalized_name}_data"
@@ -605,8 +830,9 @@ def _install_provider(
         f"{module_name}.py",
         str(manifest_path.relative_to(root)),
         str((dist_info / "METADATA").relative_to(root)),
-        str((dist_info / "entry_points.txt").relative_to(root)),
     ]
+    if declares_entry_point:
+        recorded_paths.append(str((dist_info / "entry_points.txt").relative_to(root)))
     if extra_manifest:
         second_manifest = data_dir / "nested" / "provider-manifest-v1.json"
         second_manifest.parent.mkdir()

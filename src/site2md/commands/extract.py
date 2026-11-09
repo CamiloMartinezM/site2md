@@ -104,8 +104,16 @@ def extract(
     ],
     *,
     output: Path | None = None,
+    entry_points_only: bool = False,
 ) -> None:
-    """Extract structured records from a Markdown file or standard input."""
+    """Extract structured records from a Markdown file or standard input.
+
+    Args:
+        entry_points_only: Look up the Extractor faster by skipping installed distributions
+            that declare no Extractor entry point. Extract then doesn't notice a distribution
+            that ships a manifest without an entry point, though site2md extractors still
+            reports it.
+    """
     if output is not None and not output.parent.is_dir():
         _extract_failure(f"output folder does not exist: {output.parent}")
     try:
@@ -121,7 +129,9 @@ def extract(
         _extract_failure("Markdown input is not valid UTF-8")
     try:
         with _discard_provider_output():
-            result = extract_markdown(markdown, extractor_id)
+            result = extract_markdown(
+                markdown, extractor_id, entry_points_only=entry_points_only
+            )
     except ExtractionError as error:
         for diagnostic in error.diagnostics:
             print(

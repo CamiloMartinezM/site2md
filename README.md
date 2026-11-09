@@ -216,11 +216,16 @@ cat converted.md | site2md extract site2md.scrapethissite.countries -
 
 # Atomically replace a JSON output file after successful extraction
 site2md extract site2md.scrapethissite.countries converted.md --output records.json
+
+# Look up the Extractor faster by skipping distributions without an entry point
+site2md extract site2md.scrapethissite.countries converted.md --entry-points-only
 ```
 
 Without `--output`, `extract` writes only the JSON document to standard output. Warnings are included in that document and repeated concisely on standard error. Markdown input must be UTF-8. Failures before standard-output emission leave standard output empty. If an output stream accepts a prefix and then fails, that prefix cannot be rolled back; the command exits with status `1` and the stream can contain incomplete JSON. An existing output file is replaced only after the complete JSON document has been serialized and flushed successfully.
 
 Extractor IDs are exact and case-sensitive; `site2md` never guesses which Extractor to use. `extractors` lists installed providers from their static metadata without importing their code. Extractors are trusted, in-process Python plug-ins: they are not sandboxed, and interface version 1 does not provide per-run configuration. Install or remove third-party provider packages with normal Python package tooling. See the [Extractor provider guide](docs/extractor-providers.md) for the complete contract.
+
+By default, `extract` inspects every installed distribution, so a distribution that ships a provider manifest without an entry point is still noticed: if it claims the requested Extractor ID, `extract` reports a conflict or an unavailable Extractor instead of running. `--entry-points-only` skips distributions that declare no `site2md.extractors.v1` entry point, which makes the lookup faster. With it, `extract` doesn't notice a distribution that ships a manifest without an entry point, though `site2md extractors` still reports it. When every provider declares its entry point, the output is identical with and without the option.
 
 Extraction is synchronous and whole-document based. It adds no Markdown size limit; memory use grows with the input document and extraction result.
 
