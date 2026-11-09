@@ -112,8 +112,12 @@ class BuildExtractTests(InstalledCliTestCase):
         self, built: subprocess.CompletedProcess[bytes], saved: Path
     ) -> None:
         """Assert that the failure message says where the converted document was kept."""
-        # The success line before it also names the file, so look for the error line itself.
-        self.assertIn(f"error: the converted document is kept at {saved};", built.stderr.decode())
+        # The whole line: the success line before it also names the file, and a long path must not wrap.
+        expected = (
+            f"Error: The converted document is kept at '{saved}'. "
+            "Rerun site2md extract on it once the problem is fixed."
+        )
+        self.assertIn(expected, built.stderr.decode().splitlines())
 
     def test_local_build_writes_the_extraction_result_to_standard_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

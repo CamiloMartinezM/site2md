@@ -222,10 +222,10 @@ def build(
     except FileExtractionError as error:
         for line in error.lines:
             print(line, file=sys.stderr)
-        print(
-            f"error: the converted document is kept at {output}; "
-            "rerun site2md extract on it once the problem is fixed",
-            file=sys.stderr,
+        console.print(
+            f"[red]Error:[/red] The converted document is kept at '{output}'. "
+            "Rerun site2md extract on it once the problem is fixed.",
+            soft_wrap=True,
         )
         sys.exit(1)
     for line in warnings:
