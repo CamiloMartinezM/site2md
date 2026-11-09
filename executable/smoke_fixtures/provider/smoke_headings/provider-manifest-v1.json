@@ -1,0 +1,26 @@
+{
+  "manifest_version": 1,
+  "extractors": [
+    {
+      "id": "smoke.headings",
+      "interface_version": 1,
+      "implementation_version": "1.0.0",
+      "record_schema": {
+        "id": "urn:site2md:smoke:headings:v1",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "urn:site2md:smoke:headings:v1",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {"name": {"type": "string", "minLength": 1}}
+          }
+        }
+      }
+    }
+  ]
+}
