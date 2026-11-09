@@ -23,8 +23,7 @@ _HEADERS = ("Tool", "Time", "Lines (page)", "Lines (crawl)", "Install size")
 _PAGE_LINK = f"[Scrape This Site's countries page]({PAGE_URL})"
 _CAPTION = (
     f"Install size and time to extract the 250 countries from a local copy of {_PAGE_LINK} as JSON, "
-    "for each tool's smallest install that does it without a browser. "
-    "The exception is site2md, whose row is its standalone executable."
+    "for each tool as its project ships it, without a browser."
 )
 _ALTERNATIVE_TEXT = "Bar chart of each tool's install size and the time it takes to extract the countries."
 _MISMATCH_NOTE = "Its output doesn't match the reference, so the chart leaves it out."
