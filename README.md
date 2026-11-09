@@ -293,7 +293,7 @@ site2md against the tools you might pick instead. Every tool extracts the same 2
 <!-- benchmarks:table:start -->
 | Tool | Time | Lines (page) | Lines (crawl) | Install size |
 |---|---|---|---|---|
-| site2md | 1.79 s ± 0.02 s | 54 | 54 | 11.5 MB |
+| site2md | 960 ms ± 11 ms | 54 | 54 | 11.5 MB |
 | Scrapling | 338 ms ± 9 ms | 12 [^1] | 19 [^2] [^1] | 242.9 MB [^3] |
 | crawl4ai | 1.04 s ± 0.01 s | 24 [^4] [^1] | 38 [^5] [^1] | 554.8 MB [^6] |
 | MarkItDown | 632 ms ± 16 ms | 10 [^1] | – [^7] | 94.8 MB |

@@ -1,6 +1,6 @@
 {
   "name": "site2md",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "solution": "`build` converts the page, `extract` runs a minimal Extractor written for this benchmark, and one last step writes the record values. The crawl runs `build` in site mode with `--max-pages 20 --max-depth 2` and reuses the same Extractor across the document's source sections. site2md is installed from its release tag, because the PyPI name belongs to a different project.",
   "requirements": [
     "site2md @ git+https://github.com/CamiloMartinezM/site2md@v{version}"
