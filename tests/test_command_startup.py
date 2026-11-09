@@ -31,7 +31,7 @@ CONVERSION_MODULES = (
     "site2md.merger",
     "site2md.remote_build",
 )
-EXTRACTION_MODULES = ("site2md.commands.extract", "site2md.extraction", "site2md.extractors")
+EXTRACTION_MODULES = ("site2md.extraction", "site2md.extractors", "site2md.file_extraction")
 
 BUILD_SUMMARY = "Build a single Markdown file from a local HTML directory or remote page."
 EXTRACT_SUMMARY = "Extract structured records from a Markdown file or standard input."

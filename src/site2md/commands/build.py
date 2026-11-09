@@ -32,35 +32,6 @@ def _progress_bar(
         yield lambda: progress.advance(task)
 
 
-def _extract_saved_markdown(
-    markdown: Path,
-    extractor_id: str,
-    *,
-    extract_output: Path | None,
-    entry_points_only: bool,
-    values_only: bool,
-) -> None:
-    """Run the Extractor on the Markdown as saved, and on failure name the file that was kept."""
-    # Imported here so that plain build never loads the extraction modules.
-    from site2md.commands.extract import extract_markdown_file
-
-    try:
-        extract_markdown_file(
-            extractor_id,
-            markdown,
-            output=extract_output,
-            entry_points_only=entry_points_only,
-            values_only=values_only,
-        )
-    except SystemExit:
-        print(
-            f"error: the converted document is kept at {markdown}; "
-            "rerun site2md extract on it once the problem is fixed",
-            file=sys.stderr,
-        )
-        raise
-
-
 def build(
     input_source: str,
     *,
@@ -202,52 +173,60 @@ def build(
         console.print(
             f"[bold white on green]Success![/bold white on green] Markdown created at {output}"
         )
-        if extract is not None:
-            _extract_saved_markdown(
-                output,
-                extract,
-                extract_output=extract_output,
-                entry_points_only=entry_points_only,
-                values_only=values_only,
-            )
+    else:
+        input_dir = Path(input_source)
+        if not input_dir.exists():
+            console.print(f"[red]Error:[/red] Input '{input_dir}' does not exist.")
+            sys.exit(1)
+
+        console.print(f"[bold green]Scanning[/bold green] {input_dir} for HTML files...")
+        html_files = find_html_files(input_dir)
+        if not html_files:
+            console.print("[yellow]No HTML files found.[/yellow]")
+            # With --extract, a success status would send a script an empty result.
+            sys.exit(0 if extract is None else 1)
+
+        console.print(f"Found [bold]{len(html_files)}[/bold] HTML files.")
+        with _progress_bar(
+            console, "[cyan]Converting HTML to Markdown...", len(html_files), is_shown=progress
+        ) as advance:
+            for html_file in html_files:
+                markdown_contents.append(convert_html_to_markdown(html_file))
+                advance()
+
+        console.print(
+            f"[bold green]Merging[/bold green] {len(markdown_contents)} files into {output}..."
+        )
+        try:
+            merge_markdowns(markdown_contents, output)
+        except OSError as error:
+            console.print(f"[red]Error writing output:[/red] {error}", soft_wrap=True)
+            sys.exit(1)
+        console.print(
+            f"[bold white on green]Success![/bold white on green] Markdown created at {output}"
+        )
+
+    if extract is None:
         return
+    # Imported here so that plain build never loads the extraction modules.
+    from site2md.file_extraction import FileExtractionError, extract_markdown_file
 
-    input_dir = Path(input_source)
-    if not input_dir.exists():
-        console.print(f"[red]Error:[/red] Input '{input_dir}' does not exist.")
-        sys.exit(1)
-
-    console.print(f"[bold green]Scanning[/bold green] {input_dir} for HTML files...")
-    html_files = find_html_files(input_dir)
-    if not html_files:
-        console.print("[yellow]No HTML files found.[/yellow]")
-        # With --extract, a success status would send a script an empty result.
-        sys.exit(0 if extract is None else 1)
-
-    console.print(f"Found [bold]{len(html_files)}[/bold] HTML files.")
-    with _progress_bar(
-        console, "[cyan]Converting HTML to Markdown...", len(html_files), is_shown=progress
-    ) as advance:
-        for html_file in html_files:
-            markdown_contents.append(convert_html_to_markdown(html_file))
-            advance()
-
-    console.print(
-        f"[bold green]Merging[/bold green] {len(markdown_contents)} files into {output}..."
-    )
     try:
-        merge_markdowns(markdown_contents, output)
-    except OSError as error:
-        console.print(f"[red]Error writing output:[/red] {error}", soft_wrap=True)
-        sys.exit(1)
-    console.print(
-        f"[bold white on green]Success![/bold white on green] Markdown created at {output}"
-    )
-    if extract is not None:
-        _extract_saved_markdown(
-            output,
+        warnings = extract_markdown_file(
             extract,
-            extract_output=extract_output,
+            output,
+            output=extract_output,
             entry_points_only=entry_points_only,
             values_only=values_only,
         )
+    except FileExtractionError as error:
+        for line in error.lines:
+            print(line, file=sys.stderr)
+        print(
+            f"error: the converted document is kept at {output}; "
+            "rerun site2md extract on it once the problem is fixed",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    for line in warnings:
+        print(line, file=sys.stderr)
