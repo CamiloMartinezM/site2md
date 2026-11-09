@@ -52,6 +52,18 @@ class CommandStartupTests(InstalledCliTestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return set(json.loads(log.read_text(encoding="utf-8")))
 
+    def modules_loaded_by_local_build(self, *options: object) -> set[str]:
+        """Build a one-page local folder with the options and return the modules it loaded."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            pages = root / "pages"
+            pages.mkdir()
+            (pages / "index.html").write_text(
+                "<html><body><main><p>Hello</p></main></body></html>", encoding="utf-8"
+            )
+
+            return self.modules_loaded_by(root, "build", pages, "--output", root / "out.md", *options)
+
     def help_text(self, *arguments: object) -> str:
         """Run the installed command with --help and return its text without box-drawing."""
         result = self.run_site2md(*arguments, "--help")
@@ -83,6 +95,14 @@ class CommandStartupTests(InstalledCliTestCase):
         self.assertTrue(self.is_loaded(modules, "site2md.converter"))
         for name in EXTRACTION_MODULES:
             self.assertFalse(self.is_loaded(modules, name), name)
+
+    def test_build_loads_the_progress_bar_by_default(self) -> None:
+        self.assertTrue(self.is_loaded(self.modules_loaded_by_local_build(), "rich.progress"))
+
+    def test_build_with_no_progress_does_not_load_the_progress_bar(self) -> None:
+        modules = self.modules_loaded_by_local_build("--no-progress")
+
+        self.assertFalse(self.is_loaded(modules, "rich.progress"))
 
     def test_extract_does_not_load_the_conversion_modules(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -140,6 +160,13 @@ class CommandStartupTests(InstalledCliTestCase):
 
         self.assertIn("Usage: site2md build", text)
         self.assertIn(BUILD_SUMMARY, text)
-        for expected in ("INPUT-SOURCE", "--output", "--keep-temp", "--mode", "--max-pages"):
+        for expected in (
+            "INPUT-SOURCE",
+            "--output",
+            "--keep-temp",
+            "--mode",
+            "--max-pages",
+            "--no-progress",
+        ):
             self.assertIn(expected, text)
         self.assert_has_no_command_panel(text)
