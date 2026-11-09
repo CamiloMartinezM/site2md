@@ -23,8 +23,8 @@ class RenderChartBlockTests(unittest.TestCase):
     def test_the_caption_describes_both_measures_and_links_to_the_details(self) -> None:
         self.assertIn(
             f"*Install size and time to extract the 250 countries from a local copy of {PAGE} as JSON, "
-            "for each tool's smallest install that does it without a browser. "
-            "The exception is site2md, whose row is its standalone executable. [Details](BENCHMARKS.md).*\n",
+            "for each tool as its project ships it, without a browser. "
+            "[Details](BENCHMARKS.md).*\n",
             render_chart_block(),
         )
 
@@ -165,8 +165,8 @@ class RenderReadmeTests(unittest.TestCase):
             'src="docs/benchmark-light.svg">\n'
             "</picture>\n\n"
             f"*Install size and time to extract the 250 countries from a local copy of {PAGE} as JSON, "
-            "for each tool's smallest install that does it without a browser. "
-            "The exception is site2md, whose row is its standalone executable. [Details](BENCHMARKS.md).*\n"
+            "for each tool as its project ships it, without a browser. "
+            "[Details](BENCHMARKS.md).*\n"
             "<!-- benchmarks:chart:end -->\n\n"
             "Links.\n\n## Benchmarks\n\nHand-written introduction.\n\n"
             "<!-- benchmarks:table:start -->\n"
