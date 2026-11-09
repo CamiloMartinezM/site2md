@@ -73,3 +73,27 @@ jobs:
 
             - name: Unittest
               run: python -m unittest discover -s tests
+
+    executable:
+        runs-on: ${{ matrix.os }}
+        timeout-minutes: 30
+        strategy:
+            fail-fast: false
+            matrix:
+                # The oldest Ubuntu runner, so that the Linux build works with older glibc versions.
+                os: [windows-latest, ubuntu-22.04]
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            # The build and the smoke test pick Python 3.12 themselves, so this only provides uv.
+            - name: Set up uv
+              uses: astral-sh/setup-uv@v10.3.0
+
+            # The commands below are the ones in executable/README.md.
+            - name: Build the executable
+              run: uv run --no-project --python 3.12 --with . --with-requirements executable/requirements.txt executable/build.py
+
+            - name: Smoke-test the executable
+              run: uv run --no-project --python 3.12 --with . --with pip executable/smoke.py dist/site2md
