@@ -97,34 +97,24 @@ def _write_atomic(destination: Path, contents: bytes) -> None:
                 pass
 
 
-def extract(
+def extract_markdown_file(
     extractor_id: str,
-    input_source: Annotated[
-        str, cyclopts.Parameter(allow_leading_hyphen=True)
-    ],
+    markdown_path: Path | None,
     *,
-    output: Path | None = None,
-    entry_points_only: bool = False,
-    values_only: bool = False,
+    output: Path | None,
+    entry_points_only: bool,
+    values_only: bool,
 ) -> None:
-    """Extract structured records from a Markdown file or standard input.
+    """Extract from a Markdown file, or from standard input when the path is None, and write the result.
 
-    Args:
-        values_only: Write only a JSON array of the record values, in record order. This drops
-            the provenance, the Extractor, provider and record schema identity, the input digest
-            and the source sections.
-        entry_points_only: Look up the Extractor faster by skipping installed distributions
-            that declare no Extractor entry point. Extract then doesn't notice a distribution
-            that ships a manifest without an entry point, though site2md extractors still
-            reports it.
+    Every failure reports one message on standard error and exits with status 1. The extract
+    command and build --extract share this, so both produce the same bytes.
     """
-    if output is not None and not output.parent.is_dir():
-        _extract_failure(f"output folder does not exist: {output.parent}")
     try:
-        if input_source == "-":
+        if markdown_path is None:
             input_bytes = sys.stdin.buffer.read()
         else:
-            input_bytes = Path(input_source).read_bytes()
+            input_bytes = markdown_path.read_bytes()
     except OSError as error:
         _extract_failure(f"could not read Markdown input: {error}")
     try:
@@ -162,3 +152,35 @@ def extract(
             f"warning: {diagnostic['code']}: {diagnostic['message']}",
             file=sys.stderr,
         )
+
+
+def extract(
+    extractor_id: str,
+    input_source: Annotated[
+        str, cyclopts.Parameter(allow_leading_hyphen=True)
+    ],
+    *,
+    output: Path | None = None,
+    entry_points_only: bool = False,
+    values_only: bool = False,
+) -> None:
+    """Extract structured records from a Markdown file or standard input.
+
+    Args:
+        values_only: Write only a JSON array of the record values, in record order. This drops
+            the provenance, the Extractor, provider and record schema identity, the input digest
+            and the source sections.
+        entry_points_only: Look up the Extractor faster by skipping installed distributions
+            that declare no Extractor entry point. Extract then doesn't notice a distribution
+            that ships a manifest without an entry point, though site2md extractors still
+            reports it.
+    """
+    if output is not None and not output.parent.is_dir():
+        _extract_failure(f"output folder does not exist: {output.parent}")
+    extract_markdown_file(
+        extractor_id,
+        None if input_source == "-" else Path(input_source),
+        output=output,
+        entry_points_only=entry_points_only,
+        values_only=values_only,
+    )

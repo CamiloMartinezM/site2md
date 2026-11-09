@@ -140,6 +140,7 @@ Fix every error rather than silencing it (rule 3). A narrow run can miss errors:
 ### Console output
 
 - **`build` reports through the rich console.** Pass `soft_wrap=True` when a message contains a path, so the path stays whole on one line (#21).
+  - With `--extract`, the console writes to standard error, so that standard output holds only the JSON.
 - **`extract` writes only the JSON document to standard output.** Diagnostics go to standard error.
 
 ## Tests

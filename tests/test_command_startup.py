@@ -31,7 +31,7 @@ CONVERSION_MODULES = (
     "site2md.merger",
     "site2md.remote_build",
 )
-EXTRACTION_MODULES = ("site2md.extraction", "site2md.extractors")
+EXTRACTION_MODULES = ("site2md.commands.extract", "site2md.extraction", "site2md.extractors")
 
 BUILD_SUMMARY = "Build a single Markdown file from a local HTML directory or remote page."
 EXTRACT_SUMMARY = "Extract structured records from a Markdown file or standard input."
@@ -95,6 +95,32 @@ class CommandStartupTests(InstalledCliTestCase):
         self.assertTrue(self.is_loaded(modules, "site2md.converter"))
         for name in EXTRACTION_MODULES:
             self.assertFalse(self.is_loaded(modules, name), name)
+
+    def test_build_with_extract_loads_the_extraction_modules(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            pages = root / "pages"
+            pages.mkdir()
+            (pages / "index.html").write_text(
+                "<html><body><main><h3>Startup</h3><p><strong>Capital:</strong> Startup City<br>"
+                "<strong>Population:</strong> 3<br><strong>Area (km2):</strong> 4</p>"
+                "</main></body></html>",
+                encoding="utf-8",
+            )
+
+            modules = self.modules_loaded_by(
+                root,
+                "build",
+                pages,
+                "--output",
+                root / "out.md",
+                "--extract",
+                "site2md.scrapethissite.countries",
+            )
+
+        self.assertTrue(self.is_loaded(modules, "site2md.converter"))
+        for name in EXTRACTION_MODULES:
+            self.assertTrue(self.is_loaded(modules, name), name)
 
     def test_build_loads_the_progress_bar_by_default(self) -> None:
         self.assertTrue(self.is_loaded(self.modules_loaded_by_local_build(), "rich.progress"))
@@ -167,6 +193,10 @@ class CommandStartupTests(InstalledCliTestCase):
             "--mode",
             "--max-pages",
             "--no-progress",
+            "--extract",
+            "--extract-output",
+            "--entry-points-only",
+            "--values-only",
         ):
             self.assertIn(expected, text)
         self.assert_has_no_command_panel(text)

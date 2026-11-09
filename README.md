@@ -234,7 +234,7 @@ Use traversal only when the website's robots policy and terms permit automated a
 
 ### Understand traversal output and failures
 
-Follow and site modes produce one Markdown document. The entry page appears first, followed by successful child pages in deterministic order. Source markers and section separators preserve each page's provenance. To extract structured data, pass the completed multi-source document to `site2md extract` in a separate command.
+Follow and site modes produce one Markdown document. The entry page appears first, followed by successful child pages in deterministic order. Source markers and section separators preserve each page's provenance. To extract structured data, pass the completed multi-source document to `site2md extract` in a separate command, or add `--extract` to `build` ([below](#convert-and-extract-in-one-command)).
 
 Expected child failures produce warnings and don't discard pages that were already converted. Reaching a page, depth, or aggregate-content limit also completes successfully with a bounded partial document. Entry-page failures, invalid follow selections, interruptions, unexpected failures, and output failures are fatal and preserve an existing destination.
 
@@ -269,6 +269,22 @@ Without `--output`, `extract` writes only the JSON document to standard output. 
 Extractor IDs are exact and case-sensitive; `site2md` never guesses which Extractor to use. `extractors` lists installed providers from their static metadata without importing their code. Extractors are trusted, in-process Python plug-ins: they are not sandboxed, and interface version 1 does not provide per-run configuration. Install or remove third-party provider packages with normal Python package tooling. See the [Extractor provider guide](docs/extractor-providers.md) for the complete contract.
 
 By default, `extract` inspects every installed distribution, so a distribution that ships a provider manifest without an entry point is still noticed: if it claims the requested Extractor ID, `extract` reports a conflict or an unavailable Extractor instead of running. `--entry-points-only` skips distributions that declare no `site2md.extractors.v1` entry point, which makes the lookup faster. With it, `extract` doesn't notice a distribution that ships a manifest without an entry point, though `site2md extractors` still reports it. When every provider declares its entry point, the output is identical with and without the option.
+
+#### Convert and extract in one command
+
+```bash
+# Save the converted document, then print the extraction result
+site2md build https://example.com/countries --output countries.md   --extract site2md.scrapethissite.countries
+
+# Write only the record values to a file instead
+site2md build ./input_folder --output manual.md   --extract site2md.scrapethissite.countries --extract-output records.json --values-only
+```
+
+`build --extract ID` saves the converted document as usual, then runs the Extractor on exactly the saved Markdown in the same process. That saves starting a second Python process. It works for local input and in every remote mode, and the result matches what `site2md extract ID FILE` writes for the saved file, byte for byte. `--entry-points-only` and `--values-only` work as they do on `extract`.
+
+Without `--extract-output`, the result goes to standard output. `--extract-output PATH` replaces a file atomically instead, as `extract --output` does. With `--extract`, build's own messages and its progress bar go to standard error, so standard output holds only the JSON. `--extract-output`, `--entry-points-only` and `--values-only` need `--extract`, and `--extract-output` can't name the same file as `--output`. These mistakes, and an `--extract-output` folder that doesn't exist, fail before any request.
+
+`build` doesn't check first that the Extractor exists. A mistyped ID costs a fetch or a crawl, but loses nothing, because the converted document is saved first. If the Extractor is missing or fails, the Markdown stays where it was saved and the command exits with status `1`. It reports the error and any diagnostics as `extract` does, then names the Markdown file, so that you can rerun `site2md extract` on it. A local folder without HTML files also exits with status `1` under `--extract`, because there is no document to extract from. Without `--extract`, `build` behaves as before and doesn't load the extraction code.
 
 Extraction is synchronous and whole-document based. It adds no Markdown size limit; memory use grows with the input document and extraction result.
 
