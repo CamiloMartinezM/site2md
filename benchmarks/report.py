@@ -7,8 +7,8 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from benchmarks._types import FootnoteColumn, LinesResult, TimeResult, ToolResult
 from benchmarks.catalog import Tool
 
-# The order of the tools in #40; any other tool follows by name.
-TOOL_ORDER = ("site2md", "scrapling", "crawl4ai", "markitdown", "pandoc")
+# The order of the tools in #40, with site2md's executable (#72) after its package; any other tool follows by name.
+TOOL_ORDER = ("site2md", "site2md-executable", "scrapling", "crawl4ai", "markitdown", "pandoc")
 HEADERS = (
     "Tool",
     "Version",

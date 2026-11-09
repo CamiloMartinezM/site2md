@@ -60,10 +60,34 @@ class RenderChartTests(unittest.TestCase):
         }
         self.assertEqual([_name(row) for row in _rows(render_chart(tools, results, "light"))], ["beta", "gamma", "alpha"])
 
-    def test_only_the_name_of_site2md_is_bold(self) -> None:
-        tools = [make_tool("site2md"), make_tool("pandoc")]
-        rows = _rows(render_chart(tools, {"site2md": make_result(), "pandoc": make_result()}, "light"))
-        self.assertEqual([_name_element(row).get("font-weight") for row in rows], ["bold", None])
+    def test_only_the_name_of_the_site2md_executable_is_bold(self) -> None:
+        tools = [
+            make_tool("site2md", name="site2md"),
+            make_tool("site2md-executable", name="site2md executable"),
+            make_tool("pandoc"),
+        ]
+        results = {
+            "site2md": make_result(size_bytes=11_500_000),
+            "site2md-executable": make_result(size_bytes=30_000_000),
+            "pandoc": make_result(size_bytes=239_600_000),
+        }
+        rows = _rows(render_chart(tools, results, "light"))
+        self.assertEqual([_name(row) for row in rows], ["site2md", "site2md executable", "pandoc"])
+        self.assertEqual([_name_element(row).get("font-weight") for row in rows], [None, "bold", None])
+
+    def test_the_values_of_the_executable_are_bold_with_its_name(self) -> None:
+        tools = [make_tool("site2md-executable", name="site2md executable"), make_tool("pandoc")]
+        results = {"site2md-executable": make_result(), "pandoc": make_result(size_bytes=239_600_000)}
+        rows = _rows(render_chart(tools, results, "light"))
+        bold = [[text.get("font-weight") for text in row.iter(f"{SVG}text")] for row in rows]
+        self.assertEqual(bold, [["bold"] * 3, [None] * 3])
+
+    def test_a_tool_left_out_of_the_chart_has_no_row_although_its_output_matches(self) -> None:
+        tools = [make_tool("site2md", in_chart=False), make_tool("site2md-executable", name="site2md executable")]
+        chart = render_chart(tools, {"site2md": make_result(), "site2md-executable": make_result()}, "light")
+        self.assertEqual([_name(row) for row in _rows(chart)], ["site2md executable"])
+        self.assertNotIn("site2md", _texts(chart))
+        self.assertNotIn("site2md:", ET.fromstring(chart).findtext(f"{SVG}desc") or "")
 
     def test_each_measure_is_scaled_to_its_own_maximum(self) -> None:
         tools = [make_tool("alpha"), make_tool("beta"), make_tool("gamma")]

@@ -23,7 +23,8 @@ class RenderChartBlockTests(unittest.TestCase):
     def test_the_caption_describes_both_measures_and_links_to_the_details(self) -> None:
         self.assertIn(
             f"*Install size and time to extract the 250 countries from a local copy of {PAGE} as JSON, "
-            "for each tool's smallest install that does it without a browser. [Details](BENCHMARKS.md).*\n",
+            "for each tool's smallest install that does it without a browser. "
+            "The exception is site2md, whose row is its standalone executable. [Details](BENCHMARKS.md).*\n",
             render_chart_block(),
         )
 
@@ -62,6 +63,16 @@ class RenderTableTests(unittest.TestCase):
         results = {"pandoc": make_result(), "site2md": make_result()}
         rows = [line.split("|")[1].strip() for line in render_table(tools, results).splitlines()[2:4]]
         self.assertEqual(rows, ["site2md", "pandoc"])
+
+    def test_a_tool_left_out_of_the_chart_still_has_its_row_next_to_the_executable_that_the_chart_shows(self) -> None:
+        tools = [
+            make_tool("pandoc"),
+            make_tool("site2md-executable", name="site2md executable"),
+            make_tool("site2md", in_chart=False),
+        ]
+        results = {tool.id: make_result() for tool in tools}
+        rows = [line.split("|")[1].strip() for line in render_table(tools, results).splitlines()[2:5]]
+        self.assertEqual(rows, ["site2md", "site2md executable", "pandoc"])
 
     def test_a_tool_added_later_gets_a_row_after_the_documented_tools(self) -> None:
         tools = [make_tool("newcomer", name="New Comer"), make_tool("pandoc")]
@@ -154,7 +165,8 @@ class RenderReadmeTests(unittest.TestCase):
             'src="docs/benchmark-light.svg">\n'
             "</picture>\n\n"
             f"*Install size and time to extract the 250 countries from a local copy of {PAGE} as JSON, "
-            "for each tool's smallest install that does it without a browser. [Details](BENCHMARKS.md).*\n"
+            "for each tool's smallest install that does it without a browser. "
+            "The exception is site2md, whose row is its standalone executable. [Details](BENCHMARKS.md).*\n"
             "<!-- benchmarks:chart:end -->\n\n"
             "Links.\n\n## Benchmarks\n\nHand-written introduction.\n\n"
             "<!-- benchmarks:table:start -->\n"

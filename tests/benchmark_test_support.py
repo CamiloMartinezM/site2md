@@ -55,7 +55,11 @@ def make_page(count: int = 43) -> str:
 
 
 def make_tool(
-    tool_id: str, *footnotes: Footnote, name: str | None = None, has_crawl_solution: bool = False
+    tool_id: str,
+    *footnotes: Footnote,
+    name: str | None = None,
+    has_crawl_solution: bool = False,
+    in_chart: bool = True,
 ) -> Tool:
     """Return a tool that has only the fields the renderers read."""
     return Tool(
@@ -67,6 +71,7 @@ def make_tool(
         requirements=(),
         tasks={"crawl": Solution(steps=(Step(run="crawl"),))} if has_crawl_solution else {},
         footnotes=footnotes,
+        in_chart=in_chart,
     )
 
 
