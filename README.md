@@ -4,7 +4,7 @@
 
 ![Tests](./docs/tests.svg)
 ![Coverage](./docs/coverage.svg)
-![Version](https://img.shields.io/badge/version-0.4.6-blue.svg)
+![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.10+-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
@@ -377,7 +377,7 @@ site2md against the tools you might pick instead. Every tool extracts the same 2
 
 ## 📚 Documentation
 
-The tool is self-documenting via the CLI. Release-specific behavior and limits are recorded in the [0.4.0 release notes](docs/release-0.4.0.md) and the [0.4.1](docs/release-0.4.1.md), [0.4.2](docs/release-0.4.2.md), [0.4.3](docs/release-0.4.3.md), [0.4.4](docs/release-0.4.4.md), [0.4.5](docs/release-0.4.5.md) and [0.4.6](docs/release-0.4.6.md) patch notes.
+The tool is self-documenting via the CLI. Release-specific behavior and limits are recorded in the [0.5.0](docs/release-0.5.0.md) and [0.4.0](docs/release-0.4.0.md) release notes and the [0.4.1](docs/release-0.4.1.md), [0.4.2](docs/release-0.4.2.md), [0.4.3](docs/release-0.4.3.md), [0.4.4](docs/release-0.4.4.md), [0.4.5](docs/release-0.4.5.md) and [0.4.6](docs/release-0.4.6.md) patch notes.
 
 ```bash
 site2md --help
