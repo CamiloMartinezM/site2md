@@ -11,6 +11,18 @@ from markdownify import markdownify as md
 
 from site2md.downloader import RemotePage
 
+# Matched with find_all filters: a CSS selector costs Soup Sieve's compilation and matching on every page.
+_EXCLUDED_TAG_NAMES = ["nav", "script", "style", "noscript"]
+_EXCLUDED_CLASS_NAMES = [
+    "bd-sidebar",
+    "bd-header",
+    "bd-footer",
+    "skip-link",
+    "pst-scroll-pixel-helper",
+    "pst-async-banner-revealer",
+    "headerlink",
+]
+
 
 def _resolve_remote_references(soup: BeautifulSoup, source_url: str) -> None:
     """Resolve relative links and images using HTML base URL rules."""
@@ -22,7 +34,7 @@ def _resolve_remote_references(soup: BeautifulSoup, source_url: str) -> None:
             base_url = urljoin(source_url, base_href)
 
     for attribute in ("href", "src"):
-        for tag in soup.select(f"[{attribute}]"):
+        for tag in soup.find_all(None, {attribute: True}):
             value = tag.get(attribute)
             if isinstance(value, str):
                 tag[attribute] = _resolve_reference(value, base_url)
@@ -43,9 +55,9 @@ def _convert_soup_to_markdown(soup: BeautifulSoup, source: str) -> str:
     """Clean parsed HTML and add its source attribution to Markdown output."""
     _clean_soup(soup)
     main_content = (
-        soup.select_one("main")
-        or soup.select_one("article")
-        or soup.select_one(".bd-content")
+        soup.find("main")
+        or soup.find("article")
+        or soup.find(class_="bd-content")
         or soup.body
         or soup
     )
@@ -54,21 +66,10 @@ def _convert_soup_to_markdown(soup: BeautifulSoup, source: str) -> str:
 
 def _clean_soup(soup: BeautifulSoup) -> None:
     """Remove elements excluded from generated Markdown."""
-    for selector in [
-        "nav",
-        ".bd-sidebar",
-        ".bd-header",
-        ".bd-footer",
-        ".skip-link",
-        ".pst-scroll-pixel-helper",
-        ".pst-async-banner-revealer",
-        "script",
-        "style",
-        "noscript",
-        ".headerlink",
-    ]:
-        for tag in soup.select(selector):
-            tag.decompose()
+    for tag in soup.find_all(_EXCLUDED_TAG_NAMES):
+        tag.decompose()
+    for tag in soup.find_all(class_=_EXCLUDED_CLASS_NAMES):
+        tag.decompose()
 
 
 def _render_markdown(content: str, source: str) -> str:
