@@ -361,7 +361,7 @@ class FollowModeCliTests(InstalledCliTestCase):
         request_times: list[float] = []
 
         def child(handler: BaseHTTPRequestHandler) -> None:
-            request_times.append(time.monotonic())
+            request_times.append(time.perf_counter())
             body = b"<html><body>allowed</body></html>"
             handler.send_response(200)
             handler.send_header("Content-Type", "text/html")
@@ -399,7 +399,7 @@ Request-rate: 2/3
                 server.requests,
                 ["/entry", "/robots.txt", "/first", "/second"],
             )
-            self.assertGreaterEqual(request_times[1] - request_times[0], 1.4)
+            self.assertGreaterEqual(request_times[1] - request_times[0], 1.5)
             self.assertIn("Robots policy disallows", result.stdout)
             self.assertIn("Fetched 3; skipped 1; failed 0.", result.stdout)
 
@@ -408,7 +408,7 @@ Request-rate: 2/3
         request_times: list[float] = []
 
         def child(handler: BaseHTTPRequestHandler) -> None:
-            request_times.append(time.monotonic())
+            request_times.append(time.perf_counter())
             body = b"<html><body>allowed</body></html>"
             handler.send_response(200)
             handler.send_header("Content-Type", "text/html")
@@ -445,7 +445,7 @@ Request-rate: 2/3
                 server.requests,
                 ["/entry", "/robots.txt", "/first", "/second"],
             )
-            self.assertGreaterEqual(request_times[1] - request_times[0], 1.9)
+            self.assertGreaterEqual(request_times[1] - request_times[0], 2.0)
 
     def test_redirect_hop_body_is_counted_before_robots_rejects_its_target(self) -> None:
         entry = b'<html><body><a href="/redirect">Redirect</a></body></html>'
@@ -490,7 +490,7 @@ Request-rate: 2/3
 
         def redirect(location: str) -> Callable[[BaseHTTPRequestHandler], None]:
             def respond(handler: BaseHTTPRequestHandler) -> None:
-                request_times.append(time.monotonic())
+                request_times.append(time.perf_counter())
                 handler.send_response(302)
                 handler.send_header("Location", location)
                 handler.send_header("Content-Length", str(len(hop_body)))
@@ -530,7 +530,7 @@ Request-rate: 2/3
                 server.requests,
                 ["/entry", "/robots.txt", "/first-hop", "/second-hop"],
             )
-            self.assertGreaterEqual(request_times[1] - request_times[0], 1.4)
+            self.assertGreaterEqual(request_times[1] - request_times[0], 1.5)
             self.assertIn("Reached limit: aggregate content (1 MiB)", result.stdout)
             self.assertNotIn(
                 "<!-- Source: " + server.origin + "/final -->",
