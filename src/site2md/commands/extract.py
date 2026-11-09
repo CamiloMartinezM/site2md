@@ -105,10 +105,14 @@ def extract(
     *,
     output: Path | None = None,
     entry_points_only: bool = False,
+    values_only: bool = False,
 ) -> None:
     """Extract structured records from a Markdown file or standard input.
 
     Args:
+        values_only: Write only a JSON array of the record values, in record order. This drops
+            the provenance, the Extractor, provider and record schema identity, the input digest
+            and the source sections.
         entry_points_only: Look up the Extractor faster by skipping installed distributions
             that declare no Extractor entry point. Extract then doesn't notice a distribution
             that ships a manifest without an entry point, though site2md extractors still
@@ -142,7 +146,8 @@ def extract(
     except Exception as error:
         _extract_failure(f"extraction failed: {error}")
     try:
-        serialized = result.to_json().encode("utf-8")
+        serialize = result.values_to_json if values_only else result.to_json
+        serialized = serialize().encode("utf-8")
     except Exception as error:
         _extract_failure(f"could not serialize extraction result: {error}")
     try:
