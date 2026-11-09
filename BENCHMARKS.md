@@ -60,7 +60,7 @@ The page copy was downloaded on 2026-11-06. Its SHA-256 is `4c68c2a54000607a0fa5
 
 | Tool | Version | Output matches | Time | Lines | Install size | Packages | Crawl output matches | Extra pages | Shortest gap | Crawl lines |
 |---|---|---|---|---|---|---|---|---|---|---|
-| site2md | 0.4.5 | yes | 960 ms ± 11 ms | 54 | 11.5 MB | 20 | yes | 0 | 1.009 s | 54 |
+| site2md | 0.4.6 | yes | 870 ms ± 14 ms | 54 | 11.5 MB | 20 | yes | 0 | 1.017 s | 54 |
 | Scrapling | 0.5.1 | yes | 338 ms ± 9 ms | 12 [^1] | 242.9 MB [^2] | 23 | yes [^3] | 0 | 0.000 s [^4] | 19 [^1] |
 | crawl4ai | 0.9.5 | yes | 1.04 s ± 0.01 s | 24 [^5] [^1] | 554.8 MB [^6] | 96 | yes [^7] | 0 | 0.000 s [^8] | 38 [^1] |
 | MarkItDown | 0.1.9 | yes | 632 ms ± 16 ms | 10 [^1] | 94.8 MB | 19 | no crawler | no crawler | no crawler | no crawler |
@@ -78,7 +78,7 @@ The page copy was downloaded on 2026-11-06. Its SHA-256 is `4c68c2a54000607a0fa5
 
 ### Solutions
 
-- **site2md**: `build` converts the page, `extract` runs a minimal Extractor written for this benchmark, and one last step writes the record values. The crawl runs `build` in site mode with `--max-pages 20 --max-depth 2` and reuses the same Extractor across the document's source sections. site2md is installed from its release tag, because the PyPI name belongs to a different project.
+- **site2md**: `build` converts the page, `extract` runs a minimal Extractor written for this benchmark, and one last step writes the record values. The crawl runs `build` in site mode with `--max-pages 20 --max-depth 2` and reuses the same Extractor across the document's source sections. Both commands run in their opt-in fast modes, `build --no-progress` and `extract --entry-points-only`. site2md is installed from its release tag, because the PyPI name belongs to a different project.
 - **Scrapling**: Scrapling's HTTP fetcher gets the page and CSS selectors read each country. The `fetchers` extra is the smallest one that provides the fetcher, and no browser is downloaded or started. The crawl is a spider that reads the same selectors on every page it follows and writes the records with its own JSON export.
 - **crawl4ai**: Its HTTP-only crawler strategy fetches the page and its CSS extraction strategy reads each country as text, then a short loop converts the numbers and the missing capital. The crawl is its breadth-first deep crawl with the same extraction strategy. No browser is downloaded or started. Its home folder, where it keeps logs and a robots.txt cache, is moved into the benchmark's cache.
 - **MarkItDown**: `MarkItDown().convert` fetches the page and converts it to Markdown, and a regular expression parses the Markdown into the records. It has no crawler.
@@ -88,7 +88,7 @@ The page copy was downloaded on 2026-11-06. Its SHA-256 is `4c68c2a54000607a0fa5
 
 | Tool | Version | Date | Raw results |
 |---|---|---|---|
-| site2md | 0.4.5 | 2026-11-09 | [site2md.json](benchmarks/results/site2md.json) |
+| site2md | 0.4.6 | 2026-11-09 | [site2md.json](benchmarks/results/site2md.json) |
 | Scrapling | 0.5.1 | 2026-11-09 | [scrapling.json](benchmarks/results/scrapling.json) |
 | crawl4ai | 0.9.5 | 2026-11-09 | [crawl4ai.json](benchmarks/results/crawl4ai.json) |
 | MarkItDown | 0.1.9 | 2026-11-09 | [markitdown.json](benchmarks/results/markitdown.json) |
