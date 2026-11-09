@@ -5,15 +5,16 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from tests.cli_test_support import InstalledCliTestCase, RecordingServer, Route
+from tests.cli_test_support import (
+    SKIP_PACING_HOOK,
+    InstalledCliTestCase,
+    RecordingServer,
+    Route,
+)
 
 LOCAL_BAR = "Converting HTML to Markdown..."
 REMOTE_BAR = "Building remote page..."
 HTML = {"Content-Type": "text/html"}
-# Follow and site mode wait a second between requests. The hook skips the wait.
-SKIP_PACING_HOOK = """from site2md import downloader
-downloader.time.sleep = lambda _seconds: None
-"""
 
 
 class BuildProgressTests(InstalledCliTestCase):

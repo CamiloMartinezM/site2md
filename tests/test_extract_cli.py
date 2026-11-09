@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests.cli_test_support import installed_command
+from tests.cli_test_support import FAIL_EXTRACTION_HOOK, installed_command
 
 TWO_COUNTRIES = """<!-- Source: https://example.test/countries -->
 ### Curaçao
@@ -266,15 +266,7 @@ os.replace = observing_replace
     ) -> None:
         cases = {
             "extraction": (
-                """from site2md import extraction
-
-def fail_extraction(markdown, extractor_id, **options):
-    raise extraction.ExtractionError(
-        "site2md.test.extraction_failed", "forced extraction failure"
-    )
-
-extraction.extract = fail_extraction
-""",
+                FAIL_EXTRACTION_HOOK,
                 b"forced extraction failure",
             ),
             "validation": (
@@ -502,15 +494,7 @@ countries.create_extractor = lambda: WarningExtractor()
     def test_extract_values_only_failures_write_nothing(self) -> None:
         cases = {
             "extraction": (
-                """from site2md import extraction
-
-def fail_extraction(markdown, extractor_id, **options):
-    raise extraction.ExtractionError(
-        "site2md.test.extraction_failed", "forced extraction failure"
-    )
-
-extraction.extract = fail_extraction
-""",
+                FAIL_EXTRACTION_HOOK,
                 b"forced extraction failure",
             ),
             "serialization": (

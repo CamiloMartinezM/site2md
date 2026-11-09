@@ -7,7 +7,13 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from tests.cli_test_support import InstalledCliTestCase, RecordingServer, Route
+from tests.cli_test_support import (
+    FAIL_EXTRACTION_HOOK,
+    SKIP_PACING_HOOK,
+    InstalledCliTestCase,
+    RecordingServer,
+    Route,
+)
 
 COUNTRIES_ID = "site2md.scrapethissite.countries"
 HTML = {"Content-Type": "text/html"}
@@ -36,10 +42,6 @@ COUNTRIES_VALUES = """[
 ]
 """.encode()
 
-# Follow and site mode wait a second between requests. The hook skips the wait.
-SKIP_PACING_HOOK = """from site2md import downloader
-downloader.time.sleep = lambda _seconds: None
-"""
 # Records what build passes to the extraction module's extract operation.
 RECORD_EXTRACT_CALL_HOOK = """import json
 import os
@@ -55,17 +57,6 @@ def recording_extract(markdown, extractor_id, **options):
 
 
 extraction.extract = recording_extract
-"""
-FAIL_EXTRACTION_HOOK = """from site2md import extraction
-
-
-def fail_extraction(markdown, extractor_id, **options):
-    raise extraction.ExtractionError(
-        "site2md.test.extraction_failed", "forced extraction failure"
-    )
-
-
-extraction.extract = fail_extraction
 """
 NOISY_EXTRACTOR_HOOK = """import ctypes
 import os
@@ -280,7 +271,7 @@ class BuildExtractTests(InstalledCliTestCase):
 
                     self.assertEqual(built.returncode, 0, built.stderr.decode())
                     self.assertEqual(built.stdout, self.extract_saved(saved).stdout)
-                    names = [r["value"]["name"] for r in json.loads(built.stdout)["records"]]
+                    names = [record["value"]["name"] for record in json.loads(built.stdout)["records"]]
                     self.assertEqual(names, ["Curaçao", "Aruba"])
 
     def test_options_that_need_extract_fail_before_any_request(self) -> None:

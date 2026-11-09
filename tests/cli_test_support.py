@@ -11,13 +11,30 @@ import unittest
 from collections.abc import Callable, Mapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict, overload
 
 if TYPE_CHECKING:
     from typing_extensions import Self
 
 Response = tuple[int, dict[str, str], bytes]
 Route = Response | Callable[[BaseHTTPRequestHandler], None]
+
+# Follow and site mode wait a second between requests. The hook skips the wait.
+SKIP_PACING_HOOK = """from site2md import downloader
+downloader.time.sleep = lambda _seconds: None
+"""
+# Makes the extraction operation fail the way an Extractor that reports a diagnostic does.
+FAIL_EXTRACTION_HOOK = """from site2md import extraction
+
+
+def fail_extraction(markdown, extractor_id, **options):
+    raise extraction.ExtractionError(
+        "site2md.test.extraction_failed", "forced extraction failure"
+    )
+
+
+extraction.extract = fail_extraction
+"""
 
 
 class RecordSchemaDeclaration(TypedDict):
@@ -107,6 +124,59 @@ class InstalledCliTestCase(unittest.TestCase):
         if not cls.command.is_file():
             raise RuntimeError(f"Installed site2md command not found at {cls.command}")
 
+    @overload
+    def _run(
+        self,
+        arguments: tuple[object, ...],
+        *,
+        text: Literal[True],
+        without_wget: bool,
+        timeout: float | None,
+        extra_environment: dict[str, str] | None,
+    ) -> subprocess.CompletedProcess[str]: ...
+
+    @overload
+    def _run(
+        self,
+        arguments: tuple[object, ...],
+        *,
+        text: Literal[False],
+        without_wget: bool,
+        timeout: float | None,
+        extra_environment: dict[str, str] | None,
+    ) -> subprocess.CompletedProcess[bytes]: ...
+
+    def _run(
+        self,
+        arguments: tuple[object, ...],
+        *,
+        text: bool,
+        without_wget: bool,
+        timeout: float | None,
+        extra_environment: dict[str, str] | None,
+    ) -> subprocess.CompletedProcess[str] | subprocess.CompletedProcess[bytes]:
+        """Run the installed command and capture its streams as text or as bytes."""
+        environment = os.environ.copy()
+        environment["PYTHONIOENCODING"] = "utf-8"
+        if without_wget:
+            environment["PATH"] = str(self.command.parent)
+        if extra_environment:
+            environment.update(extra_environment)
+        command = [str(self.command), *map(str, arguments)]
+        if text:
+            return subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                env=environment,
+                timeout=timeout,
+            )
+        return subprocess.run(
+            command, check=False, capture_output=True, env=environment, timeout=timeout
+        )
+
     def run_site2md(
         self,
         *arguments: object,
@@ -115,37 +185,28 @@ class InstalledCliTestCase(unittest.TestCase):
         extra_environment: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         """Run the installed command and capture its observable result."""
-        environment = os.environ.copy()
-        environment["PYTHONIOENCODING"] = "utf-8"
-        if without_wget:
-            environment["PATH"] = str(self.command.parent)
-        if extra_environment:
-            environment.update(extra_environment)
-        return subprocess.run(
-            [str(self.command), *map(str, arguments)],
-            check=False,
-            capture_output=True,
+        return self._run(
+            arguments,
             text=True,
-            encoding="utf-8",
-            env=environment,
+            without_wget=without_wget,
             timeout=timeout,
+            extra_environment=extra_environment,
         )
 
     def run_site2md_bytes(
         self,
         *arguments: object,
+        without_wget: bool = False,
+        timeout: float | None = None,
         extra_environment: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[bytes]:
         """Run the installed command and capture its streams as the exact bytes it wrote."""
-        environment = os.environ.copy()
-        environment["PYTHONIOENCODING"] = "utf-8"
-        if extra_environment:
-            environment.update(extra_environment)
-        return subprocess.run(
-            [str(self.command), *map(str, arguments)],
-            check=False,
-            capture_output=True,
-            env=environment,
+        return self._run(
+            arguments,
+            text=False,
+            without_wget=without_wget,
+            timeout=timeout,
+            extra_environment=extra_environment,
         )
 
     def retained_workspace(self, stdout: str) -> Path:
