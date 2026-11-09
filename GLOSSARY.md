@@ -48,6 +48,10 @@ _Avoid_: Raw scrape, parsed page
 A source-specific interpretation that derives structured records from a converted document.
 _Avoid_: Parser, scraper
 
+**Extractor provider**:
+An installed package that supplies one or more Extractors.
+_Avoid_: Plug-in package, extension
+
 **Source section**:
 An ordered portion of a converted document attributed to one source marker.
 _Avoid_: Page, file fragment
@@ -55,6 +59,10 @@ _Avoid_: Page, file fragment
 **Record**:
 One structured entity identified in a converted document according to an extractor's record schema.
 _Avoid_: Item, parsed object
+
+**Record value**:
+The data of one record, shaped by its record schema, without its provenance.
+_Avoid_: Plain record, raw record, payload
 
 **Record schema**:
 A versioned contract that defines the meaning and shape of records produced by an extractor.

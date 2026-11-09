@@ -44,9 +44,11 @@ include = [
     "/tests",
 ]
 # The benchmark tests import /benchmarks, which isn't packaged, and the benchmark's minimal Extractor must never ship.
+# The executable tests likewise use /executable.
 exclude = [
     "/tests/test_benchmark_*.py",
     "/tests/benchmark_test_support.py",
+    "/tests/test_executable_*.py",
 ]
 
 [tool.ruff.lint]

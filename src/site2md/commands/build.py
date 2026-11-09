@@ -15,19 +15,19 @@ from site2md.finder import find_html_files
 from site2md.merger import merge_markdowns
 from site2md.remote_build import RemoteBuildError, RemoteBuildRequest, build_remote
 
-console = Console()
-
 
 @contextmanager
-def _progress_bar(description: str, total: int, *, is_shown: bool) -> Iterator[Callable[[], None]]:
-    """Draw a progress bar while the block runs, and yield the function that advances it."""
+def _progress_bar(
+    console: Console, description: str, total: int, *, is_shown: bool
+) -> Iterator[Callable[[], None]]:
+    """Draw a progress bar on the console while the block runs, and yield the function that advances it."""
     if not is_shown:
         yield lambda: None
         return
     # Imported here so that --no-progress never loads rich.progress.
     from rich.progress import Progress
 
-    with Progress() as progress:
+    with Progress(console=console) as progress:
         task = progress.add_task(description, total=total)
         yield lambda: progress.advance(task)
 
@@ -45,6 +45,10 @@ def build(
     max_total_size_mib: int | None = None,
     max_page_size_mib: int | None = None,
     progress: bool = True,
+    extract: str | None = None,
+    extract_output: Path | None = None,
+    entry_points_only: bool = False,
+    values_only: bool = False,
 ) -> None:
     """Build a single Markdown file from a local HTML directory or remote page.
 
@@ -60,7 +64,17 @@ def build(
         max_total_size_mib: Positive traversal body budget (default: 250).
         max_page_size_mib: Positive MiB limit for one remote page (default: 25).
         progress: Draw a progress bar. Pass --no-progress to skip it, for scripts and benchmarks.
+        extract: Extractor ID. After saving the Markdown, run this Extractor on exactly the
+            saved file in the same process, and write the extraction result to standard output.
+            Build's own messages and progress bar then go to standard error. If the Extractor
+            is missing or fails, the Markdown stays and the command exits 1.
+        extract_output: With --extract, replace this file atomically with the extraction result
+            instead of writing it to standard output.
+        entry_points_only: With --extract, look up the Extractor faster, as extract does.
+        values_only: With --extract, write only a JSON array of the record values, as extract
+            does.
     """
+    console = Console(stderr=extract is not None)
     markdown_contents: list[str] = []
     is_remote = input_source.startswith(("http://", "https://"))
 
@@ -76,6 +90,13 @@ def build(
         console.print("[red]Error:[/red] Remote build options require an HTTP(S) URL.")
         sys.exit(1)
 
+    if extract is None and (extract_output is not None or entry_points_only or values_only):
+        console.print(
+            "[red]Error:[/red] --extract-output, --entry-points-only and --values-only "
+            "require --extract."
+        )
+        sys.exit(1)
+
     # Check before any work, so a remote build never requests a page it cannot save.
     if not output.parent.is_dir():
         console.print(
@@ -83,9 +104,23 @@ def build(
             soft_wrap=True,
         )
         sys.exit(1)
+    if extract_output is not None and not extract_output.parent.is_dir():
+        console.print(
+            f"[red]Error:[/red] Extract output folder '{extract_output.parent}' does not exist.",
+            soft_wrap=True,
+        )
+        sys.exit(1)
+    # Replacing the Markdown with the result would destroy the document that extract must find.
+    if extract_output is not None and extract_output.resolve() == output.resolve():
+        console.print(
+            "[red]Error:[/red] --extract-output must differ from --output, "
+            "which holds the Markdown.",
+            soft_wrap=True,
+        )
+        sys.exit(1)
 
     if is_remote:
-        with _progress_bar("[cyan]Building remote page...", 1, is_shown=progress) as advance:
+        with _progress_bar(console, "[cyan]Building remote page...", 1, is_shown=progress) as advance:
             try:
                 summary = build_remote(
                     RemoteBuildRequest(
@@ -138,35 +173,60 @@ def build(
         console.print(
             f"[bold white on green]Success![/bold white on green] Markdown created at {output}"
         )
+    else:
+        input_dir = Path(input_source)
+        if not input_dir.exists():
+            console.print(f"[red]Error:[/red] Input '{input_dir}' does not exist.")
+            sys.exit(1)
+
+        console.print(f"[bold green]Scanning[/bold green] {input_dir} for HTML files...")
+        html_files = find_html_files(input_dir)
+        if not html_files:
+            console.print("[yellow]No HTML files found.[/yellow]")
+            # With --extract, a success status would send a script an empty result.
+            sys.exit(0 if extract is None else 1)
+
+        console.print(f"Found [bold]{len(html_files)}[/bold] HTML files.")
+        with _progress_bar(
+            console, "[cyan]Converting HTML to Markdown...", len(html_files), is_shown=progress
+        ) as advance:
+            for html_file in html_files:
+                markdown_contents.append(convert_html_to_markdown(html_file))
+                advance()
+
+        console.print(
+            f"[bold green]Merging[/bold green] {len(markdown_contents)} files into {output}..."
+        )
+        try:
+            merge_markdowns(markdown_contents, output)
+        except OSError as error:
+            console.print(f"[red]Error writing output:[/red] {error}", soft_wrap=True)
+            sys.exit(1)
+        console.print(
+            f"[bold white on green]Success![/bold white on green] Markdown created at {output}"
+        )
+
+    if extract is None:
         return
+    # Imported here so that plain build never loads the extraction modules.
+    from site2md.file_extraction import FileExtractionError, extract_markdown_file
 
-    input_dir = Path(input_source)
-    if not input_dir.exists():
-        console.print(f"[red]Error:[/red] Input '{input_dir}' does not exist.")
-        sys.exit(1)
-
-    console.print(f"[bold green]Scanning[/bold green] {input_dir} for HTML files...")
-    html_files = find_html_files(input_dir)
-    if not html_files:
-        console.print("[yellow]No HTML files found.[/yellow]")
-        sys.exit(0)
-
-    console.print(f"Found [bold]{len(html_files)}[/bold] HTML files.")
-    with _progress_bar(
-        "[cyan]Converting HTML to Markdown...", len(html_files), is_shown=progress
-    ) as advance:
-        for html_file in html_files:
-            markdown_contents.append(convert_html_to_markdown(html_file))
-            advance()
-
-    console.print(
-        f"[bold green]Merging[/bold green] {len(markdown_contents)} files into {output}..."
-    )
     try:
-        merge_markdowns(markdown_contents, output)
-    except OSError as error:
-        console.print(f"[red]Error writing output:[/red] {error}", soft_wrap=True)
+        warnings = extract_markdown_file(
+            extract,
+            output,
+            output=extract_output,
+            entry_points_only=entry_points_only,
+            values_only=values_only,
+        )
+    except FileExtractionError as error:
+        for line in error.lines:
+            print(line, file=sys.stderr)
+        console.print(
+            f"[red]Error:[/red] The converted document is kept at '{output}'. "
+            "Rerun site2md extract on it once the problem is fixed.",
+            soft_wrap=True,
+        )
         sys.exit(1)
-    console.print(
-        f"[bold white on green]Success![/bold white on green] Markdown created at {output}"
-    )
+    for line in warnings:
+        print(line, file=sys.stderr)

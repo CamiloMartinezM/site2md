@@ -9,7 +9,36 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests.cli_test_support import installed_command
+from tests.cli_test_support import FAIL_EXTRACTION_HOOK, installed_command
+
+TWO_COUNTRIES = """<!-- Source: https://example.test/countries -->
+### Curaçao
+
+**Capital:** Willemstad
+**Population:** 150000
+**Area (km2):** 444
+
+### Aruba
+
+**Capital:** Oranjestad
+**Population:** 106000
+**Area (km2):** 180
+""".encode()
+TWO_COUNTRIES_VALUES = """[
+  {
+    "name": "Curaçao",
+    "capital": "Willemstad",
+    "population": 150000,
+    "area_km2": 444.0
+  },
+  {
+    "name": "Aruba",
+    "capital": "Oranjestad",
+    "population": 106000,
+    "area_km2": 180.0
+  }
+]
+""".encode()
 
 
 class ExtractCliTests(unittest.TestCase):
@@ -237,15 +266,7 @@ os.replace = observing_replace
     ) -> None:
         cases = {
             "extraction": (
-                """from site2md import extraction
-
-def fail_extraction(markdown, extractor_id, **options):
-    raise extraction.ExtractionError(
-        "site2md.test.extraction_failed", "forced extraction failure"
-    )
-
-extraction.extract = fail_extraction
-""",
+                FAIL_EXTRACTION_HOOK,
                 b"forced extraction failure",
             ),
             "validation": (
@@ -371,6 +392,158 @@ countries.create_extractor = lambda: WarningExtractor()
         )
         payload = json.loads(result.stdout)
         self.assertEqual(payload["diagnostics"][0]["message"], "command warning")
+
+    def test_extract_without_values_only_keeps_the_full_extraction_result(self) -> None:
+        result = self.run_site2md(
+            "extract", "site2md.scrapethissite.countries", "-", input_bytes=TWO_COUNTRIES
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertEqual(
+            list(json.loads(result.stdout)),
+            [
+                "format_version",
+                "extractor",
+                "provider",
+                "record_schema",
+                "input_digest",
+                "source_sections",
+                "records",
+                "diagnostics",
+            ],
+        )
+
+    def test_extract_values_only_writes_the_record_values_to_standard_output(self) -> None:
+        result = self.run_site2md(
+            "extract",
+            "site2md.scrapethissite.countries",
+            "-",
+            "--values-only",
+            input_bytes=TWO_COUNTRIES,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertEqual(result.stdout, TWO_COUNTRIES_VALUES)
+        self.assertEqual(result.stderr, b"")
+
+    def test_extract_values_only_atomically_replaces_the_output_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            input_path = temp_root / "input.md"
+            output_path = temp_root / "values.json"
+            input_path.write_bytes(TWO_COUNTRIES)
+            output_path.write_text("previous", encoding="utf-8")
+
+            result = self.run_site2md(
+                "extract",
+                "site2md.scrapethissite.countries",
+                input_path,
+                "--values-only",
+                "--output",
+                output_path,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            self.assertEqual(result.stdout, b"")
+            self.assertEqual(result.stderr, b"")
+            self.assertEqual(output_path.read_bytes(), TWO_COUNTRIES_VALUES)
+            self.assertEqual(list(temp_root.glob(".values.json.*.tmp")), [])
+
+    def test_extract_values_only_reports_warnings_on_standard_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            environment = self.startup_hook_environment(
+                Path(temp_dir),
+                """from site2md.extractors import countries
+from site2md.extractors.v1 import Diagnostic, Extraction
+
+real_create_extractor = countries.create_extractor
+
+class WarningExtractor:
+    def extract(self, document):
+        extracted = real_create_extractor().extract(document)
+        return Extraction(
+            records=extracted.records,
+            diagnostics=(Diagnostic(
+                severity="warning",
+                code="site2md.scrapethissite.countries.warning",
+                message="command warning",
+            ),),
+        )
+
+countries.create_extractor = lambda: WarningExtractor()
+""",
+            )
+
+            result = self.run_site2md(
+                "extract",
+                "site2md.scrapethissite.countries",
+                "-",
+                "--values-only",
+                input_bytes=TWO_COUNTRIES,
+                extra_environment=environment,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertEqual(result.stdout, TWO_COUNTRIES_VALUES)
+        # splitlines: Windows text streams end lines with \r\n.
+        self.assertEqual(
+            result.stderr.decode().splitlines(),
+            ["warning: site2md.scrapethissite.countries.warning: command warning"],
+        )
+
+    def test_extract_values_only_failures_write_nothing(self) -> None:
+        cases = {
+            "extraction": (
+                FAIL_EXTRACTION_HOOK,
+                b"forced extraction failure",
+            ),
+            "serialization": (
+                """from site2md import extraction
+
+def fail_serialization(self):
+    raise ValueError("forced serialization failure")
+
+extraction.ExtractionResult.values_to_json = fail_serialization
+""",
+                b"forced serialization failure",
+            ),
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            for stage, (startup_hook, expected_diagnostic) in cases.items():
+                with self.subTest(stage=stage):
+                    stage_root = temp_root / stage
+                    stage_root.mkdir()
+                    input_path = stage_root / "input.md"
+                    output_path = stage_root / "values.json"
+                    input_path.write_bytes(TWO_COUNTRIES)
+                    output_path.write_text("previous", encoding="utf-8")
+                    environment = self.startup_hook_environment(stage_root, startup_hook)
+
+                    to_file = self.run_site2md(
+                        "extract",
+                        "site2md.scrapethissite.countries",
+                        input_path,
+                        "--values-only",
+                        "--output",
+                        output_path,
+                        extra_environment=environment,
+                    )
+                    to_stdout = self.run_site2md(
+                        "extract",
+                        "site2md.scrapethissite.countries",
+                        input_path,
+                        "--values-only",
+                        extra_environment=environment,
+                    )
+
+                    for result in (to_file, to_stdout):
+                        self.assertEqual(result.returncode, 1)
+                        self.assertEqual(result.stdout, b"")
+                        self.assertIn(expected_diagnostic, result.stderr)
+                        self.assertNotIn(b"Traceback", result.stderr)
+                    self.assertEqual(output_path.read_text(encoding="utf-8"), "previous")
+                    self.assertEqual(list(stage_root.glob(".values.json.*.tmp")), [])
 
     def test_extract_uses_documented_exit_statuses_and_exact_ids(self) -> None:
         partial_id = self.run_site2md(

@@ -103,6 +103,7 @@ Fix every error rather than silencing it (rule 3). A narrow run can miss errors:
 ### Errors
 
 - **Check inputs and destinations before expensive or remote work.** A run must not fetch a page that it then can't save (#33).
+  - `build --extract` deliberately doesn't check the Extractor ID first, because the converted document is saved before extraction (spec #72, Decisions).
 - **Catch the narrowest exception you can handle.**
   - A broad `except Exception` belongs only at a boundary that turns any failure into a reported error, as `extract` does.
   - Never swallow an exception and carry on to a success message (#32).
@@ -140,6 +141,7 @@ Fix every error rather than silencing it (rule 3). A narrow run can miss errors:
 ### Console output
 
 - **`build` reports through the rich console.** Pass `soft_wrap=True` when a message contains a path, so the path stays whole on one line (#21).
+  - With `--extract`, the console writes to standard error, so that standard output holds only the JSON.
 - **`extract` writes only the JSON document to standard output.** Diagnostics go to standard error.
 
 ## Tests

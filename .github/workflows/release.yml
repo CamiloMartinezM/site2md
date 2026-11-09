@@ -1,0 +1,102 @@
+name: Release
+
+# Publishing a GitHub release builds the executable's archives from the release's tag and attaches
+# them with a SHA256SUMS file. A manual run builds the same files as workflow artifacts and touches
+# no release, so the workflow can be tested before a release.
+on:
+    release:
+        types:
+            - published
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    archives:
+        runs-on: ${{ matrix.os }}
+        timeout-minutes: 30
+        strategy:
+            fail-fast: false
+            matrix:
+                # The oldest Ubuntu runner, so that the Linux build works with older glibc versions.
+                os: [windows-latest, ubuntu-22.04]
+
+        steps:
+            # A release event checks out the release's tag, and a manual run checks out the chosen branch.
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            # The build and the smoke test pick Python 3.12 themselves, so this only provides uv.
+            - name: Set up uv
+              uses: astral-sh/setup-uv@v10.3.0
+
+            # The commands below are the ones in executable/README.md and in checks.yml.
+            - name: Build the executable
+              run: uv run --no-project --python 3.12 --with . --with-requirements executable/requirements.txt executable/build.py
+
+            # Dependencies that aren't pinned can change between a pull request's checks and a release.
+            - name: Smoke-test the executable
+              run: uv run --no-project --python 3.12 --with . --with pip executable/smoke.py dist/site2md
+
+            - name: Archive the executable
+              shell: bash
+              env:
+                  # Empty in a manual run, which has no tag. A release's tag must name the built version.
+                  RELEASE_TAG: ${{ github.event.release.tag_name }}
+              run: uv run --no-project --python 3.12 --with . executable/archive.py dist/site2md dist/archives --tag "$RELEASE_TAG"
+
+            - name: Upload the archive
+              uses: actions/upload-artifact@v7
+              with:
+                  name: archive-${{ runner.os }}
+                  path: dist/archives/*
+                  if-no-files-found: error
+
+    checksums:
+        needs: archives
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+
+        steps:
+            - name: Download the archives
+              uses: actions/download-artifact@v8
+              with:
+                  path: release
+                  merge-multiple: true
+
+            # From inside the folder, so that each line names a file as it is downloaded.
+            - name: Write SHA256SUMS
+              working-directory: release
+              run: sha256sum * > SHA256SUMS
+
+            - name: Upload SHA256SUMS
+              uses: actions/upload-artifact@v7
+              with:
+                  name: SHA256SUMS
+                  path: release/SHA256SUMS
+                  if-no-files-found: error
+
+    # The only job that writes, and it runs only for a published release.
+    upload:
+        needs: checksums
+        if: github.event_name == 'release'
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        permissions:
+            contents: write
+
+        steps:
+            - name: Download the archives and SHA256SUMS
+              uses: actions/download-artifact@v8
+              with:
+                  path: release
+                  merge-multiple: true
+
+            # --clobber lets a re-run replace assets that an earlier attempt uploaded.
+            - name: Attach them to the release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GH_REPO: ${{ github.repository }}
+                  RELEASE_TAG: ${{ github.event.release.tag_name }}
+              run: gh release upload "$RELEASE_TAG" release/* --clobber
