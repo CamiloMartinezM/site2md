@@ -1,6 +1,6 @@
 {
-  "version": "0.4.3",
-  "date": "2026-11-06",
+  "version": "0.4.4",
+  "date": "2026-11-09",
   "environment": {
     "os": "Windows 11",
     "python": "3.12.14",
@@ -9,11 +9,11 @@
     "ruff": "0.17.4"
   },
   "install": {
-    "size_bytes": 11485228,
+    "size_bytes": 11499499,
     "packages": {
       "attrs": "26.1.0",
       "beautifulsoup4": "4.15.0",
-      "cyclopts": "5.3.3",
+      "cyclopts": "5.4.0",
       "docstring_parser": "0.18.0",
       "jsonschema": "4.26.0",
       "jsonschema_specifications": "2025.9.1",
@@ -27,7 +27,7 @@
       "rich": "15.0.0",
       "rich_rst": "2.2.0",
       "rpds_py": "2026.9.1",
-      "site2md": "0.4.3",
+      "site2md": "0.4.4",
       "six": "1.17.0",
       "soupsieve": "4.0.1",
       "typing_extensions": "4.16.0"
@@ -36,22 +36,22 @@
   "page": {
     "matches": true,
     "time": {
-      "mean": 1.722366,
-      "stddev": 0.013766,
-      "median": 1.720835,
-      "min": 1.699972,
-      "max": 1.742058,
+      "mean": 1.792154,
+      "stddev": 0.022041,
+      "median": 1.793799,
+      "min": 1.751079,
+      "max": 1.8274,
       "times": [
-        1.722922,
-        1.738482,
-        1.733779,
-        1.712052,
-        1.699972,
-        1.71098,
-        1.731735,
-        1.718748,
-        1.742058,
-        1.71293
+        1.802636,
+        1.792958,
+        1.819743,
+        1.79464,
+        1.781805,
+        1.8274,
+        1.779311,
+        1.79639,
+        1.751079,
+        1.775574
       ]
     },
     "lines": {
@@ -62,7 +62,7 @@
   "crawl": {
     "matches": true,
     "extra_pages": [],
-    "shortest_gap": 0.974401,
+    "shortest_gap": 1.015514,
     "lines": {
       "counted": 54,
       "local_only": []

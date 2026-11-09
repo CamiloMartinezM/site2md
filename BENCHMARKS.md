@@ -21,7 +21,7 @@ Start from the index of a generated local site, crawl breadth first within depth
 - **Checks.** They come from the server's request log, never from a tool's own report:
   - **Crawl output matches:** whether the output matches the reference in any order, with no repeated and no missing records. A crawl that exits with an error, or writes no output, doesn't match.
   - **Extra pages:** the pages fetched beyond one fetch of each of the 20 expected pages. A decoy, a second fetch of any page, and a path that the site doesn't have each count. `robots.txt` isn't a page.
-  - **Shortest gap:** the shortest time between two consecutive child-page requests. The entry page isn't a child, so the gap between it and the first child doesn't count. The server stamps each request when it arrives, with a fine clock, so a gap under a tool's delay comes from the tool: one that times its delay with a coarse clock can start a request a little early. The footnote under the table says why for site2md.
+  - **Shortest gap:** the shortest time between two consecutive child-page requests. The entry page isn't a child, so the gap between it and the first child doesn't count. The server stamps each request when it arrives, with a fine clock, so a gap under a tool's delay comes from the tool: one that times its delay with a coarse clock can start a request a little early.
 - **Tools without a crawler** show "no crawler" in the crawl columns.
 
 ## Method
@@ -60,22 +60,21 @@ The page copy was downloaded on 2026-11-06. Its SHA-256 is `4c68c2a54000607a0fa5
 
 | Tool | Version | Output matches | Time | Lines | Install size | Packages | Crawl output matches | Extra pages | Shortest gap | Crawl lines |
 |---|---|---|---|---|---|---|---|---|---|---|
-| site2md | 0.4.3 | yes | 1.72 s ± 0.01 s | 54 | 11.5 MB | 20 | yes | 0 | 0.974 s [^1] | 54 |
-| Scrapling | 0.5.1 | yes | 302 ms ± 11 ms | 12 [^2] | 242.9 MB [^3] | 23 | yes [^4] | 0 | 0.000 s [^5] | 19 [^2] |
-| crawl4ai | 0.9.5 | yes | 997 ms ± 17 ms | 24 [^6] [^2] | 554.8 MB [^7] | 96 | yes [^8] | 0 | 0.000 s [^9] | 38 [^2] |
-| MarkItDown | 0.1.9 | yes | 689 ms ± 9 ms | 10 [^2] | 94.8 MB | 19 | no crawler | no crawler | no crawler | no crawler |
-| pandoc | 3.13 | yes | 246 ms ± 5 ms | 12 [^2] | 239.6 MB [^10] | 0 | no crawler | no crawler | no crawler | no crawler |
+| site2md | 0.4.4 | yes | 1.79 s ± 0.02 s | 54 | 11.5 MB | 20 | yes | 0 | 1.016 s | 54 |
+| Scrapling | 0.5.1 | yes | 338 ms ± 9 ms | 12 [^1] | 242.9 MB [^2] | 23 | yes [^3] | 0 | 0.000 s [^4] | 19 [^1] |
+| crawl4ai | 0.9.5 | yes | 1.04 s ± 0.01 s | 24 [^5] [^1] | 554.8 MB [^6] | 96 | yes [^7] | 0 | 0.000 s [^8] | 38 [^1] |
+| MarkItDown | 0.1.9 | yes | 632 ms ± 16 ms | 10 [^1] | 94.8 MB | 19 | no crawler | no crawler | no crawler | no crawler |
+| pandoc | 3.13 | yes | 250 ms ± 7 ms | 12 [^1] | 239.6 MB [^9] | 0 | no crawler | no crawler | no crawler | no crawler |
 
-[^1]: site2md waits one second from the start of one request to the start of the next, as its traversal policy says. It times that second with `time.monotonic()`, which ticks every 15.6 ms on Windows under Python 3.12, so it can start a child request up to one tick early. Variation in how long each request takes to reach the server can add a few milliseconds, so the shortest gap in the server's log can be slightly under one second.
-[^2]: Not counted: `import sys`. The harness passes the local server's 127.0.0.1 URL on the command line, and this code only reads it. A solution for the live site writes the URL inline.
-[^3]: The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded.
-[^4]: Scrapling's spiders have no depth limit, and the `max_pages` of its Markdown spider limits what it converts, not what it fetches. The spider therefore carries each page's depth in its requests and keeps its own set of the pages it has queued. Without them it fetches the five decoy pages.
-[^5]: At its defaults a spider fetches up to four pages at once and adds no delay, and it doesn't request robots.txt unless asked to, so several requests reach the server together.
-[^6]: crawl4ai's `crwl` command line does the task in one line, but it always starts a browser, so that line isn't counted. The count is for the Python solution, which uses the HTTP-only crawler strategy.
-[^7]: crawl4ai requires Playwright and Patchright even for its HTTP-only strategy, so no smaller install exists. They take 110 MB each because each bundles a Node driver. No browser is downloaded.
-[^8]: crawl4ai's breadth-first crawl never marks the entry page as visited, so every page that links back to it queues it again. A filter keeps it out. Without the filter the entry page is fetched twice, and the second fetch uses one of the 20 pages, so a country page is left out.
-[^9]: At its defaults crawl4ai runs up to five fetches at once, with a random delay of 0.1 to 0.4 s per host that doesn't carry over from one level to the next, so some requests reach the server together.
-[^10]: The unpacked archive: `pandoc.exe`, its manual and its licence files. pandoc is not a Python package, so its package count reads 0.
+[^1]: Not counted: `import sys`. The harness passes the local server's 127.0.0.1 URL on the command line, and this code only reads it. A solution for the live site writes the URL inline.
+[^2]: The `fetchers` extra also installs Playwright and Patchright, which take 110 MB each because each bundles a Node driver. No browser is downloaded.
+[^3]: Scrapling's spiders have no depth limit, and the `max_pages` of its Markdown spider limits what it converts, not what it fetches. The spider therefore carries each page's depth in its requests and keeps its own set of the pages it has queued. Without them it fetches the five decoy pages.
+[^4]: At its defaults a spider fetches up to four pages at once and adds no delay, and it doesn't request robots.txt unless asked to, so several requests reach the server together.
+[^5]: crawl4ai's `crwl` command line does the task in one line, but it always starts a browser, so that line isn't counted. The count is for the Python solution, which uses the HTTP-only crawler strategy.
+[^6]: crawl4ai requires Playwright and Patchright even for its HTTP-only strategy, so no smaller install exists. They take 110 MB each because each bundles a Node driver. No browser is downloaded.
+[^7]: crawl4ai's breadth-first crawl never marks the entry page as visited, so every page that links back to it queues it again. A filter keeps it out. Without the filter the entry page is fetched twice, and the second fetch uses one of the 20 pages, so a country page is left out.
+[^8]: At its defaults crawl4ai runs up to five fetches at once, with a random delay of 0.1 to 0.4 s per host that doesn't carry over from one level to the next, so some requests reach the server together.
+[^9]: The unpacked archive: `pandoc.exe`, its manual and its licence files. pandoc is not a Python package, so its package count reads 0.
 
 ### Solutions
 
@@ -89,11 +88,11 @@ The page copy was downloaded on 2026-11-06. Its SHA-256 is `4c68c2a54000607a0fa5
 
 | Tool | Version | Date | Raw results |
 |---|---|---|---|
-| site2md | 0.4.3 | 2026-11-06 | [site2md.json](benchmarks/results/site2md.json) |
-| Scrapling | 0.5.1 | 2026-11-06 | [scrapling.json](benchmarks/results/scrapling.json) |
-| crawl4ai | 0.9.5 | 2026-11-06 | [crawl4ai.json](benchmarks/results/crawl4ai.json) |
-| MarkItDown | 0.1.9 | 2026-11-06 | [markitdown.json](benchmarks/results/markitdown.json) |
-| pandoc | 3.13 | 2026-11-06 | [pandoc.json](benchmarks/results/pandoc.json) |
+| site2md | 0.4.4 | 2026-11-09 | [site2md.json](benchmarks/results/site2md.json) |
+| Scrapling | 0.5.1 | 2026-11-09 | [scrapling.json](benchmarks/results/scrapling.json) |
+| crawl4ai | 0.9.5 | 2026-11-09 | [crawl4ai.json](benchmarks/results/crawl4ai.json) |
+| MarkItDown | 0.1.9 | 2026-11-09 | [markitdown.json](benchmarks/results/markitdown.json) |
+| pandoc | 3.13 | 2026-11-09 | [pandoc.json](benchmarks/results/pandoc.json) |
 <!-- benchmarks:generated:end -->
 
 ## Rerun

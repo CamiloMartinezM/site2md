@@ -1,6 +1,6 @@
 {
   "version": "0.9.5",
-  "date": "2026-11-06",
+  "date": "2026-11-09",
   "environment": {
     "os": "Windows 11",
     "python": "3.12.14",
@@ -9,7 +9,7 @@
     "ruff": "0.17.4"
   },
   "install": {
-    "size_bytes": 554836093,
+    "size_bytes": 554839860,
     "packages": {
       "aiofiles": "25.1.0",
       "aiohappyeyeballs": "2.7.1",
@@ -26,7 +26,7 @@
       "cffi": "2.1.1",
       "chardet": "7.7.0",
       "charset_normalizer": "3.5.2",
-      "click": "8.5.0",
+      "click": "8.5.1",
       "click_log": "0.4.0",
       "cloudpickle": "3.1.2",
       "colorama": "0.4.6",
@@ -85,7 +85,7 @@
       "pyyaml": "6.0.3",
       "rank_bm25": "0.2.2",
       "referencing": "0.37.0",
-      "regex": "2026.9.29",
+      "regex": "2026.11.9",
       "requests": "2.34.2",
       "rich": "15.0.0",
       "rpds_py": "2026.9.1",
@@ -112,22 +112,22 @@
   "page": {
     "matches": true,
     "time": {
-      "mean": 0.996564,
-      "stddev": 0.016954,
-      "median": 0.995169,
-      "min": 0.967342,
-      "max": 1.029383,
+      "mean": 1.039769,
+      "stddev": 0.014329,
+      "median": 1.04119,
+      "min": 1.017973,
+      "max": 1.062843,
       "times": [
-        0.996378,
-        0.984975,
-        1.000291,
-        0.993959,
-        0.99801,
-        0.990244,
-        1.029383,
-        0.988605,
-        1.016451,
-        0.967342
+        1.046254,
+        1.062843,
+        1.046287,
+        1.045488,
+        1.035224,
+        1.021939,
+        1.036893,
+        1.02893,
+        1.055857,
+        1.017973
       ]
     },
     "lines": {
@@ -140,7 +140,7 @@
   "crawl": {
     "matches": true,
     "extra_pages": [],
-    "shortest_gap": 0.000125,
+    "shortest_gap": 0.000232,
     "lines": {
       "counted": 38,
       "local_only": [
