@@ -2,38 +2,19 @@
 
 from __future__ import annotations
 
-import shutil
 import sys
 import tempfile
 import textwrap
 import unittest
 from pathlib import Path
 
-from executable.smoke import PROVIDER, run_smoke
+from executable.smoke import run_smoke
+from tests.executable_test_support import install_smoke_provider
 
 ENTRY_SCRIPT = Path(__file__).resolve().parents[1] / "executable" / "entry.py"
 PACKAGE = [sys.executable, "-m", "site2md.main"]
 # The entry script run by Python is the executable minus the freezing.
 UNFROZEN = [sys.executable, str(ENTRY_SCRIPT)]
-
-
-def _install_smoke_provider(folder: Path) -> None:
-    """Lay out the smoke provider in a folder by hand, as `pip install --target` would."""
-    shutil.copytree(PROVIDER / "smoke_headings", folder / "smoke_headings", ignore=shutil.ignore_patterns("__pycache__"))
-    dist_info = folder / "smoke_headings-0.dist-info"
-    dist_info.mkdir()
-    (dist_info / "METADATA").write_text("Metadata-Version: 2.1\nName: smoke-headings\nVersion: 0\n", encoding="utf-8")
-    (dist_info / "entry_points.txt").write_text(
-        "[site2md.extractors.v1]\nsmoke.headings = smoke_headings:create_extractor\n", encoding="utf-8"
-    )
-    (dist_info / "RECORD").write_text(
-        "smoke_headings/__init__.py,,\n"
-        "smoke_headings/provider-manifest-v1.json,,\n"
-        "smoke_headings-0.dist-info/METADATA,,\n"
-        "smoke_headings-0.dist-info/entry_points.txt,,\n"
-        "smoke_headings-0.dist-info/RECORD,,\n",
-        encoding="utf-8",
-    )
 
 
 class SmokeComparisonTests(unittest.TestCase):
@@ -45,7 +26,7 @@ class SmokeComparisonTests(unittest.TestCase):
         self.root = Path(temp_dir.name)
         self.providers = self.root / "providers"
         self.providers.mkdir()
-        _install_smoke_provider(self.providers)
+        install_smoke_provider(self.providers)
         self.work = self.root / "work"
         self.work.mkdir()
 

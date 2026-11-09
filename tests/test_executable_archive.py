@@ -16,15 +16,6 @@ from pathlib import Path
 from executable.archive import archive_executable, main
 
 
-def _write_onedir_folder(folder: Path, executable_name: str) -> None:
-    """Lay out a stand-in for PyInstaller's onedir folder: an executable beside an _internal folder."""
-    (folder / "_internal" / "site2md").mkdir(parents=True)
-    (folder / executable_name).write_bytes(b"#!/bin/sh\nexit 0\n")
-    (folder / executable_name).chmod(0o755)
-    (folder / "_internal" / "base_library.zip").write_bytes(b"library")
-    (folder / "_internal" / "site2md" / "extraction.json").write_text('{"schema": true}\n', encoding="utf-8")
-
-
 class ArchiveExecutableTests(unittest.TestCase):
     """Archive a stand-in onedir folder and unpack the archive the way a user would."""
 
@@ -143,6 +134,15 @@ class ArchiveCommandTests(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertIn("missing", stderr)
         self.assertFalse(self.destination.exists())
+
+
+def _write_onedir_folder(folder: Path, executable_name: str) -> None:
+    """Lay out a stand-in for PyInstaller's onedir folder: an executable beside an _internal folder."""
+    (folder / "_internal" / "site2md").mkdir(parents=True)
+    (folder / executable_name).write_bytes(b"#!/bin/sh\nexit 0\n")
+    (folder / executable_name).chmod(0o755)
+    (folder / "_internal" / "base_library.zip").write_bytes(b"library")
+    (folder / "_internal" / "site2md" / "extraction.json").write_text('{"schema": true}\n', encoding="utf-8")
 
 
 if __name__ == "__main__":
