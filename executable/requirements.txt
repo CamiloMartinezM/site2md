@@ -1,0 +1,3 @@
+# The build tools, pinned exactly so that a PyInstaller release can't change the bundle between builds.
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.9
