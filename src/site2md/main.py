@@ -29,7 +29,8 @@ app.command(
         "Page mode rejects traversal-only options. Follow mode requires at least "
         "one --follow-selector. Follow mode rejects --max-depth and --include-query. "
         "Site mode rejects --follow-selector. Local input rejects every remote-only "
-        "option. Incompatible options and non-positive budgets fail before any "
+        "option. --extract-output, --entry-points-only and --values-only require "
+        "--extract. Incompatible options and non-positive budgets fail before any "
         "network request."
     ),
 )

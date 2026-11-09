@@ -131,6 +131,23 @@ class InstalledCliTestCase(unittest.TestCase):
             timeout=timeout,
         )
 
+    def run_site2md_bytes(
+        self,
+        *arguments: object,
+        extra_environment: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[bytes]:
+        """Run the installed command and capture its streams as the exact bytes it wrote."""
+        environment = os.environ.copy()
+        environment["PYTHONIOENCODING"] = "utf-8"
+        if extra_environment:
+            environment.update(extra_environment)
+        return subprocess.run(
+            [str(self.command), *map(str, arguments)],
+            check=False,
+            capture_output=True,
+            env=environment,
+        )
+
     def retained_workspace(self, stdout: str) -> Path:
         """Return the reported retained workspace and remove it after the test."""
         marker = "Temporary files kept at "
