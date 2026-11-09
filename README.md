@@ -16,10 +16,10 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/benchmark-dark.svg">
   <source media="(prefers-color-scheme: light)" srcset="docs/benchmark-light.svg">
-  <img alt="Bar chart of the disk space each tool's smallest install uses." src="docs/benchmark-light.svg">
+  <img alt="Bar chart of each tool's install size and the time it takes to extract the countries." src="docs/benchmark-light.svg">
 </picture>
 
-*Disk space used by each tool's smallest install that can extract the countries from [Scrape This Site's countries page](https://www.scrapethissite.com/pages/simple/) without a browser. [Details](BENCHMARKS.md).*
+*Install size and time to extract the 250 countries from a local copy of [Scrape This Site's countries page](https://www.scrapethissite.com/pages/simple/) as JSON, for each tool's smallest install that does it without a browser. [Details](BENCHMARKS.md).*
 <!-- benchmarks:chart:end -->
 
 [Installation](#-installation) • [Features](#-features) • [Usage](#-usage) • [Remote modes](#choose-a-remote-mode) • [Examples](#-examples) • [Benchmarks](#-benchmarks)

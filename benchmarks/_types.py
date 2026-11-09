@@ -10,7 +10,6 @@ if TYPE_CHECKING:
 
 JsonValue = None | bool | int | float | str | Sequence["JsonValue"] | Mapping[str, "JsonValue"]
 SourceKind = Literal["python", "json", "toml"]
-ChartMeasure = Literal["time", "size"]
 ChartTheme = Literal["light", "dark"]
 # The two tasks a tool can solve, and the table columns that a tool's footnote can explain.
 TaskName = Literal["page", "crawl"]
