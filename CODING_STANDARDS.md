@@ -95,7 +95,7 @@ Fix every error rather than silencing it (rule 3). A narrow run can miss errors:
 
 ### Functions and modules
 
-- **Give each function one job.** Keep the CLI layer in `main.py` thin: parse arguments, call into a module, print, and exit.
+- **Give each function one job.** Keep the CLI layer thin: `main.py` registers the commands, and each module in `src/site2md/commands/` parses its arguments, calls into a module, prints and exits.
 - **Make options keyword-only** by placing them after `*`, especially booleans and limits, as `_fetch_page(url, *, max_page_size_mib, ...)` does.
 - **Keep decisions apart from I/O** where that's practical, so the logic can be tested without files or a network.
 
