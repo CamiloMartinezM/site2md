@@ -28,6 +28,39 @@
 
 ## 📦 Installation
 
+### Standalone Executable (Windows/Linux) 🚀
+
+The executable starts faster than a Python environment and needs neither Python nor pip. It is a second download next to the package, which stays the default install. Download the archive for your system from the [latest release](https://github.com/CamiloMartinezM/site2md/releases/latest). `<version>` below is the release's version, such as `0.5.0`.
+
+- `site2md-<version>-windows-x86_64.zip` for Windows.
+- `site2md-<version>-linux-x86_64.tar.gz` for Linux, built on Ubuntu 22.04, so it needs glibc 2.35 or newer.
+
+There is no macOS executable, because Gatekeeper blocks unsigned programs. macOS users install the package, as below.
+
+Unpack the archive. It holds one folder with the archive's name. Keep the executable and its `_internal` folder together in that folder, and put the folder on your `PATH`. These commands do that for the current session. To keep it, add the folder to your shell profile or to Windows' environment variables.
+
+```bash
+# Linux
+tar -xzf site2md-<version>-linux-x86_64.tar.gz
+export PATH="$PWD/site2md-<version>-linux-x86_64:$PATH"
+```
+
+```powershell
+# Windows PowerShell
+Expand-Archive site2md-<version>-windows-x86_64.zip .
+$env:Path = "$PWD\site2md-<version>-windows-x86_64;$env:Path"
+```
+
+Check it with `site2md --version`. The release also holds a `SHA256SUMS` file for the archives: run `sha256sum --check --ignore-missing SHA256SUMS` on Linux, or compare the output of `Get-FileHash <archive>` with its line on Windows.
+
+The executable ignores `PYTHONPATH`, so it can't see Extractor providers that pip installed elsewhere. Install each provider into a folder of its own with `pip install --target <folder> <provider>`, and name the folder in `SITE2MD_PROVIDER_PATH`. Several folders are separated as in `PATH`: `:` on Linux and `;` on Windows.
+
+```bash
+SITE2MD_PROVIDER_PATH=providers site2md extractors
+```
+
+A provider can use only the standard-library modules that the executable includes, and it can't replace a library that the executable already has. [Extractor providers](docs/extractor-providers.md#using-a-provider-with-the-executable) lists these limits and says when to pass `--no-deps`. Anyone who hits a limit uses the package.
+
 ### Quick Install (Linux/macOS) ⚡
 
 ```bash
