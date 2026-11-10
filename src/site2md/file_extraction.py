@@ -102,27 +102,31 @@ def _write_atomic(destination: Path, contents: bytes) -> None:
                 pass
 
 
-def extract_markdown_file(
+def read_markdown_input(markdown_path: Path | None) -> bytes:
+    """Read the Markdown input from a file, or from standard input when the path is None."""
+    try:
+        if markdown_path is None:
+            return sys.stdin.buffer.read()
+        return markdown_path.read_bytes()
+    except OSError as error:
+        _fail(f"could not read Markdown input: {error}")
+
+
+def write_extraction(
     extractor_id: str,
-    markdown_path: Path | None,
+    input_bytes: bytes,
     *,
     output: Path | None,
     entry_points_only: bool,
     values_only: bool,
 ) -> list[str]:
-    """Extract from a Markdown file, or from standard input when the path is None, and write the result.
+    """Extract from the bytes of a Markdown document and write the result.
 
     Return the warning lines to print on standard error. Raise FileExtractionError, whose lines
     the caller prints, when any step fails. The extract command and build --extract share this,
-    so both produce the same bytes.
+    so both produce the same bytes. build passes the bytes that it saved, because reading a file
+    back right after writing it is slow on Windows.
     """
-    try:
-        if markdown_path is None:
-            input_bytes = sys.stdin.buffer.read()
-        else:
-            input_bytes = markdown_path.read_bytes()
-    except OSError as error:
-        _fail(f"could not read Markdown input: {error}")
     try:
         markdown = input_bytes.decode("utf-8")
     except UnicodeDecodeError:
