@@ -44,3 +44,27 @@ class BrowserProfileOptionRulesTests(InstalledCliTestCase):
             self.assertEqual(result.returncode, 1)
             self.assertEqual(result.stdout.strip(), "Error: Remote build options require an HTTP(S) URL.")
             self.assertFalse(output.exists())
+
+    def test_a_folder_that_is_missing_or_is_a_file_fails_before_any_request(self) -> None:
+        with RecordingServer({"/page": (200, HTML, PLAIN_PAGE)}) as server, tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            a_file = root / "profile.txt"
+            a_file.write_text("not a folder", encoding="utf-8")
+            output = root / "out.md"
+            output.write_text("previous", encoding="utf-8")
+            # A typo must not start a new profile, which would read the page as a stranger.
+            for profile in (root / "no-such-folder", a_file):
+                with self.subTest(profile=profile.name):
+                    result = self.run_site2md(
+                        "build", f"{server.origin}/page", "--browser", "--browser-profile", profile,
+                        "--output", output, "--no-progress",
+                    )
+
+                    self.assertEqual(result.returncode, 1)
+                    self.assertEqual(
+                        result.stdout.strip(),
+                        f"Error: Browser profile folder '{profile}' does not exist or is not a folder.",
+                    )
+                    self.assertEqual(output.read_text(encoding="utf-8"), "previous")
+            self.assertEqual(server.requests, [])
+            self.assertFalse((root / "no-such-folder").exists())

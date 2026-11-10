@@ -405,6 +405,12 @@ def _validate_request(request: RemoteBuildRequest) -> _RemoteLimits:
             "--browser-profile can only be used with --browser.",
             stage="validation",
         )
+    # A typo would otherwise start a new profile, and the page would be read as a stranger.
+    if request.browser_profile is not None and not request.browser_profile.is_dir():
+        raise RemoteBuildError(
+            f"Browser profile folder '{request.browser_profile}' does not exist or is not a folder.",
+            stage="validation",
+        )
     if request.mode != "follow" and request.follow_selectors:
         raise RemoteBuildError(
             "--follow-selector can only be used with --mode follow.",
