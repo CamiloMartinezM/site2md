@@ -21,7 +21,7 @@ DEFAULT_MAX_PAGE_SIZE_MIB = 25
 REQUEST_TIMEOUT_SECONDS = 30
 USER_AGENT = "site2md/0.6.0"
 ROBOTS_MAX_BYTES = 512 * 1024
-_BYTES_PER_MIB = 1024 * 1024
+BYTES_PER_MIB = 1024 * 1024
 _CHUNK_SIZE = 64 * 1024
 ALLOWED_MEDIA_TYPES = {"text/html", "application/xhtml+xml"}
 
@@ -94,12 +94,34 @@ class TraversalRequestPolicy:
 
 
 @dataclass
-class _ResponseAccounting:
+class ResponseAccounting:
     """Enforce per-response and aggregate limits across one redirect chain."""
 
     page_max_bytes: int
     aggregate_max_bytes: int | None
     bytes_received: int = 0
+
+    def check_declared_size(self, headers: HTTPMessage | Message[str, str]) -> None:
+        """Raise RemoteFetchError when the Content-Length is malformed or over what may still be read."""
+        declared_size = headers.get("Content-Length")
+        if declared_size is None:
+            return
+        try:
+            content_length = int(declared_size)
+        except ValueError as error:
+            raise RemoteFetchError(
+                "Response Content-Length is malformed.",
+                bytes_received=self.bytes_received,
+            ) from error
+        max_bytes, reached_limit = self._limit()
+        if content_length > max_bytes:
+            raise self._limit_error(reached_limit, declared_size=content_length)
+
+    def check_whole_response(self, size: int) -> None:
+        """Count a response that was read elsewhere, and raise RemoteFetchError when it is over the page limit."""
+        self.bytes_received += size
+        if size > self.page_max_bytes:
+            raise self._limit_error("page")
 
     def read(
         self,
@@ -108,25 +130,8 @@ class _ResponseAccounting:
         output: IO[bytes] | None = None,
     ) -> bytes:
         """Read, count and return one response body, also writing it to the output as it arrives."""
-        max_bytes = self.page_max_bytes
-        reached_limit: Literal["page", "aggregate"] = "page"
-        if self.aggregate_max_bytes is not None:
-            remaining = self.aggregate_max_bytes - self.bytes_received
-            if remaining <= max_bytes:
-                max_bytes = max(remaining, 0)
-                reached_limit = "aggregate"
-
-        declared_size = headers.get("Content-Length")
-        if declared_size is not None:
-            try:
-                content_length = int(declared_size)
-            except ValueError as error:
-                raise RemoteFetchError(
-                    "Response Content-Length is malformed.",
-                    bytes_received=self.bytes_received,
-                ) from error
-            if content_length > max_bytes:
-                raise self._limit_error(reached_limit, declared_size=content_length)
+        self.check_declared_size(headers)
+        max_bytes, reached_limit = self._limit()
 
         chunks: list[bytes] = []
         response_bytes = 0
@@ -143,6 +148,14 @@ class _ResponseAccounting:
             chunks.append(chunk)
         return b"".join(chunks)
 
+    def _limit(self) -> tuple[int, Literal["page", "aggregate"]]:
+        """Return how many bytes the next response may have, and which limit that is."""
+        if self.aggregate_max_bytes is not None:
+            remaining = self.aggregate_max_bytes - self.bytes_received
+            if remaining <= self.page_max_bytes:
+                return max(remaining, 0), "aggregate"
+        return self.page_max_bytes, "page"
+
     def _limit_error(
         self,
         reached_limit: Literal["page", "aggregate"],
@@ -156,7 +169,7 @@ class _ResponseAccounting:
             else:
                 message = "Response exceeds the remaining aggregate content budget."
         else:
-            page_size_mib = self.page_max_bytes // _BYTES_PER_MIB
+            page_size_mib = self.page_max_bytes // BYTES_PER_MIB
             if declared_size is None:
                 message = (
                     f"Response exceeded the {page_size_mib} MiB limit while streaming."
@@ -190,7 +203,7 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
 
     def __init__(
         self,
-        accounting: _ResponseAccounting,
+        accounting: ResponseAccounting,
         request_policy: TraversalRequestPolicy | None = None,
         content_path: Path | None = None,
     ) -> None:
@@ -213,10 +226,7 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
         else:
             with self.content_path.open("wb") as output:
                 self.accounting.read(fp, headers, output)
-        old_scheme = urllib.parse.urlsplit(req.full_url).scheme.lower()
-        new_scheme = urllib.parse.urlsplit(newurl).scheme.lower()
-        if old_scheme == "https" and new_scheme == "http":
-            raise RemoteFetchError("Refusing HTTPS-to-HTTP redirect downgrade.")
+        check_no_downgrade(req.full_url, newurl)
         if self.request_policy is not None:
             self.request_policy.finish_request()
             self.request_policy.prepare_request(newurl)
@@ -273,8 +283,8 @@ def _fetch_page(
     request_policy: TraversalRequestPolicy | None,
 ) -> RemotePage:
     """Fetch one HTML document without following links from its content."""
-    page_max_bytes = max_page_size_mib * _BYTES_PER_MIB
-    accounting = _ResponseAccounting(page_max_bytes, max_body_bytes)
+    page_max_bytes = max_page_size_mib * BYTES_PER_MIB
+    accounting = ResponseAccounting(page_max_bytes, max_body_bytes)
 
     try:
         if request_policy is not None:
@@ -290,16 +300,9 @@ def _fetch_page(
             if request_policy is not None:
                 request_policy.finish_request()
         with opened as response:
-            status = getattr(response, "status", response.getcode())
-            if status < 200 or status >= 300:
-                raise RemoteFetchError(f"Final response returned HTTP {status}.")
-
-            content_type = response.headers.get_content_type().lower()
-            if content_type not in ALLOWED_MEDIA_TYPES:
-                raise RemoteFetchError(
-                    "Final response must be text/html or application/xhtml+xml "
-                    f"(got {content_type})."
-                )
+            check_final_response(
+                getattr(response, "status", response.getcode()), response.headers
+            )
 
             with content_path.open("wb") as output:
                 content = accounting.read(
@@ -308,8 +311,7 @@ def _fetch_page(
                     output,
                 )
 
-            if not content:
-                raise RemoteFetchError("Final HTML response body is empty.")
+            check_has_content(len(content))
 
             return RemotePage(
                 content_path=content_path,
@@ -328,9 +330,8 @@ def _fetch_page(
             bytes_received=accounting.bytes_received,
         ) from error
     except Exception as error:
-        raise RemoteFetchError(
-            f"Malformed or unavailable response: {error}",
-            bytes_received=accounting.bytes_received,
+        raise unavailable_response(
+            error, bytes_received=accounting.bytes_received
         ) from error
 
 
@@ -342,6 +343,39 @@ def _request_delay(policy: urllib.robotparser.RobotFileParser) -> float:
     if request_rate is not None and request_rate.requests > 0:
         rate_delay = request_rate.seconds / request_rate.requests
     return max(1.0, float(crawl_delay), rate_delay)
+
+
+def unavailable_response(reason: object, *, bytes_received: int = 0) -> RemoteFetchError:
+    """Return the error for a response that can't be read, with the reason."""
+    return RemoteFetchError(
+        f"Malformed or unavailable response: {reason}", bytes_received=bytes_received
+    )
+
+
+def check_final_response(status: int, headers: HTTPMessage | Message[str, str]) -> None:
+    """Raise RemoteFetchError unless a final response succeeded and is an HTML document."""
+    if not 200 <= status < 300:
+        raise RemoteFetchError(f"Final response returned HTTP {status}.")
+    content_type = headers.get_content_type().lower()
+    if content_type not in ALLOWED_MEDIA_TYPES:
+        raise RemoteFetchError(
+            "Final response must be text/html or application/xhtml+xml "
+            f"(got {content_type})."
+        )
+
+
+def check_has_content(size: int) -> None:
+    """Raise RemoteFetchError for a final response whose body has no bytes."""
+    if size == 0:
+        raise RemoteFetchError("Final HTML response body is empty.")
+
+
+def check_no_downgrade(old_url: str, new_url: str) -> None:
+    """Raise RemoteFetchError for a move from an HTTPS address to an HTTP one."""
+    old_scheme = urllib.parse.urlsplit(old_url).scheme.lower()
+    new_scheme = urllib.parse.urlsplit(new_url).scheme.lower()
+    if old_scheme == "https" and new_scheme == "http":
+        raise RemoteFetchError("Refusing HTTPS-to-HTTP redirect downgrade.")
 
 
 def fetch_remote(
@@ -381,7 +415,7 @@ def fetch_robots_policy(
     robots_url = urllib.parse.urlunsplit(
         (parsed.scheme, parsed.netloc, "/robots.txt", "", "")
     )
-    accounting = _ResponseAccounting(ROBOTS_MAX_BYTES, ROBOTS_MAX_BYTES)
+    accounting = ResponseAccounting(ROBOTS_MAX_BYTES, ROBOTS_MAX_BYTES)
     opener = urllib.request.build_opener(
         _RobotsRedirectHandler(accounting), _SharedHTTPSHandler()
     )

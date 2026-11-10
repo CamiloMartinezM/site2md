@@ -638,6 +638,28 @@ class BrowserBuildFailureTests(BrowserTestCase):
             self.assertEqual(result.stdout.strip(), "Error fetching remote page: Final HTML response body is empty.")
             self.assertLess(time.monotonic() - started, 9)
 
+    def test_a_content_length_that_is_not_a_number_fails_as_it_does_under_a_plain_fetch(self) -> None:
+        def malformed(handler: BaseHTTPRequestHandler) -> None:
+            # The browser and the plain fetch both read on until the server closes the connection.
+            handler.send_response(200)
+            handler.send_header("Content-Type", "text/html")
+            handler.send_header("Content-Length", "abc")
+            handler.end_headers()
+            handler.wfile.write(PLAIN_PAGE)
+            handler.close_connection = True
+
+        with RecordingServer({"/page": malformed}) as server, tempfile.TemporaryDirectory() as temp_dir:
+            expected = "Error fetching remote page: Response Content-Length is malformed."
+            output = Path(temp_dir) / "plain.md"
+            output.write_text("previous", encoding="utf-8")
+            # The control: a build without the browser fails with this line.
+            plain = self.run_site2md("build", f"{server.origin}/page", "--output", output, "--no-progress")
+            self.assertEqual(plain.stdout.strip(), expected)
+
+            result = self.build_failing(f"{server.origin}/page", Path(temp_dir))
+
+            self.assertEqual(result.stdout.strip(), expected)
+
     def test_a_page_that_the_server_does_not_answer_fails_with_the_browsers_reason(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             result = self.build_failing(f"http://127.0.0.1:{unused_port()}/page", Path(temp_dir))

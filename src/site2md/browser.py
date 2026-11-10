@@ -17,11 +17,15 @@ from contextlib import suppress
 from email.message import Message
 from pathlib import Path
 from typing import BinaryIO
-from urllib.parse import urlsplit
 
 from site2md import downloader
 from site2md._types import DevToolsMessage
-from site2md.downloader import InvalidSelectorError, RemoteFetchError, RemotePage
+from site2md.downloader import (
+    InvalidSelectorError,
+    RemoteFetchError,
+    RemotePage,
+    ResponseAccounting,
+)
 
 _FOLDER_PREFIX = "site2md_browser_"
 VIRTUAL_TIME_BUDGET_MILLISECONDS = 10_000
@@ -36,7 +40,6 @@ BROWSER_SWITCHES = (
     # these, the page isn't requested at the address given, and the fallback looks like a downgrade.
     "--disable-features=HttpsUpgrades,HttpsFirstBalancedModeAutoEnable",
 )
-_BYTES_PER_MIB = 1024 * 1024
 _READ_SIZE = 64 * 1024
 # A wait on a queue isn't interrupted by Ctrl+C on Windows, so a wait is made in short turns.
 _POLL_SECONDS = 0.25
@@ -287,30 +290,33 @@ class _Page:
                 f"No element matched the --wait-for selector {selector!r} within {seconds} seconds."
             ) from None
 
-    def check_document(self, max_page_size_mib: int) -> None:
+    def check_document(self, accounting: ResponseAccounting) -> None:
         """Wait until the browser has the page's own document, then apply a plain fetch's rules to it."""
         if self.document is None:
-            raise RemoteFetchError("Malformed or unavailable response: the browser reported no response.")
+            raise downloader.unavailable_response("the browser reported no response.")
         while self.document["requestId"] not in self._finished_requests:
             self._receive()
         document = self.document
         if document["requestId"] == self._checked_request:
             return
-        _check_response(document["response"], max_page_size_mib)
+        response = document["response"]
+        headers = _response_headers(response)
+        downloader.check_final_response(response["status"], headers)
+        accounting.check_declared_size(headers)
         try:
-            body = self.call("Network.getResponseBody", requestId=document["requestId"])
+            body = self.call("Network.getResponseBody", requestId=document["requestId"])["body"]
         except _ProtocolError:
             # The browser has let go of a body that it no longer needs. Only a body that it has and finds empty counts.
-            body = {"body": "unknown"}
-        if body.get("body") == "":
-            raise RemoteFetchError("Final HTML response body is empty.")
+            body = None
+        if body is not None:
+            downloader.check_has_content(len(body))
         self._checked_request = document["requestId"]
 
     def navigation_failure(self, navigation: DevToolsMessage) -> RemoteFetchError:
         """Describe why a navigation failed, in the words of a plain fetch where it has some."""
         if navigation.get("isDownload"):
             return RemoteFetchError("Final response is a download, which the browser refuses, not a page.")
-        return RemoteFetchError(f"Malformed or unavailable response: {navigation['errorText']}")
+        return downloader.unavailable_response(navigation["errorText"])
 
     def _receive(self) -> DevToolsMessage:
         """Return the next message, after acting on it, and raise the failure that it shows, if it shows one."""
@@ -351,7 +357,7 @@ class _Page:
         elif method == "Network.loadingFailed" and parameters.get("requestId") in self._document_requests:
             # A navigation that another one replaces is cancelled, and is not a failure.
             if not parameters.get("canceled") and self.failure is None:
-                self.failure = RemoteFetchError(f"Malformed or unavailable response: {parameters['errorText']}")
+                self.failure = downloader.unavailable_response(parameters["errorText"])
         elif method in ("Page.frameStartedLoading", "Page.frameStoppedLoading") and (
             parameters.get("frameId") == self._main_frame
         ):
@@ -370,8 +376,11 @@ class _Page:
                 # No redirect leads to this request, so the page that the browser is on has started it.
                 earlier = self.document["response"]["url"]
             self._requested[request_id] = url
-            if earlier is not None and urlsplit(earlier).scheme == "https" and urlsplit(url).scheme == "http":
-                self.failure = RemoteFetchError("Refusing HTTPS-to-HTTP redirect downgrade.")
+            try:
+                if earlier is not None:
+                    downloader.check_no_downgrade(earlier, url)
+            except RemoteFetchError as error:
+                self.failure = error
                 self._send(
                     "Fetch.failRequest",
                     {"requestId": request_id, "errorReason": "BlockedByClient"},
@@ -493,30 +502,17 @@ def _start(
     return _Process(pid, None)
 
 
-def _check_response(response: DevToolsMessage, max_page_size_mib: int) -> None:
-    """Apply a plain fetch's rules to the status, the media type and the declared size of a response."""
-    status = response["status"]
-    if not 200 <= status < 300:
-        raise RemoteFetchError(f"Final response returned HTTP {status}.")
-    headers = {name.lower(): value for name, value in response.get("headers", {}).items()}
-    # As a plain fetch does, and not by the type that the browser works out for itself.
-    message = Message()
-    if "content-type" in headers:
-        message["Content-Type"] = headers["content-type"]
-    content_type = message.get_content_type().lower()
-    if content_type not in downloader.ALLOWED_MEDIA_TYPES:
-        raise RemoteFetchError(
-            f"Final response must be text/html or application/xhtml+xml (got {content_type})."
-        )
-    declared_size = headers.get("content-length", "")
-    if declared_size.isdigit() and int(declared_size) > max_page_size_mib * _BYTES_PER_MIB:
-        raise RemoteFetchError(
-            f"Response declares {declared_size} bytes, exceeding the {max_page_size_mib} MiB limit."
-        )
+def _response_headers(response: DevToolsMessage) -> Message:
+    """Return the headers of a response that a plain fetch's checks read, as it has them."""
+    headers = Message()
+    for name, value in response.get("headers", {}).items():
+        if name.lower() in ("content-type", "content-length"):
+            headers[name] = value
+    return headers
 
 
 def _read_page(
-    browser: _Browser, url: str, max_page_size_mib: int, deadline: float, wait_for: str | None
+    browser: _Browser, url: str, *, accounting: ResponseAccounting, deadline: float, wait_for: str | None
 ) -> tuple[str, str]:
     """Load a URL, let the page's scripts run, and return the address that the browser ends on and the page's markup."""
     page = _Page(browser, deadline)
@@ -527,16 +523,16 @@ def _read_page(
     navigation = page.call("Page.navigate", url=url)
     if navigation.get("errorText"):
         raise page.navigation_failure(navigation)
-    page.check_document(max_page_size_mib)
+    page.check_document(accounting)
     if wait_for is None:
         page.wait_until_time_is_up()
     else:
         page.wait_for_element(wait_for)
     # The page may have moved on, and its last document has to pass as well.
-    page.check_document(max_page_size_mib)
+    page.check_document(accounting)
     result = page.call("Runtime.evaluate", expression=_READ_DOCUMENT, returnByValue=True)
     if "exceptionDetails" in result:
-        raise RemoteFetchError("Malformed or unavailable response: the page could not be read.")
+        raise downloader.unavailable_response("the page could not be read.")
     final_url, markup = result["result"]["value"]
     return final_url, markup
 
@@ -585,14 +581,15 @@ def fetch_with_browser(
     which stays as the browser leaves it. Only the temporary folder is ever removed, never `profile`.
     """
     program = find_browser()
+    accounting = ResponseAccounting(max_page_size_mib * downloader.BYTES_PER_MIB, None)
     folder = Path(tempfile.mkdtemp(prefix=_FOLDER_PREFIX))
     try:
         deadline = time.monotonic() + downloader.REQUEST_TIMEOUT_SECONDS
         browser = _Browser(program, folder, profile.resolve() if profile else folder / "profile")
         try:
-            final_url, markup = _read_page(browser, url, max_page_size_mib, deadline, wait_for)
+            final_url, markup = _read_page(browser, url, accounting=accounting, deadline=deadline, wait_for=wait_for)
         except TimeoutError:
-            raise RemoteFetchError("Malformed or unavailable response: timed out") from None
+            raise downloader.unavailable_response("timed out") from None
         except _PipeClosed:
             reason = browser.stopped_reason()
             message = "The browser stopped before the page was read"
@@ -603,20 +600,14 @@ def fetch_with_browser(
                 message += f": {reason}" if reason else "."
             raise RemoteFetchError(message) from None
         except _ProtocolError as error:
-            raise RemoteFetchError(f"Malformed or unavailable response: {error}") from error
+            raise downloader.unavailable_response(error) from error
         finally:
             browser.close()
     finally:
         _remove_folder(folder)
 
     content = markup.encode("utf-8")
-    max_bytes = max_page_size_mib * _BYTES_PER_MIB
-    if len(content) > max_bytes:
-        raise RemoteFetchError(
-            f"Response exceeded the {max_page_size_mib} MiB limit while streaming.",
-            bytes_received=len(content),
-            reached_limit="page",
-        )
+    accounting.check_whole_response(len(content))
     content_path.write_bytes(content)
     # The page comes out of the browser as text, so it is UTF-8 whatever its <meta charset> says.
     return RemotePage(
