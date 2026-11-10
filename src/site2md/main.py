@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import importlib
 import sys
+import types
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, get_args
@@ -20,6 +22,18 @@ _PLAIN_VALUES: dict[str, Callable[[str], object]] = {
     "list[str] | None": str,
     "RemoteMode": str,
 }
+
+
+class _DeferredModule(types.ModuleType):
+    """Stand in for a module until an attribute of it is read, and import it then."""
+
+    def __getattr__(self, name: str) -> object:
+        # Reached only for names this placeholder lacks, so the module loads on its first real use.
+        if sys.modules.get(self.__name__) is self:
+            del sys.modules[self.__name__]
+        module = importlib.import_module(self.__name__)
+        self.__dict__.update(module.__dict__)
+        return getattr(module, name)
 
 
 def _plain_arguments(
@@ -112,6 +126,9 @@ def _run_with_cyclopts() -> int:
 
 def main() -> int:
     """Run the CLI with POSIX-compatible command-usage exit status."""
+    if "soupsieve" not in sys.modules:
+        # Beautiful Soup imports Soup Sieve, which compiles its grammar for 20 ms; only follow mode uses it.
+        sys.modules["soupsieve"] = _DeferredModule("soupsieve")
     if sys.argv[1:2] == ["build"]:
         # Imported here so that the other commands never load build's modules.
         from site2md.commands.build import build
