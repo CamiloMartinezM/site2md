@@ -234,10 +234,16 @@ class _Page:
     def wait_for_element(self, selector: str) -> None:
         """Wait, in the page's real time, until an element matches the selector."""
         expression = f"document.querySelector({json.dumps(selector)}) !== null"
-        while not self.call("Runtime.evaluate", expression=expression, returnByValue=True)["result"].get("value"):
-            if time.monotonic() >= self.deadline:
-                raise TimeoutError
-            time.sleep(_SELECTOR_POLL_SECONDS)
+        try:
+            while not self.call("Runtime.evaluate", expression=expression, returnByValue=True)["result"].get("value"):
+                if time.monotonic() >= self.deadline:
+                    raise TimeoutError
+                time.sleep(_SELECTOR_POLL_SECONDS)
+        except TimeoutError:
+            seconds = downloader.REQUEST_TIMEOUT_SECONDS
+            raise RemoteFetchError(
+                f"No element matched the --wait-for selector {selector!r} within {seconds} seconds."
+            ) from None
 
     def navigation_failure(self, navigation: DevToolsMessage) -> RemoteFetchError:
         """Describe why a navigation failed, in the words of a plain fetch where it has some."""

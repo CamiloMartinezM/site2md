@@ -570,6 +570,20 @@ class BrowserBuildFailureTests(BrowserTestCase):
                         "Error fetching remote page: Malformed or unavailable response: timed out",
                     )
 
+    def test_a_selector_that_never_matches_fails_at_the_timeout_and_names_the_selector(self) -> None:
+        page = script_page('document.getElementById("content").innerHTML = "<p>Here</p>";')
+        with RecordingServer({"/page": (200, HTML, page)}) as server, tempfile.TemporaryDirectory() as temp_dir:
+            hook_environment = self.startup_hook_environment(Path(temp_dir), SHORT_TIMEOUT_HOOK)
+
+            result = self.build_failing(
+                f"{server.origin}/page", Path(temp_dir), "--wait-for", "li.never", extra_environment=hook_environment
+            )
+
+            self.assertEqual(
+                result.stdout.strip(),
+                "Error fetching remote page: No element matched the --wait-for selector 'li.never' within 3 seconds.",
+            )
+
     def test_an_https_to_http_redirect_is_refused_before_the_http_request_leaves(self) -> None:
         with RecordingServer({"/late": (200, HTML, PLAIN_PAGE)}) as plain_server:
             routes: dict[str, Route] = {"/start": (302, {"Location": f"{plain_server.origin}/late"}, b"")}
