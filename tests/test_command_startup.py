@@ -130,6 +130,26 @@ class CommandStartupTests(InstalledCliTestCase):
 
         self.assertFalse(self.is_loaded(modules, "rich.progress"))
 
+    def test_plain_build_command_line_does_not_load_cyclopts(self) -> None:
+        modules = self.modules_loaded_by_local_build("--no-progress", "--keep-temp")
+
+        self.assertFalse(self.is_loaded(modules, "cyclopts"))
+
+    def test_build_option_written_with_an_equals_sign_is_parsed_by_cyclopts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            pages = root / "pages"
+            pages.mkdir()
+            (pages / "index.html").write_text(
+                "<html><body><main><p>Hello</p></main></body></html>", encoding="utf-8"
+            )
+            output = root / "out.md"
+
+            modules = self.modules_loaded_by(root, "build", pages, f"--output={output}")
+
+            self.assertTrue(self.is_loaded(modules, "cyclopts"))
+            self.assertIn("Hello", output.read_text(encoding="utf-8"))
+
     def test_extract_does_not_load_the_conversion_modules(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
