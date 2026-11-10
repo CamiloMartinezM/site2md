@@ -266,7 +266,7 @@ def build(
                         include_query=include_query,
                         max_total_size_mib=max_total_size_mib,
                         max_page_size_mib=max_page_size_mib,
-                        browser=browser,
+                        use_browser=browser,
                         wait_for=wait_for,
                         browser_profile=browser_profile,
                         keep_temp=keep_temp,

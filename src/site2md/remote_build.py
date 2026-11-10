@@ -47,7 +47,7 @@ class RemoteBuildRequest:
     include_query: bool = False
     max_total_size_mib: int | None = None
     max_page_size_mib: int | None = None
-    browser: bool = False
+    use_browser: bool = False
     wait_for: str | None = None
     browser_profile: Path | None = None
     keep_temp: bool = False
@@ -398,17 +398,17 @@ def _validate_request(request: RemoteBuildRequest) -> _RemoteLimits:
             stage="validation",
         )
 
-    if request.browser and request.mode != "page":
+    if request.use_browser and request.mode != "page":
         raise RemoteBuildError(
             "--browser can only be used with --mode page.",
             stage="validation",
         )
-    if request.wait_for is not None and not request.browser:
+    if request.wait_for is not None and not request.use_browser:
         raise RemoteBuildError(
             "--wait-for can only be used with --browser.",
             stage="validation",
         )
-    if request.browser_profile is not None and not request.browser:
+    if request.browser_profile is not None and not request.use_browser:
         raise RemoteBuildError(
             "--browser-profile can only be used with --browser.",
             stage="validation",
@@ -701,7 +701,7 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
     try:
         _write_debugging_index(workspace, index_pages)
         try:
-            if request.browser:
+            if request.use_browser:
                 # Imported here so that a build without --browser never loads the browser module.
                 from site2md.browser import fetch_with_browser
 
