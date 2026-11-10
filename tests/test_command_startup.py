@@ -157,6 +157,28 @@ class CommandStartupTests(InstalledCliTestCase):
 
         self.assertFalse(self.is_loaded(modules, "rich"))
 
+    def test_build_of_a_folder_with_brackets_in_its_name_does_not_load_rich(self) -> None:
+        # A bracket in a name is text, not markup, so the line prints the same without Rich.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            pages = root / "pages[draft]"
+            pages.mkdir()
+            (pages / "index.html").write_text(
+                "<html><body><main><p>Hello</p></main></body></html>", encoding="utf-8"
+            )
+
+            modules = self.modules_loaded_by(
+                root,
+                "build",
+                pages,
+                "--no-progress",
+                "--output",
+                root / "out[final].md",
+                environment={"COLUMNS": "500"},
+            )
+
+        self.assertFalse(self.is_loaded(modules, "rich"))
+
     def test_build_with_a_message_to_wrap_loads_rich(self) -> None:
         modules = self.modules_loaded_by_local_build(
             "--no-progress", environment={"COLUMNS": "20"}
