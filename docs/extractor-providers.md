@@ -113,7 +113,7 @@ If a provider depends on site2md, pip puts a second copy of site2md in the folde
 
 Inside the executable, a provider has three limits:
 
-- **Standard library.** Only the standard-library modules that the bundle includes are available. A provider that imports another one, such as `sqlite3`, `zoneinfo` or `xml.etree`, fails with `ModuleNotFoundError`.
+- **Standard library.** Only the standard-library modules that the bundle includes are available. A provider that imports another one, such as `sqlite3`, `zoneinfo` or `xml.etree`, fails with `ModuleNotFoundError`. From 0.6.0 the bundle no longer has `multiprocessing` either, so `concurrent.futures.ProcessPoolExecutor` fails too.
 - **Compiled code.** Extension modules must be built for Python 3.12 on the same platform as the executable. Use a Python 3.12 of that platform to run `pip`. Pure-Python providers work as they are.
 - **Bundled libraries.** A provider can't replace a library that the bundle already has, such as `marko` or `jsonschema`. The provider's folders come after the bundle's, so the bundled copy wins even when the folder holds another version.
 
