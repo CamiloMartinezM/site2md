@@ -4,7 +4,7 @@
 
 ![Tests](./docs/tests.svg)
 ![Coverage](./docs/coverage.svg)
-![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)
+![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.10+-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
@@ -30,7 +30,7 @@
 
 ### Standalone Executable (Windows/Linux) 🚀
 
-The executable starts faster than a Python environment and needs neither Python nor pip. It is a second download next to the package, which stays the default install. Download the archive for your system from the [latest release](https://github.com/CamiloMartinezM/site2md/releases/latest). `<version>` below is the release's version, such as `0.5.0`.
+The executable starts faster than a Python environment and needs neither Python nor pip. It is a second download next to the package, which stays the default install. Download the archive for your system from the [latest release](https://github.com/CamiloMartinezM/site2md/releases/latest). `<version>` below is the release's version, such as `0.6.0`.
 
 - `site2md-<version>-windows-x86_64.zip` for Windows.
 - `site2md-<version>-linux-x86_64.tar.gz` for Linux, built on Ubuntu 22.04, so it needs glibc 2.35 or newer.
@@ -379,7 +379,7 @@ site2md against the tools you might pick instead. Every tool extracts the same 2
 
 ## 📚 Documentation
 
-The tool is self-documenting via the CLI. Release-specific behavior and limits are recorded in the [0.5.0](docs/release-0.5.0.md) and [0.4.0](docs/release-0.4.0.md) release notes and the [0.4.1](docs/release-0.4.1.md), [0.4.2](docs/release-0.4.2.md), [0.4.3](docs/release-0.4.3.md), [0.4.4](docs/release-0.4.4.md), [0.4.5](docs/release-0.4.5.md) and [0.4.6](docs/release-0.4.6.md) patch notes.
+The tool is self-documenting via the CLI. Release-specific behavior and limits are recorded in the [0.6.0](docs/release-0.6.0.md), [0.5.0](docs/release-0.5.0.md) and [0.4.0](docs/release-0.4.0.md) release notes and the [0.4.1](docs/release-0.4.1.md), [0.4.2](docs/release-0.4.2.md), [0.4.3](docs/release-0.4.3.md), [0.4.4](docs/release-0.4.4.md), [0.4.5](docs/release-0.4.5.md) and [0.4.6](docs/release-0.4.6.md) patch notes.
 
 ```bash
 site2md --help
