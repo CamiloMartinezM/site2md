@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 # The styles in build's messages. Away from a terminal, Rich prints a message without them.
 _STYLE_TAGS = re.compile(r"\[/?(?:bold|red|yellow|dim|bold green|bold white on green)\]")
 # Stands in for a value while Rich reads a message's markup. No message holds this character.
-_PLACEHOLDER = ""
+_PLACEHOLDER = "\ue000"
 
 
 class _BuildConsole:
