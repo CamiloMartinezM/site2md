@@ -739,6 +739,39 @@ class BrowserBuildFailureTests(BrowserTestCase):
                 self.assertEqual(secure_server.requests, ["/start"])
                 self.assertEqual(plain_server.requests, [])
 
+    def test_an_https_to_http_move_that_the_page_makes_is_refused_before_the_http_request_leaves(self) -> None:
+        with RecordingServer({"/late": (200, HTML, PLAIN_PAGE)}) as plain_server:
+            routes: dict[str, Route] = {
+                "/script": (
+                    200,
+                    HTML,
+                    script_page(f'setTimeout(function () {{ location.href = "{plain_server.origin}/late"; }}, 300);'),
+                ),
+                "/refresh": (
+                    200,
+                    HTML,
+                    f'<html><head><meta http-equiv="refresh" content="0;url={plain_server.origin}/late"></head>'
+                    "<body>x</body></html>".encode(),
+                ),
+            }
+            with RecordingServer(routes, certificate=CERTIFICATE) as secure_server, tempfile.TemporaryDirectory() as temp_dir:
+                hook_environment = self.startup_hook_environment(
+                    Path(temp_dir), ACCEPT_TEST_CERTIFICATE_HOOK + TEN_SECOND_TIMEOUT_HOOK
+                )
+                for path in ("/script", "/refresh"):
+                    # With a selector, the build must not go on waiting for it either.
+                    for options in ((), ("--wait-for", "p.never")):
+                        with self.subTest(path=path, options=options):
+                            result = self.build_failing(
+                                f"{secure_server.origin}{path}", Path(temp_dir), *options, extra_environment=hook_environment
+                            )
+
+                            self.assertEqual(
+                                result.stdout.strip(),
+                                "Error fetching remote page: Refusing HTTPS-to-HTTP redirect downgrade.",
+                            )
+                            self.assertEqual(plain_server.requests, [])
+
     def test_an_https_page_is_read_when_the_browser_accepts_the_certificate(self) -> None:
         # The control for the refusal above: it fails for the redirect, not for the certificate.
         routes: dict[str, Route] = {"/page": (200, HTML, PLAIN_PAGE)}

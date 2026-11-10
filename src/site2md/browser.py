@@ -325,12 +325,15 @@ class _Page:
             self.is_time_up = True
 
     def _answer_request(self, parameters: DevToolsMessage) -> None:
-        """Let a request for a document go on, unless it redirects the page from HTTPS to HTTP."""
+        """Let a request for a document go on, unless it moves the page from HTTPS to HTTP."""
         request_id = parameters["requestId"]
         url = parameters["request"]["url"]
         if parameters.get("frameId") == self._main_frame:
             self._document_requests.add(parameters.get("networkId", ""))
             earlier = self._requested.get(parameters.get("redirectedRequestId", ""))
+            if earlier is None and self.document is not None:
+                # No redirect leads to this request, so the page that the browser is on has started it.
+                earlier = self.document["response"]["url"]
             self._requested[request_id] = url
             if earlier is not None and urlsplit(earlier).scheme == "https" and urlsplit(url).scheme == "http":
                 self.failure = RemoteFetchError("Refusing HTTPS-to-HTTP redirect downgrade.")
