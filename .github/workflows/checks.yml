@@ -74,6 +74,12 @@ jobs:
             - name: Unittest
               run: python -m unittest discover -s tests
 
+            # On the Ubuntu runner Edge can't start its sandbox: AppArmor blocks the user namespaces it needs,
+            # and its setuid fallback isn't set up, so it aborts. Fix the runner; site2md keeps the sandbox on.
+            - name: Allow the user namespaces that Edge's sandbox needs
+              if: matrix.python-version == '3.14' && runner.os == 'Linux'
+              run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
             # The run above uses Chrome. The runners have Edge as well, so this one checks that the
             # browser tests also pass with it.
             - name: Unittest the browser tests with Edge
