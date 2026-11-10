@@ -61,8 +61,8 @@ The page copy was downloaded on 2026-11-06. Its SHA-256 is `4c68c2a54000607a0fa5
 
 | Tool | Version | Output matches | Time | Lines | Install size | Packages | Crawl output matches | Extra pages | Shortest gap | Crawl lines |
 |---|---|---|---|---|---|---|---|---|---|---|
-| site2md | 0.5.0 | yes | 625 ms ± 10 ms | 49 | 11.5 MB | 20 | yes | 0 | 1.028 s | 49 |
-| site2md executable | 0.5.0 | yes | 497 ms ± 17 ms | 49 | 27.5 MB [^1] | 0 | yes | 0 | 1.029 s | 49 |
+| site2md | 0.6.0 | yes | 349 ms ± 8 ms | 49 | 11.5 MB | 20 | yes | 0 | 1.013 s | 49 |
+| site2md executable | 0.6.0 | yes | 264 ms ± 8 ms | 49 | 27.2 MB [^1] | 0 | yes | 0 | 1.003 s | 49 |
 | Scrapling | 0.5.1 | yes | 334 ms ± 6 ms | 12 [^2] | 242.8 MB [^3] | 23 | yes [^4] | 0 | 0.000 s [^5] | 19 [^2] |
 | crawl4ai | 0.9.5 | yes | 1.07 s ± 0.04 s | 24 [^6] [^2] | 554.8 MB [^7] | 96 | yes [^8] | 0 | 0.000 s [^9] | 38 [^2] |
 | MarkItDown | 0.1.9 | yes | 635 ms ± 18 ms | 10 [^2] | 94.8 MB | 19 | no crawler | no crawler | no crawler | no crawler |
@@ -92,8 +92,8 @@ The page copy was downloaded on 2026-11-06. Its SHA-256 is `4c68c2a54000607a0fa5
 
 | Tool | Version | Date | Raw results |
 |---|---|---|---|
-| site2md | 0.5.0 | 2026-11-09 | [site2md.json](benchmarks/results/site2md.json) |
-| site2md executable | 0.5.0 | 2026-11-09 | [site2md-executable.json](benchmarks/results/site2md-executable.json) |
+| site2md | 0.6.0 | 2026-11-10 | [site2md.json](benchmarks/results/site2md.json) |
+| site2md executable | 0.6.0 | 2026-11-10 | [site2md-executable.json](benchmarks/results/site2md-executable.json) |
 | Scrapling | 0.5.1 | 2026-11-09 | [scrapling.json](benchmarks/results/scrapling.json) |
 | crawl4ai | 0.9.5 | 2026-11-09 | [crawl4ai.json](benchmarks/results/crawl4ai.json) |
 | MarkItDown | 0.1.9 | 2026-11-09 | [markitdown.json](benchmarks/results/markitdown.json) |

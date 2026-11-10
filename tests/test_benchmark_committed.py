@@ -81,28 +81,28 @@ class Crawl4aiToolTests(unittest.TestCase):
 class Site2mdToolsTests(unittest.TestCase):
     """Check what the two site2md entries promise, since CI cannot install either to see it."""
 
-    ARCHIVE = "https://github.com/CamiloMartinezM/site2md/releases/download/v0.5.0/site2md-0.5.0-windows-x86_64.zip"
-    ARCHIVE_SHA256 = "0b5a0d96149b633c1fcce8447258c211780dffee414e77672e967b7b8dd3e023"
+    ARCHIVE = "https://github.com/CamiloMartinezM/site2md/releases/download/v0.6.0/site2md-0.6.0-windows-x86_64.zip"
+    ARCHIVE_SHA256 = "5f8056850556d57b4f984393c3aca9b714b61186457cc040e5ef49625d0a0ae7"
 
     def setUp(self) -> None:
         self.package = load_tool(TOOLS_DIRECTORY / "site2md")
         self.executable = load_tool(TOOLS_DIRECTORY / "site2md-executable")
 
-    def test_the_package_installs_the_0_5_0_tag(self) -> None:
-        self.assertEqual(self.package.version, "0.5.0")
+    def test_the_package_installs_the_0_6_0_tag(self) -> None:
+        self.assertEqual(self.package.version, "0.6.0")
         self.assertEqual(
-            self.package.requirements, ("site2md @ git+https://github.com/CamiloMartinezM/site2md@v0.5.0",)
+            self.package.requirements, ("site2md @ git+https://github.com/CamiloMartinezM/site2md@v0.6.0",)
         )
 
-    def test_the_executable_is_pinned_to_the_0_5_0_archive_and_its_checksum(self) -> None:
+    def test_the_executable_is_pinned_to_the_0_6_0_archive_and_its_checksum(self) -> None:
         self.assertEqual(self.executable.name, "site2md executable")
-        self.assertEqual(self.executable.version, "0.5.0")
+        self.assertEqual(self.executable.version, "0.6.0")
         self.assertEqual(self.executable.requirements, ())
         (install,) = self.executable.install[:1]
         self.assertEqual(install[2:4], (self.ARCHIVE, self.ARCHIVE_SHA256))
 
     def test_the_executables_folder_is_put_on_the_path_where_the_archive_unpacks_it(self) -> None:
-        self.assertEqual(self.executable.path, ("site2md-0.5.0-windows-x86_64",))
+        self.assertEqual(self.executable.path, ("site2md-0.6.0-windows-x86_64",))
 
     def test_the_chart_shows_the_executable_and_leaves_the_package_to_the_tables(self) -> None:
         self.assertFalse(self.package.in_chart)

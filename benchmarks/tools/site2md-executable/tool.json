@@ -1,17 +1,17 @@
 {
   "name": "site2md executable",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "solution": "The same one `build --extract` step as site2md's package, run by the standalone executable, which carries its own Python and starts no Python environment. The harness unpacks the official Windows release archive after it checks the archive's SHA-256 against the pinned one, which is the digest in the release's `SHA256SUMS`, and puts the archive's folder first on PATH. The benchmark Extractor is installed after the install is measured, with `uv pip install --target` and `--no-deps` into a folder that `SITE2MD_PROVIDER_PATH` names, because the executable ignores `PYTHONPATH`. The chart's site2md row is this executable.",
   "requirements": [],
   "install": [
     [
       "{python}",
       "{tool}/../install_archive.py",
-      "https://github.com/CamiloMartinezM/site2md/releases/download/v0.5.0/site2md-0.5.0-windows-x86_64.zip",
-      "0b5a0d96149b633c1fcce8447258c211780dffee414e77672e967b7b8dd3e023",
+      "https://github.com/CamiloMartinezM/site2md/releases/download/v0.6.0/site2md-0.6.0-windows-x86_64.zip",
+      "5f8056850556d57b4f984393c3aca9b714b61186457cc040e5ef49625d0a0ae7",
       "{environment}"
     ],
-    ["{environment}/site2md-0.5.0-windows-x86_64/site2md.exe", "--version"]
+    ["{environment}/site2md-0.6.0-windows-x86_64/site2md.exe", "--version"]
   ],
   "setup": [
     [
@@ -19,7 +19,7 @@
       "--target", "{environment}/providers", "--no-deps", "{tool}/../site2md/extractor"
     ]
   ],
-  "path": ["site2md-0.5.0-windows-x86_64"],
+  "path": ["site2md-0.6.0-windows-x86_64"],
   "env": {"SITE2MD_PROVIDER_PATH": "{environment}/providers"},
   "page": {
     "steps": [
