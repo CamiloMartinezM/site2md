@@ -144,6 +144,7 @@ Fix every error rather than silencing it (rule 3). A narrow run can miss errors:
 - **`build` reports through the rich console.** Pass `soft_wrap=True` when a message contains a path, so the path stays whole on one line (#21).
   - With `--extract`, the console writes to standard error, so that standard output holds only the JSON.
   - Without a terminal and without a progress bar, the console prints the same lines without loading Rich (ADR 0005). A message whose style isn't in `_STYLE_TAGS` still goes through Rich, so add a new style there.
+  - **Pass text you don't control as a value, never inside the markup.** That covers paths, URLs, error text and the warnings of a remote build: `console.print("[red]Error:[/red] Input '{}' does not exist.", path)`. Rich never reads a value as markup, so `[draft]`, `[/x]`, `\[` and `:name:` print as they are (#85). Don't build a message with an f-string.
 - **`extract` writes only the JSON document to standard output.** Diagnostics go to standard error.
 
 ## Tests
