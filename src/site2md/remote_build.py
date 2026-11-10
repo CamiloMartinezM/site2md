@@ -701,6 +701,7 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
                     request.entry_url,
                     max_page_size_mib=limits.max_page_size_mib,
                     content_path=entry_path,
+                    profile=request.browser_profile,
                 )
             else:
                 page = fetch_remote(

@@ -102,13 +102,14 @@ class _Process:
 class _Browser:
     """A running browser, and the two pipes that carry the DevTools protocol to and from it."""
 
-    def __init__(self, program: str, folder: Path) -> None:
+    def __init__(self, program: str, folder: Path, profile: Path) -> None:
+        # The log is in the build's own folder, never in the profile, which can be a person's.
         self._log_path = folder / "browser.log"
         commands_read, self._commands = os.pipe()
         self._answers, answers_write = os.pipe()
         try:
             with self._log_path.open("wb") as log:
-                self._process = _start(program, folder / "profile", log, commands_read, answers_write)
+                self._process = _start(program, profile, log, commands_read, answers_write)
         except OSError as error:
             os.close(self._commands)
             os.close(self._answers)
@@ -465,13 +466,19 @@ def find_browser() -> str:
     )
 
 
-def fetch_with_browser(url: str, *, max_page_size_mib: int, content_path: Path) -> RemotePage:
-    """Read one page from an installed browser after its scripts have run, under a plain fetch's rules."""
+def fetch_with_browser(
+    url: str, *, max_page_size_mib: int, content_path: Path, profile: Path | None = None
+) -> RemotePage:
+    """Read one page from an installed browser after its scripts have run, under a plain fetch's rules.
+
+    The browser uses a temporary profile, which is removed afterwards, or the existing folder `profile`,
+    which stays as the browser leaves it. Only the temporary folder is ever removed, never `profile`.
+    """
     program = find_browser()
     folder = Path(tempfile.mkdtemp(prefix=_FOLDER_PREFIX))
     try:
         deadline = time.monotonic() + downloader.REQUEST_TIMEOUT_SECONDS
-        browser = _Browser(program, folder)
+        browser = _Browser(program, folder, profile.resolve() if profile else folder / "profile")
         try:
             final_url, markup = _read_page(browser, url, max_page_size_mib, deadline)
         except TimeoutError:
