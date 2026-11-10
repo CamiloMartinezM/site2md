@@ -89,6 +89,23 @@ def slow_dumps(value, *arguments, **options):
 
 json.dumps = slow_dumps
 """
+# Hands site2md the end of a virtual time budget a second late, after a page that moved on has loaded.
+LATE_BUDGET_END_HOOK = """import time
+
+from site2md import browser
+
+receive = browser._Browser.receive
+
+
+def late_receive(self, deadline):
+    message = receive(self, deadline)
+    if message.get("method") == "Emulation.virtualTimeBudgetExpired":
+        time.sleep(1)
+    return message
+
+
+browser._Browser.receive = late_receive
+"""
 # Room for a test's slow start on top of the browser's own, which takes seconds on a CI runner.
 TWENTY_SECOND_TIMEOUT_HOOK = SHORT_TIMEOUT_HOOK.replace("= 3", "= 20")
 # Makes the removal of the browser's folder fail, as it does where a process still holds a file in it.
@@ -354,11 +371,13 @@ class BrowserBuildTests(BrowserTestCase):
                 HTML,
                 script_page('setTimeout(function () { document.getElementById("content").innerHTML = "<p>Final text</p>"; }, 2000);'),
             )
-            for path in ("/script", "/refresh"):
-                with self.subTest(path=path):
-                    output = Path(temp_dir) / f"{path.strip('/')}.md"
+            # On a fast machine the first page's budget can end after the new page has loaded, which the hook forces.
+            late_end = self.startup_hook_environment(Path(temp_dir), LATE_BUDGET_END_HOOK)
+            for attempt, (path, environment) in enumerate((("/script", None), ("/refresh", None), ("/script", late_end))):
+                with self.subTest(path=path, late_end=environment is not None):
+                    output = Path(temp_dir) / f"{path.strip('/')}-{attempt}.md"
 
-                    result = self.build(f"{server.origin}{path}", output)
+                    result = self.build(f"{server.origin}{path}", output, extra_environment=environment)
 
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                     markdown = output.read_text(encoding="utf-8")

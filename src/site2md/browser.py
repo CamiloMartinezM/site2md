@@ -259,6 +259,7 @@ class _Page:
         while True:
             # The page's timers run fast, and its clock stands still while a request is under way.
             self.is_time_up = False
+            granted_to = self.document_response
             self.call(
                 "Emulation.setVirtualTimePolicy",
                 policy="pauseIfNetworkFetchesPending",
@@ -266,8 +267,8 @@ class _Page:
             )
             while not self.is_time_up:
                 self._receive()
-            # A page that moved to another site is still loading when the budget ends, and can't load while time stands still.
-            if not self.is_loading:
+            # A document that came during the budget gets its own: in another process, its time starts stopped.
+            if not self.is_loading and self.document_response is granted_to:
                 return
 
     def check_selector(self, selector: str) -> None:
