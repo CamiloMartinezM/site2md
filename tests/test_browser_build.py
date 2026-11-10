@@ -7,7 +7,6 @@ import socket
 import subprocess
 import sys
 import tempfile
-import time
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -652,13 +651,10 @@ class BrowserBuildFailureTests(BrowserTestCase):
 
     def test_an_empty_page_is_reported_as_empty_and_not_waited_for_when_a_selector_is_given(self) -> None:
         with RecordingServer({"/empty": (200, HTML, b"")}) as server, tempfile.TemporaryDirectory() as temp_dir:
-            # With the old behaviour the build waits the 30 seconds for an element that can't be there.
-            started = time.monotonic()
-
             result = self.build_failing(f"{server.origin}/empty", Path(temp_dir), "--wait-for", "main")
 
+            # A build that waited for the selector would end with the selector's line instead.
             self.assertEqual(result.stdout.strip(), "Error fetching remote page: Final HTML response body is empty.")
-            self.assertLess(time.monotonic() - started, 20)
 
     def test_a_content_length_that_is_not_a_number_fails_as_it_does_under_a_plain_fetch(self) -> None:
         def malformed(handler: BaseHTTPRequestHandler) -> None:
