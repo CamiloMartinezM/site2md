@@ -37,8 +37,7 @@ BROWSER_SWITCHES = (
     "--no-default-browser-check",
     # Without it, Edge on Windows hands over to a second process and exits.
     "--edge-skip-compat-layer-relaunch",
-    # Chrome 154 upgrades an http:// page to https, and falls back to http if that fails. Without
-    # these, the page isn't requested at the address given, and the fallback looks like a downgrade.
+    # Chrome 154 upgrades http:// to https and falls back, so the page isn't requested as given and the fallback looks like a downgrade.
     "--disable-features=HttpsUpgrades,HttpsFirstBalancedModeAutoEnable",
 )
 _READ_SIZE = 64 * 1024
@@ -201,18 +200,18 @@ class _Browser:
 class _Page:
     """One page of the browser, its commands, and what the browser says about the page's own document."""
 
-    def __init__(self, browser: _Browser, deadline: float) -> None:
+    def __init__(self, browser: _Browser, *, deadline: float) -> None:
         self.browser = browser
         self.deadline = deadline
         # The last response that the browser gave for the page's own document.
-        self.document: DevToolsMessage | None = None
+        self.document_response: DevToolsMessage | None = None
         # What the browser's events have shown to be wrong, which ends the build as soon as it is known.
         self.failure: RemoteFetchError | None = None
         self.is_time_up = False
         self.is_loading = False
         # The ids of the requests that the browser has finished loading, and the one of the document that was checked.
-        self._finished_requests: set[str] = set()
-        self._checked_request = ""
+        self._finished_request_ids: set[str] = set()
+        self._checked_request_id = ""
         self._next_id = 0
         self._session = ""
         # The sessions of the page and of the targets that it opened, by their ids.
@@ -220,9 +219,9 @@ class _Page:
         self._user_agent = ""
         self._main_frame = ""
         # The address of each request for the page's own document, by the id that the browser gave it.
-        self._requested: dict[str, str] = {}
+        self._document_request_urls: dict[str, str] = {}
         # The network ids of the requests for the page's own document, which tell a failed load of it from one of a frame.
-        self._document_requests: set[str] = set()
+        self._document_network_ids: set[str] = set()
 
     def attach(self) -> None:
         """Attach to the browser's page, and set it up: no downloads, a new User-Agent, and a view of redirects."""
@@ -267,8 +266,7 @@ class _Page:
             )
             while not self.is_time_up:
                 self._receive()
-            # A page that moved to another site is still loading its new document when the budget ends, and
-            # the new document can't load while the time stands still.
+            # A page that moved to another site is still loading when the budget ends, and can't load while time stands still.
             if not self.is_loading:
                 return
 
@@ -292,14 +290,14 @@ class _Page:
                 f"No element matched the --wait-for selector '{selector}' within {seconds} seconds."
             ) from None
 
-    def check_document(self, accounting: ResponseAccounting) -> None:
+    def check_document(self, *, accounting: ResponseAccounting) -> None:
         """Wait until the browser has the page's own document, then apply a plain fetch's rules to it."""
-        if self.document is None:
+        if self.document_response is None:
             raise downloader.unavailable_response("the browser reported no response.")
-        while self.document["requestId"] not in self._finished_requests:
+        while self.document_response["requestId"] not in self._finished_request_ids:
             self._receive()
-        document = self.document
-        if document["requestId"] == self._checked_request:
+        document = self.document_response
+        if document["requestId"] == self._checked_request_id:
             return
         response = document["response"]
         headers = _response_headers(response)
@@ -312,7 +310,7 @@ class _Page:
             body = None
         if body is not None:
             downloader.check_has_content(len(body))
-        self._checked_request = document["requestId"]
+        self._checked_request_id = document["requestId"]
 
     def navigation_failure(self, navigation: DevToolsMessage) -> RemoteFetchError:
         """Describe why a navigation failed, in the words of a plain fetch where it has some."""
@@ -353,10 +351,10 @@ class _Page:
             and parameters.get("type") == "Document"
             and parameters.get("frameId") == self._main_frame
         ):
-            self.document = parameters
+            self.document_response = parameters
         elif method == "Network.loadingFinished":
-            self._finished_requests.add(parameters["requestId"])
-        elif method == "Network.loadingFailed" and parameters.get("requestId") in self._document_requests:
+            self._finished_request_ids.add(parameters["requestId"])
+        elif method == "Network.loadingFailed" and parameters.get("requestId") in self._document_network_ids:
             # A navigation that another one replaces is cancelled, and is not a failure.
             if not parameters.get("canceled") and self.failure is None:
                 self.failure = downloader.unavailable_response(parameters["errorText"])
@@ -372,12 +370,12 @@ class _Page:
         request_id = parameters["requestId"]
         url = parameters["request"]["url"]
         if parameters.get("frameId") == self._main_frame:
-            self._document_requests.add(parameters.get("networkId", ""))
-            earlier = self._requested.get(parameters.get("redirectedRequestId", ""))
-            if earlier is None and self.document is not None:
+            self._document_network_ids.add(parameters.get("networkId", ""))
+            earlier = self._document_request_urls.get(parameters.get("redirectedRequestId", ""))
+            if earlier is None and self.document_response is not None:
                 # No redirect leads to this request, so the page that the browser is on has started it.
-                earlier = self.document["response"]["url"]
-            self._requested[request_id] = url
+                earlier = self.document_response["response"]["url"]
+            self._document_request_urls[request_id] = url
             try:
                 if earlier is not None:
                     downloader.check_no_downgrade(earlier, url)
@@ -480,8 +478,7 @@ def _start(
     # Imported here because the module exists only on Unix.
     import fcntl
 
-    # The browser takes its pipes from file descriptors 3 and 4. The ends may already be 3 and 4, so they move
-    # out of the way first, as copies that close when the browser starts, and are then copied onto 3 and 4.
+    # The browser takes its pipes from descriptors 3 and 4, which the ends may already be, so copies that close on exec go first.
     commands_child = fcntl.fcntl(commands_read, fcntl.F_DUPFD_CLOEXEC, 10)
     answers_child = fcntl.fcntl(answers_write, fcntl.F_DUPFD_CLOEXEC, 10)
     try:
@@ -517,7 +514,7 @@ def _read_page(
     browser: _Browser, url: str, *, accounting: ResponseAccounting, deadline: float, wait_for: str | None
 ) -> tuple[str, str]:
     """Load a URL, let the page's scripts run, and return the address that the browser ends on and the page's markup."""
-    page = _Page(browser, deadline)
+    page = _Page(browser, deadline=deadline)
     page.attach()
     if wait_for is not None:
         # The blank start page that the browser opens on can already say, before any request, whether it takes the selector.
@@ -525,13 +522,13 @@ def _read_page(
     navigation = page.call("Page.navigate", url=url)
     if navigation.get("errorText"):
         raise page.navigation_failure(navigation)
-    page.check_document(accounting)
+    page.check_document(accounting=accounting)
     if wait_for is None:
         page.wait_until_time_is_up()
     else:
         page.wait_for_element(wait_for)
     # The page may have moved on, and its last document has to pass as well.
-    page.check_document(accounting)
+    page.check_document(accounting=accounting)
     result = page.call("Runtime.evaluate", expression=_READ_DOCUMENT, returnByValue=True)
     if "exceptionDetails" in result:
         raise downloader.unavailable_response("the page could not be read.")

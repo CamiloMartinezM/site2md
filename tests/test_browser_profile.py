@@ -96,8 +96,7 @@ class BrowserProfileOptionRulesTests(InstalledCliTestCase):
             a_file.write_text("not a folder", encoding="utf-8")
             output = root / "out.md"
             output.write_text("previous", encoding="utf-8")
-            # A typo must not start a new profile, which would read the page as a stranger.
-            # A name with brackets must reach the line as it is, and not as Rich markup.
+            # A typo must not start a new profile, and a name with brackets must reach the line as it is.
             for profile in (root / "no-such-folder", a_file, root / "no[x]-such-folder"):
                 # build binds a plain command line itself, and leaves --name=value to cyclopts.
                 for option in (["--browser-profile", str(profile)], [f"--browser-profile={profile}"]):
@@ -122,8 +121,7 @@ class BrowserProfileOptionRulesTests(InstalledCliTestCase):
         text = " ".join(result.stdout.split())
         self.assertIn("--browser-profile", text)
         self.assertIn("--browser-profile needs --browser", text)
-        # The person signs in with their own browser, and the folder can't be the one they use every day.
-        # The table wraps its cells, so a phrase in it can break across lines.
+        # The person signs in with their own browser, in a folder that isn't their everyday one, and the table wraps cells.
         self.assertIn("--user-data-dir", text)
         self.assertIn("everyday", text)
 
