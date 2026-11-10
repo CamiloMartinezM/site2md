@@ -46,6 +46,7 @@ class RemoteBuildRequest:
     max_total_size_mib: int | None = None
     max_page_size_mib: int | None = None
     browser: bool = False
+    browser_profile: Path | None = None
     keep_temp: bool = False
 
 
@@ -397,6 +398,11 @@ def _validate_request(request: RemoteBuildRequest) -> _RemoteLimits:
     if request.browser and request.mode != "page":
         raise RemoteBuildError(
             "--browser can only be used with --mode page.",
+            stage="validation",
+        )
+    if request.browser_profile is not None and not request.browser:
+        raise RemoteBuildError(
+            "--browser-profile can only be used with --browser.",
             stage="validation",
         )
     if request.mode != "follow" and request.follow_selectors:

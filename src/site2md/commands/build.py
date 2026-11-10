@@ -144,6 +144,7 @@ def build(
     max_total_size_mib: int | None = None,
     max_page_size_mib: int | None = None,
     browser: bool = False,
+    browser_profile: Path | None = None,
     progress: bool = True,
     extract: str | None = None,
     extract_output: Path | None = None,
@@ -190,6 +191,7 @@ def build(
         or max_total_size_mib is not None
         or max_page_size_mib is not None
         or browser
+        or browser_profile is not None
     ):
         console.print("[red]Error:[/red] Remote build options require an HTTP(S) URL.")
         sys.exit(1)
@@ -243,6 +245,7 @@ def build(
                         max_total_size_mib=max_total_size_mib,
                         max_page_size_mib=max_page_size_mib,
                         browser=browser,
+                        browser_profile=browser_profile,
                         keep_temp=keep_temp,
                     )
                 )
