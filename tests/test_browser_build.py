@@ -257,6 +257,63 @@ class BrowserBuildTests(BrowserTestCase):
             # The page runs in real time, so what it adds later isn't there yet.
             self.assertNotIn("Added at four seconds", markdown)
 
+    def test_wait_for_reads_a_page_that_opens_a_dialog(self) -> None:
+        page = script_page(
+            """
+            alert("hello");
+            setTimeout(function () {
+              document.getElementById("content").innerHTML = "<p class='film'>After the dialog</p>";
+            }, 300);
+            """
+        )
+        with RecordingServer({"/page": (200, HTML, page)}) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "out.md"
+
+            result = self.build(f"{server.origin}/page", output, "--wait-for", "p.film")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("After the dialog", output.read_text(encoding="utf-8"))
+
+    def test_wait_for_follows_a_redirect_that_the_pages_own_script_makes(self) -> None:
+        moved = script_page('setTimeout(function () { location.replace("/final"); }, 300);')
+        final = script_page(
+            """
+            setTimeout(function () {
+              document.getElementById("content").innerHTML = "<p class='film'>Final text</p>";
+            }, 500);
+            """
+        )
+        routes: dict[str, Route] = {"/start": (200, HTML, moved), "/final": (200, HTML, final)}
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "out.md"
+
+            result = self.build(f"{server.origin}/start", output, "--wait-for", "p.film")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            markdown = output.read_text(encoding="utf-8")
+            self.assertIn("Final text", markdown)
+            self.assertIn(f"<!-- Source: {server.origin}/final -->", markdown)
+
+    def test_wait_for_gives_the_same_result_whichever_way_the_command_line_is_read(self) -> None:
+        # build binds a plain command line itself, and leaves --name=value to cyclopts.
+        page = script_page(
+            """setTimeout(function () { document.body.insertAdjacentHTML("beforeend", "<p class='built'>Built</p>"); }, 300);"""
+        )
+        with RecordingServer({"/page": (200, HTML, page)}) as server, tempfile.TemporaryDirectory() as temp_dir:
+            separate = Path(temp_dir) / "separate.md"
+            joined = Path(temp_dir) / "joined.md"
+            url = f"{server.origin}/page"
+
+            plain = self.run_site2md("build", url, "--browser", "--wait-for", "p.built", "--output", separate, "--no-progress")
+            through_cyclopts = self.run_site2md(
+                "build", url, "--browser", "--wait-for=p.built", "--output", joined, "--no-progress"
+            )
+
+            self.assertEqual(plain.returncode, 0, plain.stdout + plain.stderr)
+            self.assertEqual(through_cyclopts.returncode, 0, through_cyclopts.stdout + through_cyclopts.stderr)
+            self.assertEqual(separate.read_bytes(), joined.read_bytes())
+            self.assertIn("Built", separate.read_text(encoding="utf-8"))
+
     def test_the_address_that_the_browser_ends_on_is_the_source(self) -> None:
         page = b'<html><body><main><a href="child.html">Child</a></main></body></html>'
         routes: dict[str, Route] = {
