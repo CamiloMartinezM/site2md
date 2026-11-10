@@ -139,6 +139,71 @@ class BuildProgressTests(InstalledCliTestCase):
             )
             self.assertIn("child text", output.read_text(encoding="utf-8"))
 
+    def test_messages_are_the_same_lines_with_and_without_rich(self) -> None:
+        # With no line to wrap, --no-progress prints the messages without loading Rich.
+        routes: dict[str, Route] = {
+            "/page": (200, HTML, b"<html><body><main><p>Hello</p></main></body></html>")
+        }
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            pages = root / "pages"
+            pages.mkdir()
+            (pages / "index.html").write_text(
+                "<html><body><main><p>Hello</p></main></body></html>", encoding="utf-8"
+            )
+
+            self.assert_option_only_hides_the_bar(
+                REMOTE_BAR,
+                "Fetched 1; skipped 0; failed 0.",
+                f"{server.origin}/page",
+                output=root / "page.md",
+                extra_environment={"COLUMNS": "500"},
+            )
+            self.assert_option_only_hides_the_bar(
+                LOCAL_BAR,
+                "Found 1 HTML files.",
+                pages,
+                output=root / "local.md",
+                extra_environment={"COLUMNS": "500"},
+            )
+
+    def test_wrapped_messages_are_the_same_lines_without_the_bar(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            # Long enough for Rich to wrap the lines that name it, on every platform.
+            pages = root / "a-folder-with-a-name-of-more-than-sixty-characters-to-wrap-the-line"
+            pages.mkdir()
+            (pages / "index.html").write_text(
+                "<html><body><main><p>Hello</p></main></body></html>", encoding="utf-8"
+            )
+
+            self.assert_option_only_hides_the_bar(
+                LOCAL_BAR,
+                "Found 1 HTML files.",
+                pages,
+                output=root / "out.md",
+                extra_environment={"COLUMNS": "60"},
+            )
+
+    def test_folder_name_that_reads_as_markup_prints_the_same_lines_without_the_bar(self) -> None:
+        # Rich reads both names as markup: one is no style at all, the other a style of build's own.
+        for name in ("pages[draft]", "pages[bold]"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                pages = root / name
+                pages.mkdir()
+                (pages / "index.html").write_text(
+                    "<html><body><main><p>Hello</p></main></body></html>", encoding="utf-8"
+                )
+
+                self.assert_option_only_hides_the_bar(
+                    LOCAL_BAR,
+                    "Found 1 HTML files.",
+                    pages,
+                    output=root / "out.md",
+                    extra_environment={"COLUMNS": "500"},
+                )
+
     def test_failed_remote_build_reports_the_same_error_without_the_bar(self) -> None:
         with RecordingServer({}) as server, tempfile.TemporaryDirectory() as temp_dir:
             output = Path(temp_dir) / "out.md"
