@@ -367,6 +367,35 @@ class BrowserOptionRulesTests(InstalledCliTestCase):
             self.assertEqual(result.stdout.strip(), "Error: Remote build options require an HTTP(S) URL.")
             self.assertFalse(output.exists())
 
+    def test_wait_for_is_rejected_without_browser(self) -> None:
+        with RecordingServer({"/page": (200, HTML, PLAIN_PAGE)}) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "out.md"
+            output.write_text("previous", encoding="utf-8")
+            for mode in ("page", "follow", "site"):
+                with self.subTest(mode=mode):
+                    result = self.run_site2md(
+                        "build", f"{server.origin}/page", "--wait-for", "main", "--mode", mode, "--output", output,
+                        "--no-progress",
+                    )
+
+                    self.assertEqual(result.returncode, 1)
+                    self.assertEqual(result.stdout.strip(), "Error: --wait-for requires --browser.")
+                    self.assertEqual(output.read_text(encoding="utf-8"), "previous")
+            self.assertEqual(server.requests, [])
+
+    def test_wait_for_is_rejected_for_local_input(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pages = Path(temp_dir) / "pages"
+            pages.mkdir()
+            (pages / "index.html").write_text(PLAIN_PAGE.decode(), encoding="utf-8")
+            output = Path(temp_dir) / "out.md"
+
+            result = self.run_site2md("build", pages, "--wait-for", "main", "--output", output)
+
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout.strip(), "Error: Remote build options require an HTTP(S) URL.")
+            self.assertFalse(output.exists())
+
     def test_the_help_describes_the_option(self) -> None:
         result = self.run_site2md("build", "--help")
 
