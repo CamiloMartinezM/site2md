@@ -719,12 +719,15 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
                     max_body_bytes=max_total_bytes,
                     content_path=entry_path,
                 )
+        except InvalidSelectorError as error:
+            # The selector is the caller's input, as an invalid follow selector is, and no page was asked for.
+            index_pages[0].update(status="invalid", detail=str(error))
+            _write_debugging_index(workspace, index_pages)
+            raise RemoteBuildError(str(error), stage="validation") from error
         except RemoteFetchError as error:
             _record_fetch_failure(index_pages[0], entry_path, error)
             _write_debugging_index(workspace, index_pages)
-            # A selector that the browser rejects is the caller's input, as an invalid follow selector is.
-            stage: RemoteBuildStage = "validation" if isinstance(error, InvalidSelectorError) else "fetch"
-            raise RemoteBuildError(str(error), stage=stage) from error
+            raise RemoteBuildError(str(error), stage="fetch") from error
         except BaseException as error:
             _record_fatal_fetch(index_pages[0], entry_path, error)
             _write_debugging_index(workspace, index_pages)

@@ -785,6 +785,19 @@ class BrowserBuildFailureTests(BrowserTestCase):
                     self.assertEqual(result.stdout.strip(), f"Error: Invalid wait-for selector: '{selector}'")
             self.assertEqual(server.requests, [])
 
+    def test_an_invalid_selector_is_kept_in_the_index_as_invalid_and_not_as_a_failed_fetch(self) -> None:
+        with RecordingServer({"/page": (200, HTML, PLAIN_PAGE)}) as server, tempfile.TemporaryDirectory() as temp_dir:
+            url = f"{server.origin}/page"
+
+            result = self.build_failing(url, Path(temp_dir), "--wait-for", "li[", "--keep-temp")
+
+            self.assertEqual(result.stdout.splitlines()[0], "Error: Invalid wait-for selector: 'li['")
+            index = json.loads((self.retained_workspace(result.stdout) / "index.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                index["pages"],
+                [{"requested_url": url, "html": "page.html", "status": "invalid", "detail": "Invalid wait-for selector: 'li['"}],
+            )
+
     def test_an_https_to_http_redirect_is_refused_before_the_http_request_leaves(self) -> None:
         with RecordingServer({"/late": (200, HTML, PLAIN_PAGE)}) as plain_server:
             routes: dict[str, Route] = {"/start": (302, {"Location": f"{plain_server.origin}/late"}, b"")}

@@ -43,7 +43,7 @@ class RemoteFetchError(RuntimeError):
         self.policy_rejection = policy_rejection
 
 
-class InvalidSelectorError(RemoteFetchError):
+class InvalidSelectorError(ValueError):
     """Raised when the browser doesn't accept a selector that the caller gave."""
 
 
