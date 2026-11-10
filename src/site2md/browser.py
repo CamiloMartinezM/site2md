@@ -21,7 +21,7 @@ from urllib.parse import urlsplit
 
 from site2md import downloader
 from site2md._types import DevToolsMessage
-from site2md.downloader import RemoteFetchError, RemotePage
+from site2md.downloader import InvalidSelectorError, RemoteFetchError, RemotePage
 
 _FOLDER_PREFIX = "site2md_browser_"
 VIRTUAL_TIME_BUDGET_MILLISECONDS = 10_000
@@ -40,6 +40,7 @@ _BYTES_PER_MIB = 1024 * 1024
 _READ_SIZE = 64 * 1024
 # A wait on a queue isn't interrupted by Ctrl+C on Windows, so a wait is made in short turns.
 _POLL_SECONDS = 0.25
+_SELECTOR_POLL_SECONDS = 0.05
 _CLOSE_SECONDS = 5
 _REASON_LENGTH = 300
 # The address, the doctype and the markup of the document as it stands, which the page's scripts have changed.
@@ -234,6 +235,26 @@ class _Page:
         while not self.is_time_up:
             self._handle(self.browser.receive(self.deadline))
 
+    def check_selector(self, selector: str) -> None:
+        """Raise InvalidSelectorError unless the browser accepts the selector."""
+        result = self.call("Runtime.evaluate", expression=_match_expression(selector))
+        if "exceptionDetails" in result:
+            raise InvalidSelectorError(f"Invalid wait-for selector: {selector!r}")
+
+    def wait_for_element(self, selector: str) -> None:
+        """Wait, in the page's real time, until an element matches the selector."""
+        expression = _match_expression(selector)
+        try:
+            while not self.call("Runtime.evaluate", expression=expression, returnByValue=True)["result"].get("value"):
+                if time.monotonic() >= self.deadline:
+                    raise TimeoutError
+                time.sleep(_SELECTOR_POLL_SECONDS)
+        except TimeoutError:
+            seconds = downloader.REQUEST_TIMEOUT_SECONDS
+            raise RemoteFetchError(
+                f"No element matched the --wait-for selector {selector!r} within {seconds} seconds."
+            ) from None
+
     def navigation_failure(self, navigation: DevToolsMessage) -> RemoteFetchError:
         """Describe why a navigation failed, in the words of a plain fetch where it has some."""
         if self.refused_downgrade:
@@ -285,6 +306,11 @@ class _Page:
                 )
                 return
         self._send("Fetch.continueRequest", {"requestId": request_id}, in_page=True)
+
+
+def _match_expression(selector: str) -> str:
+    """Return the script that tells whether an element matches the selector, and throws if the browser rejects it."""
+    return f"document.querySelector({json.dumps(selector)}) !== null"
 
 
 def _app_paths(name: str) -> Iterator[str]:
@@ -408,21 +434,29 @@ def _check_document(document: DevToolsMessage | None, max_page_size_mib: int) ->
         )
 
 
-def _read_page(browser: _Browser, url: str, max_page_size_mib: int, deadline: float) -> tuple[str, str]:
+def _read_page(
+    browser: _Browser, url: str, max_page_size_mib: int, deadline: float, wait_for: str | None
+) -> tuple[str, str]:
     """Load a URL, let the page's scripts run, and return the address that the browser ends on and the page's markup."""
     page = _Page(browser, deadline)
     page.attach()
+    if wait_for is not None:
+        # The blank start page that the browser opens on can already say, before any request, whether it takes the selector.
+        page.check_selector(wait_for)
     navigation = page.call("Page.navigate", url=url)
     if navigation.get("errorText"):
         raise page.navigation_failure(navigation)
     _check_document(page.document, max_page_size_mib)
-    # The page's timers run fast, and its clock stands still while a request is under way.
-    page.call(
-        "Emulation.setVirtualTimePolicy",
-        policy="pauseIfNetworkFetchesPending",
-        budget=VIRTUAL_TIME_BUDGET_MILLISECONDS,
-    )
-    page.wait_until_time_is_up()
+    if wait_for is None:
+        # The page's timers run fast, and its clock stands still while a request is under way.
+        page.call(
+            "Emulation.setVirtualTimePolicy",
+            policy="pauseIfNetworkFetchesPending",
+            budget=VIRTUAL_TIME_BUDGET_MILLISECONDS,
+        )
+        page.wait_until_time_is_up()
+    else:
+        page.wait_for_element(wait_for)
     _check_document(page.document, max_page_size_mib)
     assert page.document is not None
     try:
@@ -470,7 +504,12 @@ def find_browser() -> str:
 
 
 def fetch_with_browser(
-    url: str, *, max_page_size_mib: int, content_path: Path, profile: Path | None = None
+    url: str,
+    *,
+    max_page_size_mib: int,
+    content_path: Path,
+    wait_for: str | None = None,
+    profile: Path | None = None,
 ) -> RemotePage:
     """Read one page from an installed browser after its scripts have run, under a plain fetch's rules.
 
@@ -483,7 +522,7 @@ def fetch_with_browser(
         deadline = time.monotonic() + downloader.REQUEST_TIMEOUT_SECONDS
         browser = _Browser(program, folder, profile.resolve() if profile else folder / "profile")
         try:
-            final_url, markup = _read_page(browser, url, max_page_size_mib, deadline)
+            final_url, markup = _read_page(browser, url, max_page_size_mib, deadline, wait_for)
         except TimeoutError:
             raise RemoteFetchError("Malformed or unavailable response: timed out") from None
         except _PipeClosed:

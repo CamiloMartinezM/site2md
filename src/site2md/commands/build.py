@@ -144,6 +144,7 @@ def build(
     max_total_size_mib: int | None = None,
     max_page_size_mib: int | None = None,
     browser: bool = False,
+    wait_for: str | None = None,
     browser_profile: Path | None = None,
     progress: bool = True,
     extract: str | None = None,
@@ -167,6 +168,9 @@ def build(
         browser: Read the page from an installed Chrome, Edge or Chromium after its scripts have run,
             so that content a script adds is there. Page mode only. Set SITE2MD_BROWSER to the path of
             a browser to use that one.
+        wait_for: With --browser, read the page as soon as an element matches this CSS selector, in
+            real time, so a page that keeps a request open is read too. The build fails if no element
+            matches within 30 seconds, and before any request if the browser rejects the selector.
         browser_profile: With --browser, use this existing folder as the browser's profile and leave it
             as the browser leaves it, to read a page that only signed-in visitors get. Start the same
             browser once with --user-data-dir=FOLDER, sign in to the site and close the browser; later
@@ -198,6 +202,7 @@ def build(
         or max_total_size_mib is not None
         or max_page_size_mib is not None
         or browser
+        or wait_for is not None
         or browser_profile is not None
     ):
         console.print("[red]Error:[/red] Remote build options require an HTTP(S) URL.")
@@ -252,6 +257,7 @@ def build(
                         max_total_size_mib=max_total_size_mib,
                         max_page_size_mib=max_page_size_mib,
                         browser=browser,
+                        wait_for=wait_for,
                         browser_profile=browser_profile,
                         keep_temp=keep_temp,
                     )

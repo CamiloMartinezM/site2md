@@ -41,7 +41,7 @@ An HTML document fetched from a URL, or read from a browser that has run its scr
 _Avoid_: Downloaded file, scraped page
 
 **Browser rendering**:
-Reading a remote page from an installed Chromium-based browser instead of from the server's response, after the page's scripts have run for a fixed budget of the page's own time. It applies to page mode only, and it yields the same remote page, so conversion doesn't change.
+Reading a remote page from an installed Chromium-based browser instead of from the server's response, after the page's scripts have run for a fixed budget of the page's own time, or, with `--wait-for`, until an element matches a CSS selector. It applies to page mode only, and it yields the same remote page, so conversion doesn't change.
 _Avoid_: Headless scraping, JavaScript mode, dynamic mode
 
 **Kept profile**:

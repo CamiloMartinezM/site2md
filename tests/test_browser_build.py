@@ -213,6 +213,107 @@ class BrowserBuildTests(BrowserTestCase):
             self.assertIn("at nine seconds", markdown)
             self.assertNotIn("at twelve seconds", markdown)
 
+    def test_wait_for_reads_a_page_that_keeps_a_request_open(self) -> None:
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def never_answers(handler: BaseHTTPRequestHandler) -> None:
+            release.wait(30)
+
+        # The page's own time stands still while the request is open, so only a selector can end the wait.
+        page = script_page(
+            """
+            fetch("/hang");
+            setTimeout(function () {
+              document.getElementById("content").innerHTML = "<p class='film'>Spotlight</p>";
+            }, 1500);
+            """
+        )
+        routes: dict[str, Route] = {"/open": (200, HTML, page), "/hang": never_answers}
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "out.md"
+
+            result = self.build(f"{server.origin}/open", output, "--wait-for", "p.film")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("Spotlight", output.read_text(encoding="utf-8"))
+
+    def test_wait_for_reads_the_page_as_soon_as_an_element_matches(self) -> None:
+        page = script_page(
+            """
+            var content = document.getElementById("content");
+            content.innerHTML = "<p class='ready'>Ready at once</p>";
+            setTimeout(function () { content.innerHTML += "<p>Added at four seconds</p>"; }, 4000);
+            """
+        )
+        with RecordingServer({"/page": (200, HTML, page)}) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "out.md"
+
+            result = self.build(f"{server.origin}/page", output, "--wait-for", "p.ready")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            markdown = output.read_text(encoding="utf-8")
+            self.assertIn("Ready at once", markdown)
+            # The page runs in real time, so what it adds later isn't there yet.
+            self.assertNotIn("Added at four seconds", markdown)
+
+    def test_wait_for_reads_a_page_that_opens_a_dialog(self) -> None:
+        page = script_page(
+            """
+            alert("hello");
+            setTimeout(function () {
+              document.getElementById("content").innerHTML = "<p class='film'>After the dialog</p>";
+            }, 300);
+            """
+        )
+        with RecordingServer({"/page": (200, HTML, page)}) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "out.md"
+
+            result = self.build(f"{server.origin}/page", output, "--wait-for", "p.film")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("After the dialog", output.read_text(encoding="utf-8"))
+
+    def test_wait_for_follows_a_redirect_that_the_pages_own_script_makes(self) -> None:
+        moved = script_page('setTimeout(function () { location.replace("/final"); }, 300);')
+        final = script_page(
+            """
+            setTimeout(function () {
+              document.getElementById("content").innerHTML = "<p class='film'>Final text</p>";
+            }, 500);
+            """
+        )
+        routes: dict[str, Route] = {"/start": (200, HTML, moved), "/final": (200, HTML, final)}
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "out.md"
+
+            result = self.build(f"{server.origin}/start", output, "--wait-for", "p.film")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            markdown = output.read_text(encoding="utf-8")
+            self.assertIn("Final text", markdown)
+            self.assertIn(f"<!-- Source: {server.origin}/final -->", markdown)
+
+    def test_wait_for_gives_the_same_result_whichever_way_the_command_line_is_read(self) -> None:
+        # build binds a plain command line itself, and leaves --name=value to cyclopts.
+        page = script_page(
+            """setTimeout(function () { document.body.insertAdjacentHTML("beforeend", "<p class='built'>Built</p>"); }, 300);"""
+        )
+        with RecordingServer({"/page": (200, HTML, page)}) as server, tempfile.TemporaryDirectory() as temp_dir:
+            separate = Path(temp_dir) / "separate.md"
+            joined = Path(temp_dir) / "joined.md"
+            url = f"{server.origin}/page"
+
+            plain = self.run_site2md("build", url, "--browser", "--wait-for", "p.built", "--output", separate, "--no-progress")
+            through_cyclopts = self.run_site2md(
+                "build", url, "--browser", "--wait-for=p.built", "--output", joined, "--no-progress"
+            )
+
+            self.assertEqual(plain.returncode, 0, plain.stdout + plain.stderr)
+            self.assertEqual(through_cyclopts.returncode, 0, through_cyclopts.stdout + through_cyclopts.stderr)
+            self.assertEqual(separate.read_bytes(), joined.read_bytes())
+            self.assertIn("Built", separate.read_text(encoding="utf-8"))
+
     def test_the_address_that_the_browser_ends_on_is_the_source(self) -> None:
         page = b'<html><body><main><a href="child.html">Child</a></main></body></html>'
         routes: dict[str, Route] = {
@@ -367,6 +468,35 @@ class BrowserOptionRulesTests(InstalledCliTestCase):
             self.assertEqual(result.stdout.strip(), "Error: Remote build options require an HTTP(S) URL.")
             self.assertFalse(output.exists())
 
+    def test_wait_for_is_rejected_without_browser(self) -> None:
+        with RecordingServer({"/page": (200, HTML, PLAIN_PAGE)}) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "out.md"
+            output.write_text("previous", encoding="utf-8")
+            for mode in ("page", "follow", "site"):
+                with self.subTest(mode=mode):
+                    result = self.run_site2md(
+                        "build", f"{server.origin}/page", "--wait-for", "main", "--mode", mode, "--output", output,
+                        "--no-progress",
+                    )
+
+                    self.assertEqual(result.returncode, 1)
+                    self.assertEqual(result.stdout.strip(), "Error: --wait-for requires --browser.")
+                    self.assertEqual(output.read_text(encoding="utf-8"), "previous")
+            self.assertEqual(server.requests, [])
+
+    def test_wait_for_is_rejected_for_local_input(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pages = Path(temp_dir) / "pages"
+            pages.mkdir()
+            (pages / "index.html").write_text(PLAIN_PAGE.decode(), encoding="utf-8")
+            output = Path(temp_dir) / "out.md"
+
+            result = self.run_site2md("build", pages, "--wait-for", "main", "--output", output)
+
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout.strip(), "Error: Remote build options require an HTTP(S) URL.")
+            self.assertFalse(output.exists())
+
     def test_the_help_describes_the_option(self) -> None:
         result = self.run_site2md("build", "--help")
 
@@ -374,6 +504,16 @@ class BrowserOptionRulesTests(InstalledCliTestCase):
         text = " ".join(result.stdout.split())
         self.assertIn("--browser", text)
         self.assertIn("SITE2MD_BROWSER", text)
+
+    def test_the_help_describes_wait_for_and_the_rule_that_it_needs_the_browser(self) -> None:
+        result = self.run_site2md("build", "--help")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        text = " ".join(result.stdout.split())
+        self.assertIn("--wait-for", text)
+        # Only its description says how long the wait lasts.
+        self.assertIn("seconds", text)
+        self.assertIn("--wait-for needs --browser", text)
 
 
 class BrowserBuildFailureTests(BrowserTestCase):
@@ -496,6 +636,29 @@ class BrowserBuildFailureTests(BrowserTestCase):
                         result.stdout.strip(),
                         "Error fetching remote page: Malformed or unavailable response: timed out",
                     )
+
+    def test_a_selector_that_never_matches_fails_at_the_timeout_and_names_the_selector(self) -> None:
+        page = script_page('document.getElementById("content").innerHTML = "<p>Here</p>";')
+        with RecordingServer({"/page": (200, HTML, page)}) as server, tempfile.TemporaryDirectory() as temp_dir:
+            hook_environment = self.startup_hook_environment(Path(temp_dir), SHORT_TIMEOUT_HOOK)
+
+            result = self.build_failing(
+                f"{server.origin}/page", Path(temp_dir), "--wait-for", "li.never", extra_environment=hook_environment
+            )
+
+            self.assertEqual(
+                result.stdout.strip(),
+                "Error fetching remote page: No element matched the --wait-for selector 'li.never' within 3 seconds.",
+            )
+
+    def test_an_invalid_selector_fails_before_any_request_to_the_site(self) -> None:
+        with RecordingServer({"/page": (200, HTML, PLAIN_PAGE)}) as server, tempfile.TemporaryDirectory() as temp_dir:
+            for selector in ("li[", "!!!", "a >"):
+                with self.subTest(selector=selector):
+                    result = self.build_failing(f"{server.origin}/page", Path(temp_dir), "--wait-for", selector)
+
+                    self.assertEqual(result.stdout.strip(), f"Error: Invalid wait-for selector: '{selector}'")
+            self.assertEqual(server.requests, [])
 
     def test_an_https_to_http_redirect_is_refused_before_the_http_request_leaves(self) -> None:
         with RecordingServer({"/late": (200, HTML, PLAIN_PAGE)}) as plain_server:

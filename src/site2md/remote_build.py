@@ -18,6 +18,7 @@ from site2md._types import RemoteBuildStage, RemoteMode, TraversalControl
 from site2md.converter import convert_remote_page_to_markdown
 from site2md.downloader import (
     DEFAULT_MAX_PAGE_SIZE_MIB,
+    InvalidSelectorError,
     RemoteFetchError,
     RemotePage,
     TraversalRequestPolicy,
@@ -46,6 +47,7 @@ class RemoteBuildRequest:
     max_total_size_mib: int | None = None
     max_page_size_mib: int | None = None
     browser: bool = False
+    wait_for: str | None = None
     browser_profile: Path | None = None
     keep_temp: bool = False
 
@@ -400,6 +402,11 @@ def _validate_request(request: RemoteBuildRequest) -> _RemoteLimits:
             "--browser can only be used with --mode page.",
             stage="validation",
         )
+    if request.wait_for is not None and not request.browser:
+        raise RemoteBuildError(
+            "--wait-for requires --browser.",
+            stage="validation",
+        )
     if request.browser_profile is not None and not request.browser:
         raise RemoteBuildError(
             "--browser-profile can only be used with --browser.",
@@ -701,6 +708,7 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
                     request.entry_url,
                     max_page_size_mib=limits.max_page_size_mib,
                     content_path=entry_path,
+                    wait_for=request.wait_for,
                     profile=request.browser_profile,
                 )
             else:
@@ -714,7 +722,9 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
         except RemoteFetchError as error:
             _record_fetch_failure(index_pages[0], entry_path, error)
             _write_debugging_index(workspace, index_pages)
-            raise RemoteBuildError(str(error), stage="fetch") from error
+            # A selector that the browser rejects is the caller's input, as an invalid follow selector is.
+            stage: RemoteBuildStage = "validation" if isinstance(error, InvalidSelectorError) else "fetch"
+            raise RemoteBuildError(str(error), stage=stage) from error
         except BaseException as error:
             _record_fatal_fetch(index_pages[0], entry_path, error)
             _write_debugging_index(workspace, index_pages)
