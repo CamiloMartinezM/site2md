@@ -209,6 +209,7 @@ site2md build https://example.com/members --browser --browser-profile /path/to/p
 - **Not your everyday profile.** The folder can't be the profile that your browser uses every day. Since version 136, Chrome refuses remote debugging on its default profile, so use a folder of its own.
 - **Not open elsewhere.** A folder that another browser has open fails with one line. Close that browser first.
 - **It stays as it is.** site2md never removes, empties or copies anything out of the folder, also not after a failure or an interruption, and not with `--keep-temp`: the workspace that it keeps holds the page and its Markdown, and nothing from the folder. The browser changes the folder as it runs, as it does for any profile.
+- **Leave its startup setting alone.** If the browser in that folder is set to continue where it left off, a build can reopen the tabs that the folder remembers, and the browser then asks for their icons and perhaps more. Keep the folder for this one purpose, with the browser's default of opening a new tab page.
 - **Treat the folder like a password.** It holds the session of your account, so don't share it, and don't commit it.
 
 Use it only on sites whose terms allow automated access. A session is an account's, and the account's terms apply to what you do with it.
