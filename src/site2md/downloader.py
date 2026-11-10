@@ -47,6 +47,10 @@ class InvalidSelectorError(ValueError):
     """Raised when the browser doesn't accept a selector that the caller gave."""
 
 
+class BrowserCleanupError(RuntimeError):
+    """Raised when the folder that a browser used can't be removed."""
+
+
 @dataclass
 class TraversalRequestPolicy:
     """Enforce one concrete traversal origin, robots policy, and request delay."""

@@ -21,6 +21,7 @@ from typing import BinaryIO
 from site2md import downloader
 from site2md._types import DevToolsMessage
 from site2md.downloader import (
+    BrowserCleanupError,
     InvalidSelectorError,
     RemoteFetchError,
     RemotePage,
@@ -45,6 +46,7 @@ _READ_SIZE = 64 * 1024
 _POLL_SECONDS = 0.25
 _SELECTOR_POLL_SECONDS = 0.05
 _CLOSE_SECONDS = 5
+_REMOVE_ATTEMPTS = 20
 _REASON_LENGTH = 300
 # The address, the doctype and the markup of the document as it stands, which the page's scripts have changed.
 _READ_DOCUMENT = (
@@ -539,16 +541,17 @@ def _read_page(
 
 def _remove_folder(folder: Path) -> None:
     """Remove the folder that a browser used, which its last processes may hold open for a moment on Windows."""
-    for _ in range(20):
+    for attempt in range(_REMOVE_ATTEMPTS):
         try:
             shutil.rmtree(folder)
         except FileNotFoundError:
             return
-        except OSError:
+        except OSError as error:
+            if attempt == _REMOVE_ATTEMPTS - 1:
+                raise BrowserCleanupError(f"Could not remove the browser's temporary folder '{folder}': {error}") from error
             time.sleep(0.1)
         else:
             return
-    shutil.rmtree(folder, ignore_errors=True)
 
 
 def find_browser() -> str:
@@ -603,8 +606,12 @@ def fetch_with_browser(
             raise downloader.unavailable_response(error) from error
         finally:
             browser.close()
-    finally:
-        _remove_folder(folder)
+    except BaseException:
+        # The failure that is under way is the one to report, so a folder that stays isn't reported on top of it.
+        with suppress(BrowserCleanupError):
+            _remove_folder(folder)
+        raise
+    _remove_folder(folder)
 
     content = markup.encode("utf-8")
     accounting.check_whole_response(len(content))

@@ -18,6 +18,7 @@ from site2md._types import RemoteBuildStage, RemoteMode, TraversalControl
 from site2md.converter import convert_remote_page_to_markdown
 from site2md.downloader import (
     DEFAULT_MAX_PAGE_SIZE_MIB,
+    BrowserCleanupError,
     InvalidSelectorError,
     RemoteFetchError,
     RemotePage,
@@ -724,6 +725,10 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
             index_pages[0].update(status="invalid", detail=str(error))
             _write_debugging_index(workspace, index_pages)
             raise RemoteBuildError(str(error), stage="validation") from error
+        except BrowserCleanupError as error:
+            index_pages[0].update(status="failed", detail=str(error))
+            _write_debugging_index(workspace, index_pages)
+            raise RemoteBuildError(str(error), stage="cleanup") from error
         except RemoteFetchError as error:
             _record_fetch_failure(index_pages[0], entry_path, error)
             _write_debugging_index(workspace, index_pages)

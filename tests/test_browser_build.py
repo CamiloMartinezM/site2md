@@ -101,6 +101,22 @@ def slow_dumps(value, *arguments, **options):
 json.dumps = slow_dumps
 """
 TEN_SECOND_TIMEOUT_HOOK = SHORT_TIMEOUT_HOOK.replace("= 3", "= 10")
+# Makes the removal of the browser's folder fail, as it does where a process still holds a file in it.
+KEEP_BROWSER_FOLDER_HOOK = """import shutil
+
+rmtree = shutil.rmtree
+
+
+def stuck_rmtree(path, *arguments, **options):
+    if "site2md_browser_" in str(path):
+        if options.get("ignore_errors"):
+            return
+        raise PermissionError(13, "Access is denied", str(path))
+    return rmtree(path, *arguments, **options)
+
+
+shutil.rmtree = stuck_rmtree
+"""
 
 
 def script_page(script: str) -> bytes:
@@ -957,6 +973,30 @@ class BrowserCleanupTests(BrowserTestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("timed out", result.stdout)
             self.assert_no_browser_left(root)
+
+    def test_a_browser_folder_that_cannot_be_removed_fails_the_build_with_one_line_that_names_it(self) -> None:
+        with RecordingServer({"/page": (200, HTML, PLAIN_PAGE)}) as server:
+            result, root = self.run_in_clean_folder(f"{server.origin}/page", hook=KEEP_BROWSER_FOLDER_HOOK)
+
+            leftovers = [path for path in (root / TEMP_FOLDER).iterdir() if path.name.startswith("site2md_browser_")]
+            self.assertEqual(len(leftovers), 1, "the hook leaves the folder")
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertTrue(
+                result.stdout.startswith(
+                    f"Error cleaning remote workspace: Could not remove the browser's temporary folder '{leftovers[0]}': "
+                ),
+                result.stdout,
+            )
+            self.assertNotIn("Success", result.stdout)
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertEqual((root / "out.md").read_text(encoding="utf-8"), "previous")
+
+    def test_a_failed_build_reports_its_own_failure_and_not_the_folder_that_stays(self) -> None:
+        with RecordingServer({"/page": (404, HTML, PLAIN_PAGE)}) as server:
+            result, _ = self.run_in_clean_folder(f"{server.origin}/page", hook=KEEP_BROWSER_FOLDER_HOOK)
+
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout.strip(), "Error fetching remote page: Final response returned HTTP 404.")
 
     def test_after_an_interruption(self) -> None:
         with RecordingServer({"/page": (200, HTML, PLAIN_PAGE)}) as server:
