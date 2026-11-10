@@ -14,7 +14,12 @@ from pathlib import Path
 from site2md.browser import find_browser
 from tests.browser_test_support import BrowserTestCase
 from tests.cli_test_support import InstalledCliTestCase, RecordingServer, Route
-from tests.test_browser_build import HTML, INTERRUPT_AT_NAVIGATION_HOOK, PLAIN_PAGE, SHORT_TIMEOUT_HOOK
+from tests.test_browser_build import (
+    HTML,
+    INTERRUPT_AT_NAVIGATION_HOOK,
+    PLAIN_PAGE,
+    SHORT_TIMEOUT_HOOK,
+)
 
 # What a person's session leaves in a profile folder, as far as these tests are concerned.
 SESSION_FILE = "session.txt"
@@ -92,18 +97,19 @@ class BrowserProfileOptionRulesTests(InstalledCliTestCase):
             output.write_text("previous", encoding="utf-8")
             # A typo must not start a new profile, which would read the page as a stranger.
             for profile in (root / "no-such-folder", a_file):
-                with self.subTest(profile=profile.name):
-                    result = self.run_site2md(
-                        "build", f"{server.origin}/page", "--browser", "--browser-profile", profile,
-                        "--output", output, "--no-progress",
-                    )
+                # build binds a plain command line itself, and leaves --name=value to cyclopts.
+                for option in (["--browser-profile", str(profile)], [f"--browser-profile={profile}"]):
+                    with self.subTest(profile=profile.name, option=option[0]):
+                        result = self.run_site2md(
+                            "build", f"{server.origin}/page", "--browser", *option, "--output", output, "--no-progress"
+                        )
 
-                    self.assertEqual(result.returncode, 1)
-                    self.assertEqual(
-                        result.stdout.strip(),
-                        f"Error: Browser profile folder '{profile}' does not exist or is not a folder.",
-                    )
-                    self.assertEqual(output.read_text(encoding="utf-8"), "previous")
+                        self.assertEqual(result.returncode, 1)
+                        self.assertEqual(
+                            result.stdout.strip(),
+                            f"Error: Browser profile folder '{profile}' does not exist or is not a folder.",
+                        )
+                        self.assertEqual(output.read_text(encoding="utf-8"), "previous")
             self.assertEqual(server.requests, [])
             self.assertFalse((root / "no-such-folder").exists())
 
