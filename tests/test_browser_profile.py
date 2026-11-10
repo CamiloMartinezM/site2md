@@ -343,3 +343,19 @@ class BrowserProfileTests(BrowserTestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn("The browser stopped before the page was read: ", result.stdout)
             self.assertNotIn("Another browser", result.stdout)
+
+    def test_the_session_is_kept_when_the_page_is_read_with_wait_for(self) -> None:
+        routes: dict[str, Route] = {
+            "/remember": remember,
+            "/members": members,
+            "/sign-in": (200, HTML, b"<html><body><main><h1>Sign in</h1></main></body></html>"),
+        }
+        with RecordingServer(routes) as server:
+            root = self.new_root()
+            self.assertEqual(self.build(f"{server.origin}/remember", root).returncode, 0)
+
+            result = self.build(f"{server.origin}/members", root, "--wait-for", "main h1")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("Only for signed-in visitors.", (root / "out.md").read_text(encoding="utf-8"))
+            self.assert_session_kept_and_browser_gone(root)
