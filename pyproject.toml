@@ -51,6 +51,15 @@ exclude = [
     "/tests/test_executable_*.py",
 ]
 
+[tool.uv]
+# Without these, uv reuses its cached build of this folder until pyproject.toml changes, so
+# `uv run --with .` and `uv pip install .` would install stale code after a source file changes.
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "src/**/*.py" },
+    { file = "src/**/*.json" },
+]
+
 [tool.ruff.lint]
 ignore = [
     "D413",
