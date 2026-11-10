@@ -767,17 +767,18 @@ class BrowserBuildFailureTests(BrowserTestCase):
             hook_environment = self.startup_hook_environment(Path(temp_dir), SLOW_START_HOOK + TEN_SECOND_TIMEOUT_HOOK)
 
             result = self.build_failing(
-                f"{server.origin}/page", Path(temp_dir), "--wait-for", "li.never", extra_environment=hook_environment
+                f"{server.origin}/page", Path(temp_dir), "--wait-for", "li[data-never]", extra_environment=hook_environment
             )
 
             self.assertEqual(
                 result.stdout.strip(),
-                "Error fetching remote page: No element matched the --wait-for selector 'li.never' within 10 seconds.",
+                "Error fetching remote page: No element matched the --wait-for selector 'li[data-never]' within 10 seconds.",
             )
 
     def test_an_invalid_selector_fails_before_any_request_to_the_site(self) -> None:
         with RecordingServer({"/page": (200, HTML, PLAIN_PAGE)}) as server, tempfile.TemporaryDirectory() as temp_dir:
-            for selector in ("li[", "!!!", "a >"):
+            # Brackets and backslashes must reach the line as they are written.
+            for selector in ("li[", "!!!", "a >", "p[bold] >", r"a\:b >"):
                 with self.subTest(selector=selector):
                     result = self.build_failing(f"{server.origin}/page", Path(temp_dir), "--wait-for", selector)
 

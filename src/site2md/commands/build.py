@@ -108,6 +108,16 @@ def _plain_line(message: str, *, soft_wrap: bool) -> str | None:
     return line
 
 
+def _escaped(text: str) -> str:
+    """Return the text with its brackets escaped, so that Rich prints a selector or a path as it is."""
+    if "[" not in text:
+        return text
+    # Imported here so that an error line without a bracket never loads Rich.
+    from rich.markup import escape
+
+    return escape(text)
+
+
 def _preload_extraction() -> None:
     """Import the extraction modules ahead of their use, on a thread of its own."""
     # build imports the module again when it extracts, and that import reports a failure.
@@ -273,7 +283,7 @@ def build(
                     "unexpected": "Unexpected remote build error:",
                 }
                 # soft_wrap keeps messages and paths on one line, whole and copyable.
-                console.print(f"[red]{labels[error.stage]}[/red] {error}", soft_wrap=True)
+                console.print(f"[red]{labels[error.stage]}[/red] {_escaped(str(error))}", soft_wrap=True)
                 if error.retained_workspace is not None:
                     console.print(
                         f"[dim]Temporary files kept at {error.retained_workspace}[/dim]",

@@ -274,7 +274,7 @@ class _Page:
         """Raise InvalidSelectorError unless the browser accepts the selector."""
         result = self.call("Runtime.evaluate", expression=_match_expression(selector))
         if "exceptionDetails" in result:
-            raise InvalidSelectorError(f"Invalid wait-for selector: {selector!r}")
+            raise InvalidSelectorError(f"Invalid wait-for selector: '{selector}'")
 
     def wait_for_element(self, selector: str) -> None:
         """Wait, in the page's real time, until an element matches the selector."""
@@ -287,7 +287,7 @@ class _Page:
         except TimeoutError:
             seconds = downloader.REQUEST_TIMEOUT_SECONDS
             raise RemoteFetchError(
-                f"No element matched the --wait-for selector {selector!r} within {seconds} seconds."
+                f"No element matched the --wait-for selector '{selector}' within {seconds} seconds."
             ) from None
 
     def check_document(self, accounting: ResponseAccounting) -> None:

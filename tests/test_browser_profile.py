@@ -97,7 +97,8 @@ class BrowserProfileOptionRulesTests(InstalledCliTestCase):
             output = root / "out.md"
             output.write_text("previous", encoding="utf-8")
             # A typo must not start a new profile, which would read the page as a stranger.
-            for profile in (root / "no-such-folder", a_file):
+            # A name with brackets must reach the line as it is, and not as Rich markup.
+            for profile in (root / "no-such-folder", a_file, root / "no[x]-such-folder"):
                 # build binds a plain command line itself, and leaves --name=value to cyclopts.
                 for option in (["--browser-profile", str(profile)], [f"--browser-profile={profile}"]):
                     with self.subTest(profile=profile.name, option=option[0]):
