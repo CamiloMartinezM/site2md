@@ -405,7 +405,7 @@ def _validate_request(request: RemoteBuildRequest) -> _RemoteLimits:
         )
     if request.wait_for is not None and not request.browser:
         raise RemoteBuildError(
-            "--wait-for requires --browser.",
+            "--wait-for can only be used with --browser.",
             stage="validation",
         )
     if request.browser_profile is not None and not request.browser:

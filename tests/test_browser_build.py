@@ -566,7 +566,7 @@ class BrowserOptionRulesTests(InstalledCliTestCase):
                     )
 
                     self.assertEqual(result.returncode, 1)
-                    self.assertEqual(result.stdout.strip(), "Error: --wait-for requires --browser.")
+                    self.assertEqual(result.stdout.strip(), "Error: --wait-for can only be used with --browser.")
                     self.assertEqual(output.read_text(encoding="utf-8"), "previous")
             self.assertEqual(server.requests, [])
 
