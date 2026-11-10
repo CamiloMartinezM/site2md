@@ -199,13 +199,16 @@ class _Page:
         self.deadline = deadline
         # The last response that the browser gave for the page's own document.
         self.document: DevToolsMessage | None = None
-        self.refused_downgrade = False
+        # What the browser's events have shown to be wrong, which ends the build as soon as it is known.
+        self.failure: RemoteFetchError | None = None
         self.is_time_up = False
         self._next_id = 0
         self._session = ""
         self._main_frame = ""
         # The address of each request for the page's own document, by the id that the browser gave it.
         self._requested: dict[str, str] = {}
+        # The network ids of the requests for the page's own document, which tell a failed load of it from one of a frame.
+        self._document_requests: set[str] = set()
 
     def attach(self) -> None:
         """Attach to the browser's page, and set it up: no downloads, a new User-Agent, and a view of redirects."""
@@ -227,18 +230,17 @@ class _Page:
         """Send one command and return its result, while handling the events that arrive first."""
         sent = self._send(method, parameters, in_page=in_page)
         while True:
-            message = self.browser.receive(self.deadline)
+            message = self._receive()
             if message.get("id") == sent:
                 if "error" in message:
                     raise _ProtocolError(f"{method}: {message['error'].get('message')}")
                 result: DevToolsMessage = message.get("result", {})
                 return result
-            self._handle(message)
 
     def wait_until_time_is_up(self) -> None:
         """Wait for the end of the page's virtual time budget."""
         while not self.is_time_up:
-            self._handle(self.browser.receive(self.deadline))
+            self._receive()
 
     def check_selector(self, selector: str) -> None:
         """Raise InvalidSelectorError unless the browser accepts the selector."""
@@ -262,11 +264,17 @@ class _Page:
 
     def navigation_failure(self, navigation: DevToolsMessage) -> RemoteFetchError:
         """Describe why a navigation failed, in the words of a plain fetch where it has some."""
-        if self.refused_downgrade:
-            return RemoteFetchError("Refusing HTTPS-to-HTTP redirect downgrade.")
         if navigation.get("isDownload"):
             return RemoteFetchError("Final response is a download, which the browser refuses, not a page.")
         return RemoteFetchError(f"Malformed or unavailable response: {navigation['errorText']}")
+
+    def _receive(self) -> DevToolsMessage:
+        """Return the next message, after acting on it, and raise the failure that it shows, if it shows one."""
+        message = self.browser.receive(self.deadline)
+        self._handle(message)
+        if self.failure is not None:
+            raise self.failure
+        return message
 
     def _send(self, method: str, parameters: DevToolsMessage, *, in_page: bool) -> int:
         """Send one command without waiting for its answer, and return its id."""
@@ -292,6 +300,10 @@ class _Page:
             and parameters.get("frameId") == self._main_frame
         ):
             self.document = parameters
+        elif method == "Network.loadingFailed" and parameters.get("requestId") in self._document_requests:
+            # A navigation that another one replaces is cancelled, and is not a failure.
+            if not parameters.get("canceled") and self.failure is None:
+                self.failure = RemoteFetchError(f"Malformed or unavailable response: {parameters['errorText']}")
         elif method == "Emulation.virtualTimeBudgetExpired":
             self.is_time_up = True
 
@@ -300,10 +312,11 @@ class _Page:
         request_id = parameters["requestId"]
         url = parameters["request"]["url"]
         if parameters.get("frameId") == self._main_frame:
+            self._document_requests.add(parameters.get("networkId", ""))
             earlier = self._requested.get(parameters.get("redirectedRequestId", ""))
             self._requested[request_id] = url
             if earlier is not None and urlsplit(earlier).scheme == "https" and urlsplit(url).scheme == "http":
-                self.refused_downgrade = True
+                self.failure = RemoteFetchError("Refusing HTTPS-to-HTTP redirect downgrade.")
                 self._send(
                     "Fetch.failRequest",
                     {"requestId": request_id, "errorReason": "BlockedByClient"},

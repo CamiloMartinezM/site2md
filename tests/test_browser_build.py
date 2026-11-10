@@ -579,6 +579,24 @@ class BrowserBuildFailureTests(BrowserTestCase):
                 "Error fetching remote page: Malformed or unavailable response: net::ERR_CONNECTION_REFUSED",
             )
 
+    def test_a_navigation_that_the_pages_script_starts_and_that_fails_fails_the_build(self) -> None:
+        page = script_page(
+            f'setTimeout(function () {{ location.replace("http://127.0.0.1:{unused_port()}/gone"); }}, 300);'
+        )
+        with RecordingServer({"/start": (200, HTML, page)}) as server, tempfile.TemporaryDirectory() as temp_dir:
+            hook_environment = self.startup_hook_environment(Path(temp_dir), TEN_SECOND_TIMEOUT_HOOK)
+            # With a selector, the build must not wait for it on the browser's error page.
+            for options in ((), ("--wait-for", "p.never")):
+                with self.subTest(options=options):
+                    result = self.build_failing(
+                        f"{server.origin}/start", Path(temp_dir), *options, extra_environment=hook_environment
+                    )
+
+                    self.assertEqual(
+                        result.stdout.strip(),
+                        "Error fetching remote page: Malformed or unavailable response: net::ERR_CONNECTION_REFUSED",
+                    )
+
     def test_a_page_sent_as_a_download_fails_and_no_file_is_written(self) -> None:
         name = "site2md-browser-test-download.html"
         headers = {"Content-Type": "text/html", "Content-Disposition": f'attachment; filename="{name}"'}
