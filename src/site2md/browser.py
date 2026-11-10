@@ -202,6 +202,7 @@ class _Page:
         # What the browser's events have shown to be wrong, which ends the build as soon as it is known.
         self.failure: RemoteFetchError | None = None
         self.is_time_up = False
+        self.is_loading = False
         self._next_id = 0
         self._session = ""
         self._main_frame = ""
@@ -238,9 +239,21 @@ class _Page:
                 return result
 
     def wait_until_time_is_up(self) -> None:
-        """Wait for the end of the page's virtual time budget."""
-        while not self.is_time_up:
-            self._receive()
+        """Wait for the end of the page's virtual time budget, which a page that moves on gets again."""
+        while True:
+            # The page's timers run fast, and its clock stands still while a request is under way.
+            self.is_time_up = False
+            self.call(
+                "Emulation.setVirtualTimePolicy",
+                policy="pauseIfNetworkFetchesPending",
+                budget=VIRTUAL_TIME_BUDGET_MILLISECONDS,
+            )
+            while not self.is_time_up:
+                self._receive()
+            # A page that moved to another site is still loading its new document when the budget ends, and
+            # the new document can't load while the time stands still.
+            if not self.is_loading:
+                return
 
     def check_selector(self, selector: str) -> None:
         """Raise InvalidSelectorError unless the browser accepts the selector."""
@@ -304,6 +317,10 @@ class _Page:
             # A navigation that another one replaces is cancelled, and is not a failure.
             if not parameters.get("canceled") and self.failure is None:
                 self.failure = RemoteFetchError(f"Malformed or unavailable response: {parameters['errorText']}")
+        elif method in ("Page.frameStartedLoading", "Page.frameStoppedLoading") and (
+            parameters.get("frameId") == self._main_frame
+        ):
+            self.is_loading = method == "Page.frameStartedLoading"
         elif method == "Emulation.virtualTimeBudgetExpired":
             self.is_time_up = True
 
@@ -470,12 +487,6 @@ def _read_page(
         raise page.navigation_failure(navigation)
     _check_document(page.document, max_page_size_mib)
     if wait_for is None:
-        # The page's timers run fast, and its clock stands still while a request is under way.
-        page.call(
-            "Emulation.setVirtualTimePolicy",
-            policy="pauseIfNetworkFetchesPending",
-            budget=VIRTUAL_TIME_BUDGET_MILLISECONDS,
-        )
         page.wait_until_time_is_up()
     else:
         page.wait_for_element(wait_for)

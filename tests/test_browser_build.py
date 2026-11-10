@@ -310,6 +310,34 @@ class BrowserBuildTests(BrowserTestCase):
             self.assertIn("Final text", markdown)
             self.assertIn(f"<!-- Source: {server.origin}/final -->", markdown)
 
+    def test_a_page_that_moves_to_another_site_is_read_where_it_ends(self) -> None:
+        routes: dict[str, Route] = {}
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            # localhost is another site than 127.0.0.1, so the browser reads the new page in a new process.
+            other = server.origin.replace("127.0.0.1", "localhost")
+            routes["/script"] = (200, HTML, script_page(f'setTimeout(function () {{ location.replace("{other}/final"); }}, 300);'))
+            routes["/refresh"] = (
+                200,
+                HTML,
+                f'<html><head><meta http-equiv="refresh" content="0;url={other}/final"></head><body>x</body></html>'.encode(),
+            )
+            # The new page's own timers run fast as well.
+            routes["/final"] = (
+                200,
+                HTML,
+                script_page('setTimeout(function () { document.getElementById("content").innerHTML = "<p>Final text</p>"; }, 2000);'),
+            )
+            for path in ("/script", "/refresh"):
+                with self.subTest(path=path):
+                    output = Path(temp_dir) / f"{path.strip('/')}.md"
+
+                    result = self.build(f"{server.origin}{path}", output)
+
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    markdown = output.read_text(encoding="utf-8")
+                    self.assertIn("Final text", markdown)
+                    self.assertIn(f"<!-- Source: {other}/final -->", markdown)
+
     def test_wait_for_gives_the_same_result_whichever_way_the_command_line_is_read(self) -> None:
         # build binds a plain command line itself, and leaves --name=value to cyclopts.
         page = script_page(
