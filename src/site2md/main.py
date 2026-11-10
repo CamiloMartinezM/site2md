@@ -110,7 +110,8 @@ def _run_with_cyclopts() -> int:
         help_epilogue=(
             "Page mode rejects traversal-only options. Follow mode requires at least "
             "one --follow-selector. Follow mode rejects --max-depth and --include-query. "
-            "Site mode rejects --follow-selector. --browser needs page mode. Local input rejects every "
+            "Site mode rejects --follow-selector. --browser needs page mode. --browser-profile needs "
+            "--browser and an existing folder. Local input rejects every "
             "remote-only option. --extract-output, --entry-points-only and --values-only require "
             "--extract. Incompatible options and non-positive budgets fail before any "
             "network request."

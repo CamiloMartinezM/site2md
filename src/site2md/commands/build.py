@@ -167,6 +167,13 @@ def build(
         browser: Read the page from an installed Chrome, Edge or Chromium after its scripts have run,
             so that content a script adds is there. Page mode only. Set SITE2MD_BROWSER to the path of
             a browser to use that one.
+        browser_profile: With --browser, use this existing folder as the browser's profile and leave it
+            as the browser leaves it, to read a page that only signed-in visitors get. Start the same
+            browser once with --user-data-dir=FOLDER, sign in to the site and close the browser; later
+            builds have that session. site2md has no window of its own for signing in. The folder can't
+            be the browser's everyday profile, which Chrome refuses to debug, and no other browser may
+            have it open. Nothing is ever copied out of it, also not with --keep-temp. Use it only on
+            sites whose terms allow automated access.
         progress: Draw a progress bar. Pass --no-progress to skip it, for scripts and benchmarks.
         extract: Extractor ID. After saving the Markdown, run this Extractor on exactly the
             saved file in the same process, and write the extraction result to standard output.

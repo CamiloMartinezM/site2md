@@ -107,6 +107,18 @@ class BrowserProfileOptionRulesTests(InstalledCliTestCase):
             self.assertEqual(server.requests, [])
             self.assertFalse((root / "no-such-folder").exists())
 
+    def test_the_help_describes_the_option(self) -> None:
+        result = self.run_site2md("build", "--help")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        text = " ".join(result.stdout.split())
+        self.assertIn("--browser-profile", text)
+        self.assertIn("--browser-profile needs --browser", text)
+        # The person signs in with their own browser, and the folder can't be the one they use every day.
+        # The table wraps its cells, so a phrase in it can break across lines.
+        self.assertIn("--user-data-dir", text)
+        self.assertIn("everyday", text)
+
 
 class BrowserProfileTests(BrowserTestCase):
     """Build pages with --browser --browser-profile against the local server, and a folder that holds a session."""
