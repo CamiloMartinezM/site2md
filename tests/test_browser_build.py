@@ -84,6 +84,22 @@ SHORT_TIMEOUT_HOOK = """from site2md import downloader
 
 downloader.REQUEST_TIMEOUT_SECONDS = 3
 """
+# The browser's first answer comes four seconds late, as from a browser that starts slowly on a busy runner.
+SLOW_START_HOOK = """import json
+import time
+
+dumps = json.dumps
+
+
+def slow_dumps(value, *arguments, **options):
+    if isinstance(value, dict) and value.get("method") == "Target.getTargets":
+        time.sleep(4)
+    return dumps(value, *arguments, **options)
+
+
+json.dumps = slow_dumps
+"""
+TEN_SECOND_TIMEOUT_HOOK = SHORT_TIMEOUT_HOOK.replace("= 3", "= 10")
 
 
 def script_page(script: str) -> bytes:
@@ -639,7 +655,8 @@ class BrowserBuildFailureTests(BrowserTestCase):
     def test_a_selector_that_never_matches_fails_at_the_timeout_and_names_the_selector(self) -> None:
         page = script_page('document.getElementById("content").innerHTML = "<p>Here</p>";')
         with RecordingServer({"/page": (200, HTML, page)}) as server, tempfile.TemporaryDirectory() as temp_dir:
-            hook_environment = self.startup_hook_environment(Path(temp_dir), SHORT_TIMEOUT_HOOK)
+            # The timeout runs from the start of the browser, so a slow start must leave time for the wait.
+            hook_environment = self.startup_hook_environment(Path(temp_dir), SLOW_START_HOOK + TEN_SECOND_TIMEOUT_HOOK)
 
             result = self.build_failing(
                 f"{server.origin}/page", Path(temp_dir), "--wait-for", "li.never", extra_environment=hook_environment
@@ -647,7 +664,7 @@ class BrowserBuildFailureTests(BrowserTestCase):
 
             self.assertEqual(
                 result.stdout.strip(),
-                "Error fetching remote page: No element matched the --wait-for selector 'li.never' within 3 seconds.",
+                "Error fetching remote page: No element matched the --wait-for selector 'li.never' within 10 seconds.",
             )
 
     def test_an_invalid_selector_fails_before_any_request_to_the_site(self) -> None:
