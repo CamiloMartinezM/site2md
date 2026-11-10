@@ -165,3 +165,21 @@ class BrowserProfileTests(BrowserTestCase):
             self.assertNotIn("Traceback", result.stderr)
             self.assertEqual((root / "out.md").read_text(encoding="utf-8"), "previous")
             self.assert_session_kept_and_browser_gone(root)
+
+    def test_keep_temp_keeps_nothing_from_the_folder(self) -> None:
+        with RecordingServer({"/page": (200, HTML, PLAIN_PAGE)}) as server:
+            root = self.new_root()
+
+            result = self.build(f"{server.origin}/page", root, "--keep-temp")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            workspace = self.retained_workspace(result.stdout)
+            # The workspace holds the page, its Markdown, the document and the index, and nothing from the folder.
+            self.assertEqual(sorted(path.name for path in workspace.rglob("*")), ["converted.md", "document.md", "index.json", "page.html"])
+            for path in workspace.iterdir():
+                content = path.read_bytes()
+                self.assertNotIn(SESSION_TEXT.encode(), content, path.name)
+                self.assertNotIn(str(root / "profile").encode(), content, path.name)
+            # The browser's own temporary folder is gone, and only the workspace is left.
+            self.assertEqual([path.name for path in (root / "tmp").iterdir()], [workspace.name])
+            self.assert_session_kept_and_browser_gone(root)
