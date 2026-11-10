@@ -119,6 +119,8 @@ class _Browser:
             os.close(commands_read)
             os.close(answers_write)
         self._messages: queue.Queue[bytes | None] = queue.Queue()
+        # A browser that stops before its first answer never got going, as one that a lock refuses doesn't.
+        self.has_answered = False
         self._reader = threading.Thread(target=self._read_answers, daemon=True)
         self._reader.start()
 
@@ -156,6 +158,7 @@ class _Browser:
             if raw is None:
                 raise _PipeClosed
             message: DevToolsMessage = json.loads(raw)
+            self.has_answered = True
             return message
 
     def stopped_reason(self) -> str:
@@ -485,9 +488,13 @@ def fetch_with_browser(
             raise RemoteFetchError("Malformed or unavailable response: timed out") from None
         except _PipeClosed:
             reason = browser.stopped_reason()
-            raise RemoteFetchError(
-                f"The browser stopped before the page was read{f': {reason}' if reason else '.'}"
-            ) from None
+            message = "The browser stopped before the page was read"
+            if profile is not None and not browser.has_answered:
+                # Its lock keeps a second browser out of a folder, and the browser's own words for that vary.
+                message += f"{f': {reason}' if reason else ''}. Another browser may have the folder '{profile}' open."
+            else:
+                message += f": {reason}" if reason else "."
+            raise RemoteFetchError(message) from None
         except _ProtocolError as error:
             raise RemoteFetchError(f"Malformed or unavailable response: {error}") from error
         finally:

@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
+from site2md.browser import find_browser
 from tests.browser_test_support import BrowserTestCase
 from tests.cli_test_support import InstalledCliTestCase, RecordingServer, Route
 from tests.test_browser_build import HTML, INTERRUPT_AT_NAVIGATION_HOOK, PLAIN_PAGE, SHORT_TIMEOUT_HOOK
@@ -236,3 +239,89 @@ class BrowserProfileTests(BrowserTestCase):
             self.assertIn("Only for signed-in visitors.", markdown)
             self.assertIn(f"<!-- Source: {server.origin}/members -->", markdown)
             self.assert_session_kept_and_browser_gone(root)
+
+    def test_a_session_that_a_browser_left_after_a_visit_by_hand_is_used(self) -> None:
+        routes: dict[str, Route] = {
+            "/remember": remember,
+            "/members": members,
+            "/sign-in": (200, HTML, b"<html><body><main><h1>Sign in</h1></main></body></html>"),
+        }
+        with RecordingServer(routes) as server:
+            root = self.new_root()
+            # The person starts the same browser with the folder, visits the site and closes the browser.
+            subprocess.run(
+                [
+                    find_browser(), "--headless", "--no-first-run", "--no-default-browser-check",
+                    "--edge-skip-compat-layer-relaunch", f"--user-data-dir={root / 'profile'}",
+                    "--dump-dom", f"{server.origin}/remember",
+                ],
+                check=True,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                timeout=60,
+            )
+
+            result = self.build(f"{server.origin}/members", root)
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("Only for signed-in visitors.", (root / "out.md").read_text(encoding="utf-8"))
+            self.assert_session_kept_and_browser_gone(root)
+
+    def hold_folder(self, profile: Path) -> subprocess.Popen[bytes]:
+        """Start another browser on the profile folder, and return it once it has the folder open."""
+        holder = subprocess.Popen(
+            [
+                find_browser(), "--headless", "--no-first-run", "--no-default-browser-check",
+                "--edge-skip-compat-layer-relaunch", f"--user-data-dir={profile}",
+                # The browser writes this file into its profile when it is up, which is after it took the folder.
+                "--remote-debugging-port=0", "about:blank",
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        self.addCleanup(holder.wait)
+        self.addCleanup(holder.kill)
+        deadline = time.monotonic() + 30
+        while not (profile / "DevToolsActivePort").exists():
+            self.assertLess(time.monotonic(), deadline, "the other browser did not start")
+            self.assertIsNone(holder.poll(), "the other browser stopped")
+            time.sleep(0.1)
+        return holder
+
+    def test_a_folder_that_another_browser_has_open_fails_with_one_line(self) -> None:
+        with RecordingServer({"/page": (200, HTML, PLAIN_PAGE)}) as server:
+            root = self.new_root()
+            profile = root / "profile"
+            holder = self.hold_folder(profile)
+
+            result = self.build(f"{server.origin}/page", root)
+
+            holder.kill()
+            holder.wait()
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(len(result.stdout.strip().splitlines()), 1, result.stdout)
+            self.assertTrue(
+                result.stdout.startswith("Error fetching remote page: The browser stopped before the page was read"),
+                result.stdout,
+            )
+            self.assertIn(f"Another browser may have the folder '{profile}' open.", result.stdout)
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertEqual((root / "out.md").read_text(encoding="utf-8"), "previous")
+            self.assertEqual(server.requests, [])
+            self.assert_session_kept_and_browser_gone(root)
+
+    def test_a_browser_that_stops_at_once_says_nothing_of_a_folder_without_the_option(self) -> None:
+        with RecordingServer({"/page": (200, HTML, PLAIN_PAGE)}) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "out.md"
+
+            # Python stops at once on the browser's first option, and says that it doesn't know it.
+            result = self.run_site2md(
+                "build", f"{server.origin}/page", "--browser", "--output", output, "--no-progress",
+                timeout=90,
+                extra_environment={"SITE2MD_BROWSER": sys.executable},
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("The browser stopped before the page was read: ", result.stdout)
+            self.assertNotIn("Another browser", result.stdout)
