@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import importlib
 import sys
 import types
@@ -126,18 +127,24 @@ def _run_with_cyclopts() -> int:
 
 def main() -> int:
     """Run the CLI with POSIX-compatible command-usage exit status."""
+    # A run builds a few large trees and exits, so collecting often costs time and frees little.
+    gc.set_threshold(100_000, 10, 10)
     if "soupsieve" not in sys.modules:
         # Beautiful Soup imports Soup Sieve, which compiles its grammar for 20 ms; only follow mode uses it.
         sys.modules["soupsieve"] = _DeferredModule("soupsieve")
-    if sys.argv[1:2] == ["build"]:
-        # Imported here so that the other commands never load build's modules.
-        from site2md.commands.build import build
+    try:
+        if sys.argv[1:2] == ["build"]:
+            # Imported here so that the other commands never load build's modules.
+            from site2md.commands.build import build
 
-        arguments = _plain_arguments(build, sys.argv[2:])
-        if arguments is not None:
-            build(**arguments)
-            return 0
-    return _run_with_cyclopts()
+            arguments = _plain_arguments(build, sys.argv[2:])
+            if arguments is not None:
+                build(**arguments)
+                return 0
+        return _run_with_cyclopts()
+    finally:
+        # Interpreter shutdown would otherwise walk every object once more.
+        gc.freeze()
 
 
 if __name__ == "__main__":
