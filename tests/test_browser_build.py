@@ -584,6 +584,15 @@ class BrowserBuildFailureTests(BrowserTestCase):
                 "Error fetching remote page: No element matched the --wait-for selector 'li.never' within 3 seconds.",
             )
 
+    def test_an_invalid_selector_fails_before_any_request_to_the_site(self) -> None:
+        with RecordingServer({"/page": (200, HTML, PLAIN_PAGE)}) as server, tempfile.TemporaryDirectory() as temp_dir:
+            for selector in ("li[", "!!!", "a >"):
+                with self.subTest(selector=selector):
+                    result = self.build_failing(f"{server.origin}/page", Path(temp_dir), "--wait-for", selector)
+
+                    self.assertEqual(result.stdout.strip(), f"Error: Invalid wait-for selector: '{selector}'")
+            self.assertEqual(server.requests, [])
+
     def test_an_https_to_http_redirect_is_refused_before_the_http_request_leaves(self) -> None:
         with RecordingServer({"/late": (200, HTML, PLAIN_PAGE)}) as plain_server:
             routes: dict[str, Route] = {"/start": (302, {"Location": f"{plain_server.origin}/late"}, b"")}

@@ -18,6 +18,7 @@ from site2md._types import RemoteBuildStage, RemoteMode, TraversalControl
 from site2md.converter import convert_remote_page_to_markdown
 from site2md.downloader import (
     DEFAULT_MAX_PAGE_SIZE_MIB,
+    InvalidSelectorError,
     RemoteFetchError,
     RemotePage,
     TraversalRequestPolicy,
@@ -708,7 +709,9 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
         except RemoteFetchError as error:
             _record_fetch_failure(index_pages[0], entry_path, error)
             _write_debugging_index(workspace, index_pages)
-            raise RemoteBuildError(str(error), stage="fetch") from error
+            # A selector that the browser rejects is the caller's input, as an invalid follow selector is.
+            stage: RemoteBuildStage = "validation" if isinstance(error, InvalidSelectorError) else "fetch"
+            raise RemoteBuildError(str(error), stage=stage) from error
         except BaseException as error:
             _record_fatal_fetch(index_pages[0], entry_path, error)
             _write_debugging_index(workspace, index_pages)

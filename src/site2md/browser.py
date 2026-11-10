@@ -21,7 +21,7 @@ from urllib.parse import urlsplit
 
 from site2md import downloader
 from site2md._types import DevToolsMessage
-from site2md.downloader import RemoteFetchError, RemotePage
+from site2md.downloader import InvalidSelectorError, RemoteFetchError, RemotePage
 
 _FOLDER_PREFIX = "site2md_browser_"
 VIRTUAL_TIME_BUDGET_MILLISECONDS = 10_000
@@ -231,9 +231,15 @@ class _Page:
         while not self.is_time_up:
             self._handle(self.browser.receive(self.deadline))
 
+    def check_selector(self, selector: str) -> None:
+        """Raise InvalidSelectorError unless the browser accepts the selector."""
+        result = self.call("Runtime.evaluate", expression=_match_expression(selector))
+        if "exceptionDetails" in result:
+            raise InvalidSelectorError(f"Invalid wait-for selector: {selector!r}")
+
     def wait_for_element(self, selector: str) -> None:
         """Wait, in the page's real time, until an element matches the selector."""
-        expression = f"document.querySelector({json.dumps(selector)}) !== null"
+        expression = _match_expression(selector)
         try:
             while not self.call("Runtime.evaluate", expression=expression, returnByValue=True)["result"].get("value"):
                 if time.monotonic() >= self.deadline:
@@ -296,6 +302,11 @@ class _Page:
                 )
                 return
         self._send("Fetch.continueRequest", {"requestId": request_id}, in_page=True)
+
+
+def _match_expression(selector: str) -> str:
+    """Return the script that tells whether an element matches the selector, and throws if the browser rejects it."""
+    return f"document.querySelector({json.dumps(selector)}) !== null"
 
 
 def _app_paths(name: str) -> Iterator[str]:
@@ -425,6 +436,9 @@ def _read_page(
     """Load a URL, let the page's scripts run, and return the address that the browser ends on and the page's markup."""
     page = _Page(browser, deadline)
     page.attach()
+    if wait_for is not None:
+        # The blank start page that the browser opens on can already say, before any request, whether it takes the selector.
+        page.check_selector(wait_for)
     navigation = page.call("Page.navigate", url=url)
     if navigation.get("errorText"):
         raise page.navigation_failure(navigation)

@@ -43,6 +43,10 @@ class RemoteFetchError(RuntimeError):
         self.policy_rejection = policy_rejection
 
 
+class InvalidSelectorError(RemoteFetchError):
+    """Raised when the browser doesn't accept a selector that the caller gave."""
+
+
 @dataclass
 class TraversalRequestPolicy:
     """Enforce one concrete traversal origin, robots policy, and request delay."""
