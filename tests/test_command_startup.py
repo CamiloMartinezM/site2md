@@ -242,6 +242,23 @@ class CommandStartupTests(InstalledCliTestCase):
         # Only the name that Beautiful Soup imports is there, and none of the library's own modules.
         self.assertFalse(any(module.startswith("soupsieve.") for module in modules))
 
+    def test_page_build_does_not_load_the_browser_module(self) -> None:
+        routes: dict[str, Route] = {
+            "/page": (
+                200,
+                {"Content-Type": "text/html"},
+                b"<html><body><main><p>Hello</p></main></body></html>",
+            )
+        }
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            modules = self.modules_loaded_by(
+                root, "build", f"{server.origin}/page", "--output", root / "out.md"
+            )
+
+        self.assertFalse(self.is_loaded(modules, "site2md.browser"))
+
     def test_follow_build_loads_the_css_selector_library(self) -> None:
         entry = b'<html><body><main><a class="detail" href="/child">Child</a></main></body></html>'
         routes: dict[str, Route] = {
@@ -334,6 +351,7 @@ class CommandStartupTests(InstalledCliTestCase):
             "--mode",
             "--max-pages",
             "--no-progress",
+            "--browser",
             "--extract",
             "--extract-output",
             "--entry-points-only",

@@ -143,6 +143,7 @@ def build(
     include_query: bool = False,
     max_total_size_mib: int | None = None,
     max_page_size_mib: int | None = None,
+    browser: bool = False,
     progress: bool = True,
     extract: str | None = None,
     extract_output: Path | None = None,
@@ -162,6 +163,9 @@ def build(
         include_query: Include query-bearing links discovered in site mode.
         max_total_size_mib: Positive traversal body budget (default: 250).
         max_page_size_mib: Positive MiB limit for one remote page (default: 25).
+        browser: Read the page from an installed Chrome, Edge or Chromium after its scripts have run,
+            so that content a script adds is there. Page mode only. Set SITE2MD_BROWSER to the path of
+            a browser to use that one.
         progress: Draw a progress bar. Pass --no-progress to skip it, for scripts and benchmarks.
         extract: Extractor ID. After saving the Markdown, run this Extractor on exactly the
             saved file in the same process, and write the extraction result to standard output.
@@ -185,6 +189,7 @@ def build(
         or include_query
         or max_total_size_mib is not None
         or max_page_size_mib is not None
+        or browser
     ):
         console.print("[red]Error:[/red] Remote build options require an HTTP(S) URL.")
         sys.exit(1)
@@ -237,6 +242,7 @@ def build(
                         include_query=include_query,
                         max_total_size_mib=max_total_size_mib,
                         max_page_size_mib=max_page_size_mib,
+                        browser=browser,
                         keep_temp=keep_temp,
                     )
                 )

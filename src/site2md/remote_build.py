@@ -45,6 +45,7 @@ class RemoteBuildRequest:
     include_query: bool = False
     max_total_size_mib: int | None = None
     max_page_size_mib: int | None = None
+    browser: bool = False
     keep_temp: bool = False
 
 
@@ -393,6 +394,11 @@ def _validate_request(request: RemoteBuildRequest) -> _RemoteLimits:
             stage="validation",
         )
 
+    if request.browser and request.mode != "page":
+        raise RemoteBuildError(
+            "--browser can only be used with --mode page.",
+            stage="validation",
+        )
     if request.mode != "follow" and request.follow_selectors:
         raise RemoteBuildError(
             "--follow-selector can only be used with --mode follow.",
@@ -675,13 +681,23 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
     try:
         _write_debugging_index(workspace, index_pages)
         try:
-            page = fetch_remote(
-                request.entry_url,
-                request.mode,
-                max_page_size_mib=limits.max_page_size_mib,
-                max_body_bytes=max_total_bytes,
-                content_path=entry_path,
-            )
+            if request.browser:
+                # Imported here so that a build without --browser never loads the browser module.
+                from site2md.browser import fetch_with_browser
+
+                page = fetch_with_browser(
+                    request.entry_url,
+                    max_page_size_mib=limits.max_page_size_mib,
+                    content_path=entry_path,
+                )
+            else:
+                page = fetch_remote(
+                    request.entry_url,
+                    request.mode,
+                    max_page_size_mib=limits.max_page_size_mib,
+                    max_body_bytes=max_total_bytes,
+                    content_path=entry_path,
+                )
         except RemoteFetchError as error:
             _record_fetch_failure(index_pages[0], entry_path, error)
             _write_debugging_index(workspace, index_pages)

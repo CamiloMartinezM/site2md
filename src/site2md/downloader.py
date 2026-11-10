@@ -23,7 +23,7 @@ USER_AGENT = "site2md/0.6.0"
 ROBOTS_MAX_BYTES = 512 * 1024
 _BYTES_PER_MIB = 1024 * 1024
 _CHUNK_SIZE = 64 * 1024
-_ALLOWED_MEDIA_TYPES = {"text/html", "application/xhtml+xml"}
+ALLOWED_MEDIA_TYPES = {"text/html", "application/xhtml+xml"}
 
 
 class RemoteFetchError(RuntimeError):
@@ -291,7 +291,7 @@ def _fetch_page(
                 raise RemoteFetchError(f"Final response returned HTTP {status}.")
 
             content_type = response.headers.get_content_type().lower()
-            if content_type not in _ALLOWED_MEDIA_TYPES:
+            if content_type not in ALLOWED_MEDIA_TYPES:
                 raise RemoteFetchError(
                     "Final response must be text/html or application/xhtml+xml "
                     f"(got {content_type})."
