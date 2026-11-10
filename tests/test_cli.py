@@ -198,6 +198,40 @@ class Site2mdCliTests(InstalledCliTestCase):
                 "\n\n<!-- Source: e_cleaned_first.html -->\n\nVisible\n\n---\n\n",
             )
 
+    def test_local_build_keeps_the_markdown_of_pages_that_parse_differently_twice(self) -> None:
+        # The Markdown that 0.5.0 gave for each page, when it parsed every page a second time.
+        pages = {
+            "a_stray_end_tag.html": "<html><body><p>one</b> two</p>"
+            "<p>three<span></i></span> four</p></body></html>",
+            "b_no_body.html": "<!DOCTYPE html><p>No body element.</p><p>Second paragraph.</p>",
+            "c_line_breaks.html": "<html><body><p>a<br>b</p><p>c<br />d</p></body></html>",
+            "d_instruction.html": "<html><body><p>before</p><?note keep?><p>after</p></body></html>",
+            "e_doctype_in_body.html": "<html><body><p>first</p><!DOCTYPE html>"
+            "<p>second</p></body></html>",
+            "f_removed_between_text.html": "<html><body><p>left <script>var x = 1;</script>"
+            "<style>p {}</style> right</p></body></html>",
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "input"
+            root.mkdir()
+            for name, html in pages.items():
+                (root / name).write_text(html, encoding="utf-8")
+            output = Path(temp_dir) / "pages.md"
+
+            result = self.run_site2md("build", root, "--output", output)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                output.read_text(encoding="utf-8"),
+                "\n\n<!-- Source: a_stray_end_tag.html -->\n\none two\n\nthree four\n\n---\n\n"
+                "\n\n<!-- Source: b_no_body.html -->\n\nNo body element.\n\nSecond paragraph."
+                "\n\n---\n\n"
+                "\n\n<!-- Source: c_line_breaks.html -->\n\na  \nb\n\nc  \nd\n\n---\n\n"
+                "\n\n<!-- Source: d_instruction.html -->\n\nbefore\n\nnote keep?\n\nafter\n\n---\n\n"
+                "\n\n<!-- Source: e_doctype_in_body.html -->\n\nfirst\n\nsecond\n\n---\n\n"
+                "\n\n<!-- Source: f_removed_between_text.html -->\n\nleft right\n\n---\n\n",
+            )
+
     def test_remote_conversion_failure_does_not_replace_output(self) -> None:
         routes = {"/page": (200, {"Content-Type": "text/html"}, self.valid_html())}
         with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:

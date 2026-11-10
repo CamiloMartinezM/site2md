@@ -4,40 +4,48 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any, cast
 from urllib.parse import urljoin, urlsplit
 
-from bs4 import BeautifulSoup
-from markdownify import markdownify as md
+from bs4 import BeautifulSoup, Comment, NavigableString, Tag
+from bs4.element import PreformattedString
+from markdownify import MarkdownConverter
 
 from site2md.downloader import RemotePage
 
-# Matched with find_all filters: a CSS selector costs Soup Sieve's compilation and matching on every page.
-_EXCLUDED_TAG_NAMES = ["nav", "script", "style", "noscript"]
-_EXCLUDED_CLASS_NAMES = [
-    "bd-sidebar",
-    "bd-header",
-    "bd-footer",
-    "skip-link",
-    "pst-scroll-pixel-helper",
-    "pst-async-banner-revealer",
-    "headerlink",
-]
+_EXCLUDED_TAG_NAMES = frozenset({"nav", "script", "style", "noscript"})
+_EXCLUDED_CLASS_NAMES = frozenset(
+    {
+        "bd-sidebar",
+        "bd-header",
+        "bd-footer",
+        "skip-link",
+        "pst-scroll-pixel-helper",
+        "pst-async-banner-revealer",
+        "headerlink",
+    }
+)
+# Some html.parser versions read the text of these elements raw, so it changes when it is parsed twice.
+_RAW_TEXT_TAG_NAMES = frozenset({"iframe", "noembed", "noframes", "plaintext", "xmp"})
 
 
-def _resolve_remote_references(soup: BeautifulSoup, source_url: str) -> None:
-    """Resolve relative links and images using HTML base URL rules."""
-    base_url = source_url
-    base_tag = soup.find("base", href=True)
-    if base_tag:
-        base_href = base_tag.get("href")
-        if isinstance(base_href, str):
-            base_url = urljoin(source_url, base_href)
+class _Tag(Tag):
+    """A tag that finds a parent by name without a search filter: markdownify asks at every element."""
 
-    for attribute in ("href", "src"):
-        for tag in soup.find_all(None, {attribute: True}):
-            value = tag.get(attribute)
-            if isinstance(value, str):
-                tag[attribute] = _resolve_reference(value, base_url)
+    def find_parent(self, name: Any = None, attrs: Any = {}, **kwargs: Any) -> Tag | None:
+        if type(name) is str and not attrs and not kwargs:
+            parent = self.parent
+            while parent is not None and parent.name != name:
+                parent = parent.parent
+            return parent
+        return super().find_parent(name, attrs, **kwargs)
+
+
+def _parse(markup: str | bytes, encoding: str | None = None) -> BeautifulSoup:
+    """Parse HTML with the standard-library parser."""
+    return BeautifulSoup(
+        markup, "html.parser", from_encoding=encoding, element_classes={Tag: _Tag}
+    )
 
 
 def _resolve_reference(reference: str, base_url: str) -> str:
@@ -51,6 +59,80 @@ def _resolve_reference(reference: str, base_url: str) -> str:
     return urljoin(base_url, reference)
 
 
+def _clean_soup(soup: BeautifulSoup, source_url: str | None = None) -> None:
+    """Remove elements excluded from generated Markdown, and resolve a remote page's references.
+
+    A source URL makes relative links and images absolute, using HTML base URL rules.
+    """
+    # One pass over the tags: every find_all call would walk the whole tree again.
+    base_url = source_url
+    base_found = False
+    references: list[tuple[Tag, str, str]] = []
+    excluded: list[Tag] = []
+    for tag in soup.find_all(True):
+        attributes = tag.attrs
+        if source_url is not None:
+            for attribute in ("href", "src"):
+                value = attributes.get(attribute)
+                if isinstance(value, str):
+                    references.append((tag, attribute, value))
+                    if attribute == "href" and tag.name == "base" and not base_found:
+                        base_found = True
+                        base_url = urljoin(source_url, value)
+        if tag.name in _EXCLUDED_TAG_NAMES or not _EXCLUDED_CLASS_NAMES.isdisjoint(
+            attributes.get("class", ())
+        ):
+            excluded.append(tag)
+    if base_url is not None:
+        for tag, attribute, value in references:
+            tag[attribute] = _resolve_reference(value, base_url)
+    for tag in excluded:
+        tag.decompose()
+
+
+def _settle(content: Tag) -> bool:
+    """Join neighbouring text nodes, and return whether the content's serialized form parses to the same tree.
+
+    0.5.0 rendered every page from its serialized form, so this is what keeps the Markdown the same.
+    """
+    split: list[NavigableString] = []
+    for node in content.descendants:
+        if isinstance(node, Tag):
+            # Before 4.15, Beautiful Soup can leave a self-closing void element open, with content inside.
+            if node.contents and (node.name in _RAW_TEXT_TAG_NAMES or node.can_be_empty_element):
+                return False
+        elif isinstance(node, PreformattedString):
+            # A doctype is written with a line break after it, and a declaration comes back as a comment.
+            if not isinstance(node, Comment):
+                return False
+        elif (
+            isinstance(node, NavigableString)
+            and isinstance(node.previous_sibling, NavigableString)
+            and not isinstance(node.previous_sibling, PreformattedString)
+        ):
+            # A removed element, or an end tag without a start tag, leaves two text nodes side by side.
+            split.append(node)
+    for text in split:
+        before = text.previous_sibling
+        # Always text: it is the neighbour found above, or what the previous round joined.
+        if isinstance(before, NavigableString):
+            text.extract()
+            before.replace_with(NavigableString(before + text))
+    return True
+
+
+def _render_markdown(soup: BeautifulSoup, content: Tag, source: str) -> str:
+    """Convert the cleaned content of a tree and prepend its source attribution."""
+    if _settle(content):
+        if content is not soup:
+            content.extract()
+            soup.clear()
+            soup.append(content)
+    else:
+        soup = _parse(str(content))
+    return f"\n\n<!-- Source: {source} -->\n\n" + md(soup)
+
+
 def _convert_soup_to_markdown(soup: BeautifulSoup, source: str) -> str:
     """Clean parsed HTML and add its source attribution to Markdown output."""
     _clean_soup(soup)
@@ -61,28 +143,20 @@ def _convert_soup_to_markdown(soup: BeautifulSoup, source: str) -> str:
         or soup.body
         or soup
     )
-    return _render_markdown(str(main_content), source)
+    # A search by name or class finds tags only.
+    return _render_markdown(soup, cast(Tag, main_content), source)
 
 
-def _clean_soup(soup: BeautifulSoup) -> None:
-    """Remove elements excluded from generated Markdown."""
-    for tag in soup.find_all(_EXCLUDED_TAG_NAMES):
-        tag.decompose()
-    for tag in soup.find_all(class_=_EXCLUDED_CLASS_NAMES):
-        tag.decompose()
-
-
-def _render_markdown(content: str, source: str) -> str:
-    """Convert cleaned HTML and prepend its source attribution."""
-    markdown = md(content, heading_style="atx")
-    return f"\n\n<!-- Source: {source} -->\n\n" + markdown
+def md(soup: BeautifulSoup) -> str:
+    """Render a parsed tree as Markdown."""
+    # Keeps the name of the markdownify function it replaced, which the tests swap to make a conversion fail.
+    return MarkdownConverter(heading_style="atx").convert_soup(soup)
 
 
 def convert_html_to_markdown(html_path: Path) -> str:
     """Convert a local HTML file to a Markdown string."""
     try:
-        html_content = html_path.read_text(encoding="utf-8")
-        soup = BeautifulSoup(html_content, "html.parser")
+        soup = _parse(html_path.read_text(encoding="utf-8"))
         return _convert_soup_to_markdown(soup, html_path.name)
     except Exception as error:
         print(f"Error converting {html_path}: {error}", file=sys.stderr)
@@ -91,12 +165,6 @@ def convert_html_to_markdown(html_path: Path) -> str:
 
 def convert_remote_page_to_markdown(page: RemotePage) -> str:
     """Convert a remote page while retaining usable remote references."""
-    soup = BeautifulSoup(
-        page.content,
-        "html.parser",
-        from_encoding=page.encoding,
-    )
-    _resolve_remote_references(soup, page.source_url)
-    _clean_soup(soup)
-    content = soup.body or soup
-    return _render_markdown(str(content), page.source_url)
+    soup = _parse(page.content, page.encoding)
+    _clean_soup(soup, page.source_url)
+    return _render_markdown(soup, soup.body or soup, page.source_url)
