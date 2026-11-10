@@ -205,6 +205,9 @@ class _Page:
         self.failure: RemoteFetchError | None = None
         self.is_time_up = False
         self.is_loading = False
+        # The ids of the requests that the browser has finished loading, and the one of the document that was checked.
+        self._finished_requests: set[str] = set()
+        self._checked_request = ""
         self._next_id = 0
         self._session = ""
         # The sessions of the page and of the targets that it opened, by their ids.
@@ -284,6 +287,25 @@ class _Page:
                 f"No element matched the --wait-for selector {selector!r} within {seconds} seconds."
             ) from None
 
+    def check_document(self, max_page_size_mib: int) -> None:
+        """Wait until the browser has the page's own document, then apply a plain fetch's rules to it."""
+        if self.document is None:
+            raise RemoteFetchError("Malformed or unavailable response: the browser reported no response.")
+        while self.document["requestId"] not in self._finished_requests:
+            self._receive()
+        document = self.document
+        if document["requestId"] == self._checked_request:
+            return
+        _check_response(document["response"], max_page_size_mib)
+        try:
+            body = self.call("Network.getResponseBody", requestId=document["requestId"])
+        except _ProtocolError:
+            # The browser has let go of a body that it no longer needs. Only a body that it has and finds empty counts.
+            body = {"body": "unknown"}
+        if body.get("body") == "":
+            raise RemoteFetchError("Final HTML response body is empty.")
+        self._checked_request = document["requestId"]
+
     def navigation_failure(self, navigation: DevToolsMessage) -> RemoteFetchError:
         """Describe why a navigation failed, in the words of a plain fetch where it has some."""
         if navigation.get("isDownload"):
@@ -324,6 +346,8 @@ class _Page:
             and parameters.get("frameId") == self._main_frame
         ):
             self.document = parameters
+        elif method == "Network.loadingFinished":
+            self._finished_requests.add(parameters["requestId"])
         elif method == "Network.loadingFailed" and parameters.get("requestId") in self._document_requests:
             # A navigation that another one replaces is cancelled, and is not a failure.
             if not parameters.get("canceled") and self.failure is None:
@@ -469,11 +493,8 @@ def _start(
     return _Process(pid, None)
 
 
-def _check_document(document: DevToolsMessage | None, max_page_size_mib: int) -> None:
-    """Apply a plain fetch's rules to the response for the page's own document."""
-    if document is None:
-        raise RemoteFetchError("Malformed or unavailable response: the browser reported no response.")
-    response = document["response"]
+def _check_response(response: DevToolsMessage, max_page_size_mib: int) -> None:
+    """Apply a plain fetch's rules to the status, the media type and the declared size of a response."""
     status = response["status"]
     if not 200 <= status < 300:
         raise RemoteFetchError(f"Final response returned HTTP {status}.")
@@ -506,20 +527,13 @@ def _read_page(
     navigation = page.call("Page.navigate", url=url)
     if navigation.get("errorText"):
         raise page.navigation_failure(navigation)
-    _check_document(page.document, max_page_size_mib)
+    page.check_document(max_page_size_mib)
     if wait_for is None:
         page.wait_until_time_is_up()
     else:
         page.wait_for_element(wait_for)
-    _check_document(page.document, max_page_size_mib)
-    assert page.document is not None
-    try:
-        body = page.call("Network.getResponseBody", requestId=page.document["requestId"])
-    except _ProtocolError:
-        # The browser has let go of a body that it no longer needs. Only a body that it has and finds empty counts.
-        body = {"body": "unknown"}
-    if body.get("body") == "":
-        raise RemoteFetchError("Final HTML response body is empty.")
+    # The page may have moved on, and its last document has to pass as well.
+    page.check_document(max_page_size_mib)
     result = page.call("Runtime.evaluate", expression=_READ_DOCUMENT, returnByValue=True)
     if "exceptionDetails" in result:
         raise RemoteFetchError("Malformed or unavailable response: the page could not be read.")

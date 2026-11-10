@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -623,6 +624,19 @@ class BrowserBuildFailureTests(BrowserTestCase):
                     result = self.build_failing(f"{server.origin}{path}", Path(temp_dir))
 
                     self.assertEqual(result.stdout.strip(), f"Error fetching remote page: {message}")
+
+    def test_an_empty_page_is_reported_as_empty_and_not_waited_for_when_a_selector_is_given(self) -> None:
+        with RecordingServer({"/empty": (200, HTML, b"")}) as server, tempfile.TemporaryDirectory() as temp_dir:
+            # With the old behaviour the build waits the ten seconds for an element that can't be there.
+            hook_environment = self.startup_hook_environment(Path(temp_dir), TEN_SECOND_TIMEOUT_HOOK)
+            started = time.monotonic()
+
+            result = self.build_failing(
+                f"{server.origin}/empty", Path(temp_dir), "--wait-for", "main", extra_environment=hook_environment
+            )
+
+            self.assertEqual(result.stdout.strip(), "Error fetching remote page: Final HTML response body is empty.")
+            self.assertLess(time.monotonic() - started, 9)
 
     def test_a_page_that_the_server_does_not_answer_fails_with_the_browsers_reason(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
