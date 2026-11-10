@@ -12,7 +12,7 @@ import threading
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
-from tests.browser_test_support import BrowserTestCase
+from tests.browser_test_support import TEMP_FOLDER, BrowserTestCase
 from tests.cli_test_support import InstalledCliTestCase, RecordingServer, Route
 from tests.test_command_startup import RECORD_MODULES_HOOK
 
@@ -419,14 +419,13 @@ class BrowserBuildTests(BrowserTestCase):
         page = script_page('document.getElementById("content").innerHTML = "<p>Kept text</p>";')
         with RecordingServer({"/page": (200, HTML, page)}) as server, tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
-            workspaces = temp_root / "tmp"
-            workspaces.mkdir()
+            (temp_root / TEMP_FOLDER).mkdir()
 
             result = self.build(
                 f"{server.origin}/page",
                 temp_root / "out.md",
                 "--keep-temp",
-                extra_environment={"TMPDIR": str(workspaces)},
+                extra_environment=self.temp_environment(temp_root),
             )
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -434,7 +433,7 @@ class BrowserBuildTests(BrowserTestCase):
             kept = (workspace / "page.html").read_text(encoding="utf-8")
             self.assertIn("<p>Kept text</p>", kept)
             self.assertTrue(kept.startswith("<!DOCTYPE html>"))
-            self.assertEqual([path.name for path in workspaces.iterdir() if path.name.startswith("site2md_browser_")], [])
+            self.assert_no_browser_left(temp_root, kept=[workspace.name])
 
 
 class BrowserOptionRulesTests(InstalledCliTestCase):
@@ -711,14 +710,13 @@ class BrowserBuildFailureTests(BrowserTestCase):
     def test_a_browser_that_does_not_start_fails_with_one_line_that_gives_its_reason(self) -> None:
         with RecordingServer({"/page": (200, HTML, PLAIN_PAGE)}) as server, tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
-            tmp = temp_root / "tmp"
-            tmp.mkdir()
+            (temp_root / TEMP_FOLDER).mkdir()
 
             # Python stops at once on the browser's first option, and says that it doesn't know it.
             result = self.build_failing(
                 f"{server.origin}/page",
                 temp_root,
-                extra_environment={"SITE2MD_BROWSER": sys.executable, "TMPDIR": str(tmp)},
+                extra_environment={**self.temp_environment(temp_root), "SITE2MD_BROWSER": sys.executable},
             )
 
             self.assertEqual(len(result.stdout.strip().splitlines()), 1)
@@ -740,9 +738,8 @@ class BrowserCleanupTests(BrowserTestCase):
         """Run build --browser with the temporary folder set to a new one, and return the result and its root."""
         root = Path(tempfile.mkdtemp(prefix="site2md_test_"))
         self.addCleanup(self.remove_test_root, root)
-        tmp = root / "tmp"
-        tmp.mkdir()
-        environment = {"TMPDIR": str(tmp)}
+        (root / TEMP_FOLDER).mkdir()
+        environment = self.temp_environment(root)
         if hook is not None:
             environment.update(self.startup_hook_environment(root, hook))
         output = root / "out.md"
@@ -766,14 +763,14 @@ class BrowserCleanupTests(BrowserTestCase):
             result, root = self.run_in_clean_folder(f"{server.origin}/page")
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assert_no_browser_left(root / "tmp")
+            self.assert_no_browser_left(root)
 
     def test_after_a_failed_build(self) -> None:
         with RecordingServer({"/page": (404, HTML, PLAIN_PAGE)}) as server:
             result, root = self.run_in_clean_folder(f"{server.origin}/page")
 
             self.assertNotEqual(result.returncode, 0)
-            self.assert_no_browser_left(root / "tmp")
+            self.assert_no_browser_left(root)
 
     def test_after_a_page_that_is_not_ready_in_time(self) -> None:
         release = threading.Event()
@@ -787,7 +784,7 @@ class BrowserCleanupTests(BrowserTestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("timed out", result.stdout)
-            self.assert_no_browser_left(root / "tmp")
+            self.assert_no_browser_left(root)
 
     def test_after_an_interruption(self) -> None:
         with RecordingServer({"/page": (200, HTML, PLAIN_PAGE)}) as server:
@@ -796,4 +793,4 @@ class BrowserCleanupTests(BrowserTestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual((root / "out.md").read_text(encoding="utf-8"), "previous")
             self.assertNotIn("Traceback", result.stderr)
-            self.assert_no_browser_left(root / "tmp")
+            self.assert_no_browser_left(root)

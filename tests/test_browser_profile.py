@@ -8,11 +8,12 @@ import sys
 import tempfile
 import threading
 import time
+from collections.abc import Sequence
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
 from site2md.browser import find_browser
-from tests.browser_test_support import BrowserTestCase
+from tests.browser_test_support import TEMP_FOLDER, BrowserTestCase
 from tests.cli_test_support import InstalledCliTestCase, RecordingServer, Route
 from tests.test_browser_build import (
     HTML,
@@ -133,7 +134,7 @@ class BrowserProfileTests(BrowserTestCase):
         """Return a new folder with a profile folder that holds a session, and a folder for temporary files."""
         root = Path(tempfile.mkdtemp(prefix="site2md_test_"))
         self.addCleanup(self.remove_test_root, root)
-        (root / "tmp").mkdir()
+        (root / TEMP_FOLDER).mkdir()
         (root / "profile").mkdir()
         (root / "profile" / SESSION_FILE).write_text(SESSION_TEXT, encoding="utf-8")
         (root / "out.md").write_text("previous", encoding="utf-8")
@@ -148,7 +149,7 @@ class BrowserProfileTests(BrowserTestCase):
 
     def build(self, url: str, root: Path, *options: object, hook: str | None = None) -> subprocess.CompletedProcess[str]:
         """Run build --browser --browser-profile with the profile folder of a root, and its own temporary folder."""
-        environment = {"TMPDIR": str(root / "tmp")}
+        environment = self.temp_environment(root)
         if hook is not None:
             environment.update(self.startup_hook_environment(root, hook))
         return self.run_site2md(
@@ -158,13 +159,13 @@ class BrowserProfileTests(BrowserTestCase):
             extra_environment=environment,
         )
 
-    def assert_session_kept_and_browser_gone(self, root: Path) -> None:
+    def assert_session_kept_and_browser_gone(self, root: Path, *, kept: Sequence[str] = ()) -> None:
         """Assert that the browser used the profile folder, that the session in it is whole, and that no browser is left."""
         profile = root / "profile"
         # A browser keeps its settings in its profile, so this file shows that it used this folder.
         self.assertTrue((profile / "Local State").is_file())
         self.assertEqual((profile / SESSION_FILE).read_text(encoding="utf-8"), SESSION_TEXT)
-        self.assert_no_browser_left(root)
+        self.assert_no_browser_left(root, kept=kept)
 
     def test_the_folder_is_the_browsers_profile_and_stays(self) -> None:
         with RecordingServer({"/page": (200, HTML, PLAIN_PAGE)}) as server:
@@ -227,9 +228,8 @@ class BrowserProfileTests(BrowserTestCase):
                 content = path.read_bytes()
                 self.assertNotIn(SESSION_TEXT.encode(), content, path.name)
                 self.assertNotIn(str(root / "profile").encode(), content, path.name)
-            # The browser's own temporary folder is gone, and only the workspace is left.
-            self.assertEqual([path.name for path in (root / "tmp").iterdir()], [workspace.name])
-            self.assert_session_kept_and_browser_gone(root)
+            # The browser's own temporary files are gone, and only the workspace is left.
+            self.assert_session_kept_and_browser_gone(root, kept=[workspace.name])
 
     def test_a_later_build_has_the_session_that_an_earlier_one_left(self) -> None:
         routes: dict[str, Route] = {

@@ -7,12 +7,15 @@ import subprocess
 import sys
 import time
 import unittest
+from collections.abc import Sequence
 from pathlib import Path
 
 from site2md.browser import find_browser
 from site2md.downloader import RemoteFetchError
 from tests.cli_test_support import InstalledCliTestCase
 
+# The folder of a test root that holds all the temporary files of the run under test.
+TEMP_FOLDER = "tmp"
 # Reads the command line of every process, so that a test can tell whether a browser is left.
 _WINDOWS_PROCESS_QUERY = (
     "Get-CimInstance Win32_Process | Where-Object "
@@ -66,14 +69,21 @@ class BrowserTestCase(InstalledCliTestCase):
         self.assertEqual(output.read_text(encoding="utf-8"), "previous")
         self.assertNotIn("Traceback", result.stderr)
 
-    def assert_no_browser_left(self, temp_root: Path) -> None:
-        """Assert that no browser runs from a folder under temp_root, and that no folder of a run is left."""
+    @staticmethod
+    def temp_environment(root: Path) -> dict[str, str]:
+        """Return the variables that point every temporary file of a run to the temporary folder of a test root."""
+        folder = str(root / TEMP_FOLDER)
+        return {"TMPDIR": folder, "TMP": folder, "TEMP": folder}
+
+    def assert_no_browser_left(self, root: Path, *, kept: Sequence[str] = ()) -> None:
+        """Assert that no browser runs from a folder under root, and that the run left only `kept` in its temp folder."""
         # The processes of a browser end a moment after it does.
         deadline = time.monotonic() + 10
-        running = _processes_naming(temp_root)
+        running = _processes_naming(root)
         while running and time.monotonic() < deadline:
             time.sleep(0.2)
-            running = _processes_naming(temp_root)
+            running = _processes_naming(root)
         self.assertEqual(running, [], "browser processes are left")
-        left = [path.name for path in temp_root.iterdir() if path.name.startswith("site2md_")]
-        self.assertEqual(left, [], "folders of the run are left")
+        # Everything counts, not only the run's own folders: a browser also leaves files of its own.
+        left = sorted(path.name for path in (root / TEMP_FOLDER).iterdir())
+        self.assertEqual(left, sorted(kept), "files of the run are left")

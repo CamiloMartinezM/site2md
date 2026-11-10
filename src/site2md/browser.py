@@ -109,8 +109,13 @@ class _Browser:
         commands_read, self._commands = os.pipe()
         self._answers, answers_write = os.pipe()
         try:
+            # The browser's own temporary files go in here, so that they are removed with the folder.
+            temp_folder = folder / "tmp"
+            temp_folder.mkdir()
             with self._log_path.open("wb") as log:
-                self._process = _start(program, profile, log, commands_read, answers_write)
+                self._process = _start(
+                    program, profile, log, commands_read, answers_write, _browser_environment(temp_folder)
+                )
         except OSError as error:
             os.close(self._commands)
             os.close(self._answers)
@@ -350,9 +355,10 @@ def _candidates() -> Iterator[str | None]:
     yield from map(shutil.which, ("chromium", "chromium-browser"))
 
 
-def _browser_environment() -> dict[str, str]:
-    """Return the environment for the browser, without what a frozen executable adds for its own libraries."""
+def _browser_environment(temp_folder: Path) -> dict[str, str]:
+    """Return the environment for the browser: its temporary files go to the folder, and it loads its own libraries."""
     environment = dict(os.environ)
+    environment.update(TMPDIR=str(temp_folder), TMP=str(temp_folder), TEMP=str(temp_folder))
     if getattr(sys, "frozen", False):
         # PyInstaller puts its folder first on this path, and the browser must load its own libraries.
         original = environment.pop("LD_LIBRARY_PATH_ORIG", None)
@@ -363,7 +369,9 @@ def _browser_environment() -> dict[str, str]:
     return environment
 
 
-def _start(program: str, profile: Path, log: BinaryIO, commands_read: int, answers_write: int) -> _Process:
+def _start(
+    program: str, profile: Path, log: BinaryIO, commands_read: int, answers_write: int, environment: dict[str, str]
+) -> _Process:
     """Start the browser, which reads commands from the first pipe and writes its answers to the second."""
     arguments = [program, *BROWSER_SWITCHES, f"--user-data-dir={profile}"]
     if sys.platform == "win32":
@@ -379,6 +387,7 @@ def _start(program: str, profile: Path, log: BinaryIO, commands_read: int, answe
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=log,
+            env=environment,
             startupinfo=subprocess.STARTUPINFO(lpAttributeList={"handle_list": handles}),
         )
         return _Process(popen.pid, popen)
@@ -393,7 +402,7 @@ def _start(program: str, profile: Path, log: BinaryIO, commands_read: int, answe
         pid = os.posix_spawn(
             program,
             [*arguments, "about:blank"],
-            _browser_environment(),
+            environment,
             file_actions=[
                 (os.POSIX_SPAWN_OPEN, 0, os.devnull, os.O_RDONLY, 0),
                 (os.POSIX_SPAWN_OPEN, 1, os.devnull, os.O_WRONLY, 0),
