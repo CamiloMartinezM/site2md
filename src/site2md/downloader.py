@@ -11,7 +11,7 @@ import urllib.request
 import urllib.robotparser
 from dataclasses import dataclass
 from email.message import Message
-from http.client import HTTPMessage
+from http.client import HTTPMessage, HTTPResponse
 from pathlib import Path
 from typing import IO, Literal
 
@@ -241,6 +241,25 @@ class _RobotsRedirectHandler(_SafeRedirectHandler):
         return redirected
 
 
+class _SharedHTTPSHandler(urllib.request.HTTPSHandler):
+    """Send HTTPS requests through one default handler, created at the first HTTPS request.
+
+    Since Python 3.12 an HTTPSHandler loads the system certificates when it is created, and
+    every opener creates one, even to fetch a plain HTTP page.
+    """
+
+    _default: urllib.request.HTTPSHandler | None = None
+
+    def __init__(self) -> None:
+        # Not HTTPSHandler.__init__, which is what loads the certificates.
+        urllib.request.AbstractHTTPHandler.__init__(self)
+
+    def https_open(self, req: urllib.request.Request) -> HTTPResponse:
+        if _SharedHTTPSHandler._default is None:
+            _SharedHTTPSHandler._default = urllib.request.HTTPSHandler()
+        return _SharedHTTPSHandler._default.https_open(req)
+
+
 def _fetch_page(
     url: str,
     *,
@@ -257,7 +276,8 @@ def _fetch_page(
         if request_policy is not None:
             request_policy.prepare_request(url)
         opener = urllib.request.build_opener(
-            _SafeRedirectHandler(accounting, request_policy, content_path)
+            _SafeRedirectHandler(accounting, request_policy, content_path),
+            _SharedHTTPSHandler(),
         )
         request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         try:
@@ -358,7 +378,9 @@ def fetch_robots_policy(
         (parsed.scheme, parsed.netloc, "/robots.txt", "", "")
     )
     accounting = _ResponseAccounting(ROBOTS_MAX_BYTES, ROBOTS_MAX_BYTES)
-    opener = urllib.request.build_opener(_RobotsRedirectHandler(accounting))
+    opener = urllib.request.build_opener(
+        _RobotsRedirectHandler(accounting), _SharedHTTPSHandler()
+    )
     request = urllib.request.Request(robots_url, headers={"User-Agent": USER_AGENT})
     try:
         with opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
