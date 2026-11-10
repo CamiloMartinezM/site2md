@@ -38,6 +38,10 @@ def main() -> None:
             # marko imports its gfm extension by name, so extraction fails without it.
             "--collect-submodules",
             "marko",
+            # Nothing in the bundle starts processes, but with the module present PyInstaller's
+            # start-up hook imports it at every run, which takes about 7 ms.
+            "--exclude-module",
+            "multiprocessing",
         ]
     )
 
