@@ -213,6 +213,50 @@ class BrowserBuildTests(BrowserTestCase):
             self.assertIn("at nine seconds", markdown)
             self.assertNotIn("at twelve seconds", markdown)
 
+    def test_wait_for_reads_a_page_that_keeps_a_request_open(self) -> None:
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def never_answers(handler: BaseHTTPRequestHandler) -> None:
+            release.wait(30)
+
+        # The page's own time stands still while the request is open, so only a selector can end the wait.
+        page = script_page(
+            """
+            fetch("/hang");
+            setTimeout(function () {
+              document.getElementById("content").innerHTML = "<p class='film'>Spotlight</p>";
+            }, 1500);
+            """
+        )
+        routes: dict[str, Route] = {"/open": (200, HTML, page), "/hang": never_answers}
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "out.md"
+
+            result = self.build(f"{server.origin}/open", output, "--wait-for", "p.film")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("Spotlight", output.read_text(encoding="utf-8"))
+
+    def test_wait_for_reads_the_page_as_soon_as_an_element_matches(self) -> None:
+        page = script_page(
+            """
+            var content = document.getElementById("content");
+            content.innerHTML = "<p class='ready'>Ready at once</p>";
+            setTimeout(function () { content.innerHTML += "<p>Added at four seconds</p>"; }, 4000);
+            """
+        )
+        with RecordingServer({"/page": (200, HTML, page)}) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "out.md"
+
+            result = self.build(f"{server.origin}/page", output, "--wait-for", "p.ready")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            markdown = output.read_text(encoding="utf-8")
+            self.assertIn("Ready at once", markdown)
+            # The page runs in real time, so what it adds later isn't there yet.
+            self.assertNotIn("Added at four seconds", markdown)
+
     def test_the_address_that_the_browser_ends_on_is_the_source(self) -> None:
         page = b'<html><body><main><a href="child.html">Child</a></main></body></html>'
         routes: dict[str, Route] = {

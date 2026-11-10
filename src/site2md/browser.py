@@ -40,6 +40,7 @@ _BYTES_PER_MIB = 1024 * 1024
 _READ_SIZE = 64 * 1024
 # A wait on a queue isn't interrupted by Ctrl+C on Windows, so a wait is made in short turns.
 _POLL_SECONDS = 0.25
+_SELECTOR_POLL_SECONDS = 0.05
 _CLOSE_SECONDS = 5
 _REASON_LENGTH = 300
 # The address, the doctype and the markup of the document as it stands, which the page's scripts have changed.
@@ -230,6 +231,14 @@ class _Page:
         while not self.is_time_up:
             self._handle(self.browser.receive(self.deadline))
 
+    def wait_for_element(self, selector: str) -> None:
+        """Wait, in the page's real time, until an element matches the selector."""
+        expression = f"document.querySelector({json.dumps(selector)}) !== null"
+        while not self.call("Runtime.evaluate", expression=expression, returnByValue=True)["result"].get("value"):
+            if time.monotonic() >= self.deadline:
+                raise TimeoutError
+            time.sleep(_SELECTOR_POLL_SECONDS)
+
     def navigation_failure(self, navigation: DevToolsMessage) -> RemoteFetchError:
         """Describe why a navigation failed, in the words of a plain fetch where it has some."""
         if self.refused_downgrade:
@@ -404,7 +413,9 @@ def _check_document(document: DevToolsMessage | None, max_page_size_mib: int) ->
         )
 
 
-def _read_page(browser: _Browser, url: str, max_page_size_mib: int, deadline: float) -> tuple[str, str]:
+def _read_page(
+    browser: _Browser, url: str, max_page_size_mib: int, deadline: float, wait_for: str | None
+) -> tuple[str, str]:
     """Load a URL, let the page's scripts run, and return the address that the browser ends on and the page's markup."""
     page = _Page(browser, deadline)
     page.attach()
@@ -412,13 +423,16 @@ def _read_page(browser: _Browser, url: str, max_page_size_mib: int, deadline: fl
     if navigation.get("errorText"):
         raise page.navigation_failure(navigation)
     _check_document(page.document, max_page_size_mib)
-    # The page's timers run fast, and its clock stands still while a request is under way.
-    page.call(
-        "Emulation.setVirtualTimePolicy",
-        policy="pauseIfNetworkFetchesPending",
-        budget=VIRTUAL_TIME_BUDGET_MILLISECONDS,
-    )
-    page.wait_until_time_is_up()
+    if wait_for is None:
+        # The page's timers run fast, and its clock stands still while a request is under way.
+        page.call(
+            "Emulation.setVirtualTimePolicy",
+            policy="pauseIfNetworkFetchesPending",
+            budget=VIRTUAL_TIME_BUDGET_MILLISECONDS,
+        )
+        page.wait_until_time_is_up()
+    else:
+        page.wait_for_element(wait_for)
     _check_document(page.document, max_page_size_mib)
     assert page.document is not None
     try:
@@ -465,7 +479,9 @@ def find_browser() -> str:
     )
 
 
-def fetch_with_browser(url: str, *, max_page_size_mib: int, content_path: Path) -> RemotePage:
+def fetch_with_browser(
+    url: str, *, max_page_size_mib: int, content_path: Path, wait_for: str | None = None
+) -> RemotePage:
     """Read one page from an installed browser after its scripts have run, under a plain fetch's rules."""
     program = find_browser()
     folder = Path(tempfile.mkdtemp(prefix=_FOLDER_PREFIX))
@@ -473,7 +489,7 @@ def fetch_with_browser(url: str, *, max_page_size_mib: int, content_path: Path) 
         deadline = time.monotonic() + downloader.REQUEST_TIMEOUT_SECONDS
         browser = _Browser(program, folder)
         try:
-            final_url, markup = _read_page(browser, url, max_page_size_mib, deadline)
+            final_url, markup = _read_page(browser, url, max_page_size_mib, deadline, wait_for)
         except TimeoutError:
             raise RemoteFetchError("Malformed or unavailable response: timed out") from None
         except _PipeClosed:
