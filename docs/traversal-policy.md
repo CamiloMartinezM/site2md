@@ -4,7 +4,7 @@
 
 Only server-returned anchor links are traversal candidates. The tool does not fetch images, scripts, styles, documents, forms, sitemaps, browser-rendered links, or links created by JavaScript. It does not rewrite fetched-page links into internal document anchors.
 
-The one exception to the first of those sentences is page mode with `--browser`, which reads the page from an installed Chromium-based browser. That browser requests what the page asks for, as any browser does: scripts, style sheets, fonts, images, data calls, the page's icon, and documents in frames, from the page's host and from others. Nothing is blocked, and none of those requests is a traversal target: they are not checked against `robots.txt`, not paced, and not limited to an origin, because they belong to the entry page, which remains a direct user request. `--browser` is rejected in follow mode, in site mode and for local input, so no link that a script creates is ever traversed.
+The one exception to the first of those sentences is page mode with `--browser`, which reads the page from an installed Chromium-based browser. That browser requests what the page asks for, as any browser does: scripts, style sheets, fonts, images, data calls, the page's icon, and documents in frames, from the page's host and from others. Nothing is blocked, and none of those requests is a traversal target: they are not checked against `robots.txt`, not paced, and not limited to an origin, because they belong to the entry page, which remains a direct user request. With `--wait-for SELECTOR` the browser doesn't fast-forward the page's time: it reads the page as soon as an element matches the CSS selector, and the build fails when none matches within the 30-second timeout. The page asks for the same things either way, and `--wait-for` is rejected without `--browser`. `--browser` is rejected in follow mode, in site mode and for local input, so no link that a script creates is ever traversed.
 
 ## Scope and ordering
 
@@ -28,7 +28,7 @@ A **traversal budget** combines page count, traversal depth, and aggregate conte
 
 Every received page-body byte counts toward the aggregate limit, including redirect bodies, partial responses, and content later discarded. Page, depth, and aggregate limits stop the affected discovery successfully. Incomplete child content is discarded, and the command reports the reached limit.
 
-`--max-pages`, `--max-depth`, `--max-page-size-mib`, and `--max-total-size-mib` require positive integers. Page mode rejects traversal-only options. Follow mode requires at least one selector and rejects site-only options. Site mode rejects follow selectors. Local input rejects all remote-only options. Invalid combinations fail before network access.
+`--max-pages`, `--max-depth`, `--max-page-size-mib`, and `--max-total-size-mib` require positive integers. Page mode rejects traversal-only options. Follow mode requires at least one selector and rejects site-only options. Site mode rejects follow selectors. `--wait-for` requires `--browser`. Local input rejects all remote-only options. Invalid combinations fail before network access.
 
 ## Robots policy and pacing
 

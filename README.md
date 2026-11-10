@@ -173,10 +173,14 @@ site2md build https://example.com/app --browser --output app.md
 
 # Use one particular browser instead of looking for one
 SITE2MD_BROWSER="/opt/google/chrome/chrome" site2md build https://example.com/app --browser --output app.md
+
+# Read the page as soon as an element matches a CSS selector
+site2md build https://example.com/app --browser --wait-for "table.results tr" --output app.md
 ```
 
 - **Which browser.** The program in `SITE2MD_BROWSER`, if it is set. Otherwise Chrome, then Edge, then Chromium, where each system installs them (on Windows, by their `App Paths` registry keys). site2md installs and downloads no browser, and without one the build fails with one line that names the variable.
 - **When the page is read.** After 10 seconds of the page's own time: the browser fast-forwards the page's timers and holds its clock still while a request is under way, so a page that waits two seconds before it asks for its data doesn't cost two seconds. No option sets that budget.
+- **`--wait-for SELECTOR`.** Reads the page as soon as an element matches the CSS selector, in the page's real time and without that budget. It is the way to read a page that keeps a request open, because the page's own time never gets past such a request. If no element matches within the 30-second timeout, the build fails with one line that names the selector. A selector that the browser doesn't accept fails before any request. It needs `--browser`.
 - **What stays as in a plain fetch.** Only a final `2xx` response of type `text/html` or `application/xhtml+xml` is converted, by its `Content-Type` header. Redirects are followed and an HTTPS-to-HTTP downgrade is refused. The 30-second timeout runs from starting the browser to reading the page, and `--max-page-size-mib` limits the page as the browser shows it. The address that the browser ends on is the source, so the source marker and the links are those of a plain build. The same failure gives the same line, and an existing output file stays as it was.
 - **What the browser loads.** Everything that the page asks for, as any browser does: its scripts, style sheets, fonts, images and data, from the page's host and from others, and the page's icon. Nothing is blocked, and nothing checks `robots.txt`: as in every page-mode build, the page is a direct request, and these requests belong to it. A plain build makes one request.
 - **What it says.** The User-Agent is the browser's own, `HeadlessChrome` included, followed by ` site2md/<version>`.
@@ -246,10 +250,11 @@ The following options define the remote scope and resource limits:
 | `--include-query` | `site` | Off | Includes discovered URLs that contain query strings |
 | `--max-page-size-mib SIZE` | All remote modes | `25` | Limits each HTML page response |
 | `--browser` | `page` | Off | Reads the page from an installed browser after its scripts have run ([above](#read-a-page-that-a-script-fills-in)) |
+| `--wait-for SELECTOR` | `page`, with `--browser` | Off | Reads the page as soon as an element matches the CSS selector, instead of after 10 seconds of the page's time |
 | `--max-total-size-mib SIZE` | `follow`, `site` | `250` | Limits all received page-body content, including partial or discarded responses |
 | `--keep-temp` | All remote modes | Off | Retains the remote-build workspace after success or failure |
 
-All numeric limits require positive integers. Page mode rejects traversal-only options. Follow mode rejects `--max-depth` and `--include-query`. Site mode rejects `--follow-selector`. `--browser` needs page mode. Local input rejects remote-only options. Invalid combinations fail before a network request.
+All numeric limits require positive integers. Page mode rejects traversal-only options. Follow mode rejects `--max-depth` and `--include-query`. Site mode rejects `--follow-selector`. `--browser` needs page mode. `--wait-for` needs `--browser`. Local input rejects remote-only options. Invalid combinations fail before a network request.
 
 Before requesting child pages, follow and site modes retrieve and enforce `robots.txt` with a separate 512 KiB limit. Child requests are sequential and spaced by at least one second, or by a longer applicable crawl delay or request-rate interval. A `4xx` response for `robots.txt` permits traversal. An unreachable or oversized policy stops child traversal and produces a warning.
 
