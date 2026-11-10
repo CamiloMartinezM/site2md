@@ -93,7 +93,7 @@ pip install -e .
 - **Local Directories** - Convert and concatenate a folder of HTML files you already have.
 - **Remote URLs** - Convert one server-rendered HTML page, explicitly follow selected same-origin links by one hop, or traverse a bounded same-origin site.
 
-Remote conversion processes the HTML returned by the server. It doesn't run JavaScript, so it doesn't include content that requires client-side rendering.
+Remote conversion processes the HTML returned by the server. It doesn't run JavaScript, so it doesn't include content that requires client-side rendering. With `--browser`, page mode reads the page from a browser that is already installed instead, so content that a script adds is there ([below](#read-a-page-that-a-script-fills-in)).
 
 ---
 
@@ -109,7 +109,7 @@ Remote conversion processes the HTML returned by the server. It doesn't run Java
 - **Concatenation** - Merges local HTML files into one document with page separators.
 - **Structured Extraction** - Runs an explicitly selected plug-in parser, called an Extractor, over converted Markdown and emits schema-validated, deterministic JSON with source provenance.
 - **Progress Tracking** - Beautiful CLI with rich progress bars and status updates.
-- **Zero bloat** - No heavy browser engines required (unlike PDF converters).
+- **Zero bloat** - No heavy browser engines required (unlike PDF converters). `--browser` uses a Chrome, Edge or Chromium that you already have, and site2md never installs or downloads one.
 
 ### Why use site2md?
 - **LLM Ready** - Create massive context files for RAG (Retrieval-Augmented Generation) applications.
@@ -147,7 +147,7 @@ Remote input accepts three explicit modes. `page` is the default. `site2md` does
 | `follow` | The entry page and selected links from that page | A listing page plus chosen detail pages | One hop, same origin, and explicit CSS selectors |
 | `site` | The entry page and discovered links | A bounded documentation site or other small site | Same-origin breadth-first traversal with depth, page, and content limits |
 
-All modes process the HTML that the server returns. They don't run JavaScript or use a browser session, so client-rendered content isn't included.
+All modes process the HTML that the server returns. They don't run JavaScript or use a browser session, so client-rendered content isn't included. Only page mode can read a page from a browser, with `--browser`.
 
 #### Use page mode
 
@@ -163,6 +163,30 @@ site2md build https://example.com/article \
 ```
 
 Use page mode when the URL already represents the content that you need. Links in the converted Markdown remain usable, but `site2md` doesn't fetch their destinations.
+
+#### Read a page that a script fills in
+
+Some pages arrive empty and fill themselves in with a script, so a plain build saves their frame and reports success. `--browser` loads the page in a Chrome, Edge or Chromium that is already installed, lets the page's scripts run, and converts what the browser then shows. It is for page mode and an `http://` or `https://` URL only.
+
+```bash
+site2md build https://example.com/app --browser --output app.md
+
+# Use one particular browser instead of looking for one
+SITE2MD_BROWSER="/opt/google/chrome/chrome" site2md build https://example.com/app --browser --output app.md
+```
+
+- **Which browser.** The program in `SITE2MD_BROWSER`, if it is set. Otherwise Chrome, then Edge, then Chromium, where each system installs them (on Windows, by their `App Paths` registry keys). site2md installs and downloads no browser, and without one the build fails with one line that names the variable.
+- **When the page is read.** After 10 seconds of the page's own time: the browser fast-forwards the page's timers and holds its clock still while a request is under way, so a page that waits two seconds before it asks for its data doesn't cost two seconds. No option sets that budget.
+- **What stays as in a plain fetch.** Only a final `2xx` response of type `text/html` or `application/xhtml+xml` is converted, by its `Content-Type` header. Redirects are followed and an HTTPS-to-HTTP downgrade is refused. The 30-second timeout runs from starting the browser to reading the page, and `--max-page-size-mib` limits the page as the browser shows it. The address that the browser ends on is the source, so the source marker and the links are those of a plain build. The same failure gives the same line, and an existing output file stays as it was.
+- **What the browser loads.** Everything that the page asks for, as any browser does: its scripts, style sheets, fonts, images and data, from the page's host and from others, and the page's icon. Nothing is blocked, and nothing checks `robots.txt`: as in every page-mode build, the page is a direct request, and these requests belong to it. A plain build makes one request.
+- **What it says.** The User-Agent is the browser's own, `HeadlessChrome` included, followed by ` site2md/<version>`.
+- **What it doesn't do.** It doesn't hide that the browser is automated, and it doesn't answer a browser check, a CAPTCHA or any other defence of a site: a denial isn't a reason to bypass the restriction. The browser keeps its sandbox, and site2md never passes `--no-sandbox`, so where a browser can't start its sandbox the build fails with the browser's reason. Downloads are refused and dialogs are dismissed. It doesn't click, type or scroll, and it doesn't read frames or shadow roots. Content that the page hides with CSS still comes out.
+- **The profile.** Each build uses a new temporary profile, which is removed afterwards with every browser process, also after a failure or an interruption. `--keep-temp` never keeps it.
+- **Platforms.** It works on Windows and Linux. The browser takes its commands over a pipe that only site2md and the browser hold, and no port is opened. macOS isn't promised.
+
+The page's markup comes out of the browser as text, so the page is stored as UTF-8 whatever its `<meta charset>` says. With `--keep-temp`, `page.html` may therefore still name another charset.
+
+Use it only on sites whose terms allow automated access.
 
 #### Use follow mode
 
@@ -221,10 +245,11 @@ The following options define the remote scope and resource limits:
 | `--max-depth DEPTH` | `site` | `3` | Limits breadth-first discovery; the entry page is depth zero |
 | `--include-query` | `site` | Off | Includes discovered URLs that contain query strings |
 | `--max-page-size-mib SIZE` | All remote modes | `25` | Limits each HTML page response |
+| `--browser` | `page` | Off | Reads the page from an installed browser after its scripts have run ([above](#read-a-page-that-a-script-fills-in)) |
 | `--max-total-size-mib SIZE` | `follow`, `site` | `250` | Limits all received page-body content, including partial or discarded responses |
 | `--keep-temp` | All remote modes | Off | Retains the remote-build workspace after success or failure |
 
-All numeric limits require positive integers. Page mode rejects traversal-only options. Follow mode rejects `--max-depth` and `--include-query`. Site mode rejects `--follow-selector`. Local input rejects remote-only options. Invalid combinations fail before a network request.
+All numeric limits require positive integers. Page mode rejects traversal-only options. Follow mode rejects `--max-depth` and `--include-query`. Site mode rejects `--follow-selector`. `--browser` needs page mode. Local input rejects remote-only options. Invalid combinations fail before a network request.
 
 Before requesting child pages, follow and site modes retrieve and enforce `robots.txt` with a separate 512 KiB limit. Child requests are sequential and spaced by at least one second, or by a longer applicable crawl delay or request-rate interval. A `4xx` response for `robots.txt` permits traversal. An unreachable or oversized policy stops child traversal and produces a warning.
 
@@ -395,7 +420,7 @@ site2md extractors --help
 ### Required
 - **Python 3.10** or higher
 
-Remote page conversion doesn't require `wget` or a browser engine.
+Remote page conversion doesn't require `wget` or a browser engine. Only `--browser` needs a Chrome, Edge or Chromium, which you install yourself.
 
 ### Dependencies (Installed automatically)
 - `cyclopts` - For the CLI interface

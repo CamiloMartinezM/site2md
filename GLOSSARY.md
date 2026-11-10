@@ -37,8 +37,12 @@ The combined page-count, traversal-depth, and aggregate-content limits that boun
 _Avoid_: Crawl quota, download allowance
 
 **Remote page**:
-An HTML document fetched from a URL together with its final source URL, which provides the base for resolving relative links.
+An HTML document fetched from a URL, or read from a browser that has run its scripts, together with its final source URL, which provides the base for resolving relative links.
 _Avoid_: Downloaded file, scraped page
+
+**Browser rendering**:
+Reading a remote page from an installed Chromium-based browser instead of from the server's response, after the page's scripts have run for a fixed budget of the page's own time. It applies to page mode only, and it yields the same remote page, so conversion doesn't change.
+_Avoid_: Headless scraping, JavaScript mode, dynamic mode
 
 **Converted document**:
 The Markdown output of site conversion and the complete source from which structured records are extracted.

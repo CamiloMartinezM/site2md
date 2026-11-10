@@ -4,6 +4,8 @@
 
 Only server-returned anchor links are traversal candidates. The tool does not fetch images, scripts, styles, documents, forms, sitemaps, browser-rendered links, or links created by JavaScript. It does not rewrite fetched-page links into internal document anchors.
 
+The one exception to the first of those sentences is page mode with `--browser`, which reads the page from an installed Chromium-based browser. That browser requests what the page asks for, as any browser does: scripts, style sheets, fonts, images, data calls, the page's icon, and documents in frames, from the page's host and from others. Nothing is blocked, and none of those requests is a traversal target: they are not checked against `robots.txt`, not paced, and not limited to an origin, because they belong to the entry page, which remains a direct user request. `--browser` is rejected in follow mode, in site mode and for local input, so no link that a script creates is ever traversed.
+
 ## Scope and ordering
 
 The **entry page** is the requested remote page. Its final URL establishes the **traversal origin**: the normalized scheme, host, and port that every child must retain before and after redirects. The entry page is always the first source section.
@@ -20,7 +22,7 @@ A **traversal budget** combines page count, traversal depth, and aggregate conte
 
 - 50 admitted pages, including the entry page and failed, disallowed, or redirect-duplicate child targets.
 - Depth three in site mode, with the entry page at depth zero. Follow mode is fixed at one hop.
-- 25 MiB for each page response in every remote mode.
+- 25 MiB for each page response in every remote mode. With `--browser`, the limit applies to the page as the browser shows it.
 - 250 MiB of aggregate page-body content in follow and site modes.
 - 512 KiB for `robots.txt`, accounted separately from page content.
 
@@ -30,7 +32,7 @@ Every received page-body byte counts toward the aggregate limit, including redir
 
 ## Robots policy and pacing
 
-Before requesting children, traversal retrieves `/robots.txt` for the traversal origin with the versioned user agent. A successful policy is enforced. An unavailable `4xx` policy permits traversal; a server error, network failure, or oversized policy stops child traversal because policy is uncertain. The entry page remains a direct user request.
+Before requesting children, traversal retrieves `/robots.txt` for the traversal origin with the versioned user agent. A successful policy is enforced. An unavailable `4xx` policy permits traversal; a server error, network failure, or oversized policy stops child traversal because policy is uncertain. The entry page remains a direct user request, and with `--browser` so do the requests that the browser makes to show it.
 
 Child requests are sequential. The delay is the greatest of one second, an applicable `crawl-delay`, or the interval implied by an applicable `request-rate`. Each delay starts when the previous child response arrives, redirect responses included, so the server never receives two child requests closer together than the delay. There is no delay override. Use traversal only where the site's robots policy and terms permit it; policy denial is expected enforcement and must not be bypassed.
 
