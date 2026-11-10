@@ -45,6 +45,8 @@ ENTITY_REFERENCE = re.compile(
     r"&(?:#[xX][0-9A-Fa-f]{1,6}|#[0-9]{1,7}|[A-Za-z][A-Za-z0-9]{1,31});"
 )
 LINE_ENDING = re.compile(r"\r\n?|\n")
+# What Marko reads differently from the document: each becomes one line feed or replacement character.
+NORMALIZED_CHARACTERS = re.compile(r"\r\n?|\f|\x00")
 EXTRACTOR_ID = re.compile(r"^[a-z0-9]+(?:[.-][a-z0-9]+)+$")
 SEMANTIC_VERSION = re.compile(
     r"^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
@@ -633,22 +635,18 @@ def _converted_document(
 
 def _normalize_markdown(markdown: str) -> tuple[str, tuple[int, ...]]:
     """Normalize Marko input while retaining normalized-to-original offsets."""
+    # Only line endings and NUL change, so the text between them is copied a run at a time.
     normalized: list[str] = []
-    original_offsets = [0]
-    original_index = 0
-    while original_index < len(markdown):
-        character = markdown[original_index]
-        if character == "\r" and markdown[original_index : original_index + 2] == "\r\n":
-            normalized.append("\n")
-            original_index += 2
-        else:
-            if character in {"\r", "\f"}:
-                character = "\n"
-            elif character == "\x00":
-                character = "�"
-            normalized.append(character)
-            original_index += 1
-        original_offsets.append(original_index)
+    original_offsets: list[int] = []
+    copied = 0
+    for replaced in NORMALIZED_CHARACTERS.finditer(markdown):
+        start, end = replaced.span()
+        normalized.append(markdown[copied:start])
+        normalized.append("�" if replaced.group() == "\x00" else "\n")
+        original_offsets.extend(range(copied, start + 1))
+        copied = end
+    normalized.append(markdown[copied:])
+    original_offsets.extend(range(copied, len(markdown) + 1))
     return "".join(normalized), tuple(original_offsets)
 
 
@@ -808,6 +806,7 @@ def _validated_diagnostics(
     extractor_id: str,
     document: ConvertedDocument,
     line_starts: Sequence[int],
+    section_bounds: Sequence[tuple[int, int] | None],
 ) -> tuple[Diagnostic, ...]:
     """Validate ordered provider diagnostics at the host boundary."""
     if not isinstance(diagnostics, tuple):
@@ -845,6 +844,7 @@ def _validated_diagnostics(
                 span,
                 document,
                 line_starts,
+                section_bounds,
                 context=f"diagnostic {index} provenance {span_index}",
             )
     return diagnostics
@@ -854,6 +854,7 @@ def _validated_records(
     records: tuple[RecordCandidate, ...],
     document: ConvertedDocument,
     line_starts: Sequence[int],
+    section_bounds: Sequence[tuple[int, int] | None],
 ) -> tuple[tuple[RecordCandidate, ...], list[dict[str, Any]]]:
     """Validate candidate values and provenance without changing their order."""
     if not isinstance(records, tuple):
@@ -890,6 +891,7 @@ def _validated_records(
                 span,
                 document,
                 line_starts,
+                section_bounds,
                 context=f"record candidate {index} provenance {span_index}",
             )
         native = _json_native(candidate.value)
@@ -949,10 +951,24 @@ def _validate_json_value(
     raise ValueError(f"{path} contains a non-JSON-native value")
 
 
+def _section_bounds(document: ConvertedDocument) -> tuple[tuple[int, int] | None, ...]:
+    """Return the offsets where each source section's nodes start and end, or None for an empty one."""
+    return tuple(
+        (
+            min(node.span.start for node in section.nodes),
+            max(node.span.end for node in section.nodes),
+        )
+        if section.nodes
+        else None
+        for section in document.sections
+    )
+
+
 def _validate_span(
     span: SourceSpan,
     document: ConvertedDocument,
     line_starts: Sequence[int],
+    section_bounds: Sequence[tuple[int, int] | None],
     *,
     context: str,
 ) -> None:
@@ -984,15 +1000,14 @@ def _validate_span(
             "site2md.provenance_invalid",
             f"{context} falls outside the converted document",
         )
-    section_nodes = document.sections[span.source_section].nodes
-    if not section_nodes:
+    # Computed once per document: a scan of the section here would run for every span.
+    bounds = section_bounds[span.source_section]
+    if bounds is None:
         raise ExtractionError(
             "site2md.provenance_invalid",
             f"{context} refers to an empty source section",
         )
-    section_start = min(node.span.start for node in section_nodes)
-    section_end = max(node.span.end for node in section_nodes)
-    if span.start < section_start or span.end > section_end:
+    if span.start < bounds[0] or span.end > bounds[1]:
         raise ExtractionError(
             "site2md.provenance_invalid",
             f"{context} falls outside its source section",
@@ -1186,11 +1201,13 @@ def extract(
             "site2md.extractor_output_invalid",
             f"Extractor {extractor_id} returned an invalid extraction object",
         )
+    section_bounds = _section_bounds(document)
     diagnostics = _validated_diagnostics(
         provider_result.diagnostics,
         extractor_id,
         document,
         line_starts,
+        section_bounds,
     )
     if any(diagnostic.severity == "error" for diagnostic in diagnostics):
         raise ExtractionError(
@@ -1199,7 +1216,7 @@ def extract(
             diagnostics=diagnostics,
         )
     records, values = _validated_records(
-        provider_result.records, document, line_starts
+        provider_result.records, document, line_starts, section_bounds
     )
     validation_errors = sorted(
         Draft202012Validator(schema).iter_errors(values),
