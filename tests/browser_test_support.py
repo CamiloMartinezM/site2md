@@ -13,8 +13,6 @@ from site2md.browser import find_browser
 from site2md.downloader import RemoteFetchError
 from tests.cli_test_support import InstalledCliTestCase
 
-# Starts the name of every folder that a --browser run makes for its browser.
-BROWSER_FOLDER_PREFIX = "site2md_browser_"
 # Reads the command line of every process, so that a test can tell whether a browser is left.
 _WINDOWS_PROCESS_QUERY = (
     "Get-CimInstance Win32_Process | Where-Object "

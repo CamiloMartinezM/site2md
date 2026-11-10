@@ -23,7 +23,7 @@ from site2md import downloader
 from site2md._types import DevToolsMessage
 from site2md.downloader import RemoteFetchError, RemotePage
 
-BROWSER_FOLDER_PREFIX = "site2md_browser_"
+_FOLDER_PREFIX = "site2md_browser_"
 VIRTUAL_TIME_BUDGET_MILLISECONDS = 10_000
 BROWSER_SWITCHES = (
     "--headless",
@@ -468,7 +468,7 @@ def find_browser() -> str:
 def fetch_with_browser(url: str, *, max_page_size_mib: int, content_path: Path) -> RemotePage:
     """Read one page from an installed browser after its scripts have run, under a plain fetch's rules."""
     program = find_browser()
-    folder = Path(tempfile.mkdtemp(prefix=BROWSER_FOLDER_PREFIX))
+    folder = Path(tempfile.mkdtemp(prefix=_FOLDER_PREFIX))
     try:
         deadline = time.monotonic() + downloader.REQUEST_TIMEOUT_SECONDS
         browser = _Browser(program, folder)
