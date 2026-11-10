@@ -177,7 +177,11 @@ def build(
         max_page_size_mib: Positive MiB limit for one remote page (default: 25).
         browser: Read the page from an installed Chrome, Edge or Chromium after its scripts have run,
             so that content a script adds is there. Page mode only. Set SITE2MD_BROWSER to the path of
-            a browser to use that one.
+            a browser to use that one. The browser loads everything the page asks for, from other hosts
+            too, and nothing is blocked or checked against robots.txt. As in a plain fetch, only a 2xx
+            HTML page is converted, an HTTPS-to-HTTP redirect is refused, and the 30-second timeout and
+            --max-page-size-mib apply. It doesn't hide the automation, answer a browser check, or click,
+            type or scroll.
         wait_for: With --browser, read the page as soon as an element matches this CSS selector, in
             real time, so a page that keeps a request open is read too. The build fails if no element
             matches within 30 seconds, and before any request if the browser rejects the selector.

@@ -587,9 +587,15 @@ class BrowserOptionRulesTests(InstalledCliTestCase):
         result = self.run_site2md("build", "--help")
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        text = " ".join(result.stdout.split())
+        # The table wraps each cell, so the borders are dropped to read a phrase across the lines.
+        text = " ".join(word for word in result.stdout.split() if word not in {"|", "│"})
         self.assertIn("--browser", text)
         self.assertIn("SITE2MD_BROWSER", text)
+        # What the browser loads, what stays as in a plain fetch, and what it doesn't do.
+        self.assertIn("loads everything the page asks for, from other hosts too", text)
+        self.assertIn("nothing is blocked or checked against robots.txt", text)
+        self.assertIn("As in a plain fetch, only a 2xx HTML page is converted", text)
+        self.assertIn("It doesn't hide the automation", text)
 
     def test_the_help_describes_wait_for_and_the_rule_that_it_needs_the_browser(self) -> None:
         result = self.run_site2md("build", "--help")
