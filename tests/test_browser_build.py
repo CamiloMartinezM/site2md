@@ -65,6 +65,21 @@ def interrupted_dumps(value, *arguments, **options):
 
 json.dumps = interrupted_dumps
 """
+# Holds the browser open for a few seconds more, which is long enough for it to save a download if it may.
+DELAY_CLOSE_HOOK = """import json
+import time
+
+dumps = json.dumps
+
+
+def delayed_dumps(value, *arguments, **options):
+    if isinstance(value, dict) and value.get("method") == "Browser.close":
+        time.sleep(3)
+    return dumps(value, *arguments, **options)
+
+
+json.dumps = delayed_dumps
+"""
 SHORT_TIMEOUT_HOOK = """from site2md import downloader
 
 downloader.REQUEST_TIMEOUT_SECONDS = 3
@@ -412,15 +427,21 @@ class BrowserBuildFailureTests(BrowserTestCase):
     def test_a_page_sent_as_a_download_fails_and_no_file_is_written(self) -> None:
         name = "site2md-browser-test-download.html"
         headers = {"Content-Type": "text/html", "Content-Disposition": f'attachment; filename="{name}"'}
-        downloads = Path.home() / "Downloads"
         with RecordingServer({"/page": (200, headers, PLAIN_PAGE)}) as server, tempfile.TemporaryDirectory() as temp_dir:
-            result = self.build_failing(f"{server.origin}/page", Path(temp_dir))
+            temp_root = Path(temp_dir)
+            # On Windows the folder for downloads is the user's, whatever the environment says.
+            downloads = Path.home() / "Downloads" if sys.platform == "win32" else temp_root / "Downloads"
+            self.addCleanup((downloads / name).unlink, missing_ok=True)
+            environment = self.startup_hook_environment(temp_root, DELAY_CLOSE_HOOK)
+            environment["HOME"] = str(temp_root)
+
+            result = self.build_failing(f"{server.origin}/page", temp_root, extra_environment=environment)
 
             self.assertEqual(
                 result.stdout.strip(),
                 "Error fetching remote page: Final response is a download, which the browser refuses, not a page.",
             )
-        self.assertFalse((downloads / name).exists())
+            self.assertFalse((downloads / name).exists())
 
     def test_a_page_over_the_size_limit_fails_as_it_does_under_a_plain_fetch(self) -> None:
         def stream(handler: BaseHTTPRequestHandler) -> None:
