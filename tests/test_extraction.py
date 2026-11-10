@@ -456,6 +456,28 @@ Evidence.
         self.assertEqual(document.source_text(paragraph.span), "Evidence.\r")
         self.assertEqual((paragraph.span.start_line, paragraph.span.end_line), (4, 4))
 
+    def test_nul_and_form_feed_keep_exact_text_offsets_and_lines(self) -> None:
+        # Marko reads a NUL as a replacement character and a form feed as a line break. The
+        # values are the ones 0.5.0 gave.
+        markdown = "<!-- Source: one -->\n# Lines\n\nNul\x00here.\fAfter the feed.\n\nLast.\n"
+        observer = ObservingExtractor()
+
+        with patch(
+            "site2md.extractors.countries.create_extractor",
+            return_value=observer,
+        ):
+            extract(markdown, "site2md.scrapethissite.countries")
+
+        document = observer.documents[0]
+        replaced, last = document.sections[0].nodes[1:]
+        self.assertEqual(document.plain_text(replaced), "Nul\ufffdhere.\nAfter the feed.")
+        self.assertEqual(document.source_text(replaced.span), "Nul\x00here.\fAfter the feed.\n")
+        self.assertEqual((replaced.span.start, replaced.span.end), (30, 56))
+        self.assertEqual((replaced.span.start_line, replaced.span.end_line), (4, 4))
+        self.assertEqual(document.source_text(last.span), "Last.\n")
+        self.assertEqual((last.span.start, last.span.end), (57, 63))
+        self.assertEqual((last.span.start_line, last.span.end_line), (6, 6))
+
     def test_node_lines_are_exact_for_every_line_ending_style(self) -> None:
         expected = [
             ("heading", 1, 1),
