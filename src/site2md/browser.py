@@ -49,6 +49,8 @@ _READ_DOCUMENT = (
     " + document.documentElement.outerHTML]"
 )
 _DOCUMENT_REQUESTS = [{"urlPattern": "*", "resourceType": "Document", "requestStage": "Request"}]
+# A target that the page opens, such as a frame of another site, waits for site2md before it starts.
+_AUTO_ATTACH = {"autoAttach": True, "waitForDebuggerOnStart": True, "flatten": True}
 
 
 class _PipeClosed(RuntimeError):
@@ -205,6 +207,9 @@ class _Page:
         self.is_loading = False
         self._next_id = 0
         self._session = ""
+        # The sessions of the page and of the targets that it opened, by their ids.
+        self._sessions: set[str] = set()
+        self._user_agent = ""
         self._main_frame = ""
         # The address of each request for the page's own document, by the id that the browser gave it.
         self._requested: dict[str, str] = {}
@@ -218,18 +223,22 @@ class _Page:
         target_id = pages[0] if pages else self.call("Target.createTarget", in_page=False, url="about:blank")["targetId"]
         # A flat session carries a session id on every command to the page, as the protocol advises.
         self._session = self.call("Target.attachToTarget", in_page=False, targetId=target_id, flatten=True)["sessionId"]
+        self._sessions.add(self._session)
         self.call("Browser.setDownloadBehavior", in_page=False, behavior="deny")
         self.call("Page.enable")
         self.call("Network.enable")
         self._main_frame = self.call("Page.getFrameTree")["frameTree"]["frame"]["id"]
         agent = self.call("Browser.getVersion", in_page=False)["userAgent"]
-        self.call("Network.setUserAgentOverride", userAgent=f"{agent} {downloader.USER_AGENT}")
+        self._user_agent = f"{agent} {downloader.USER_AGENT}"
+        self.call("Network.setUserAgentOverride", userAgent=self._user_agent)
+        # The override covers one target, so every other target that the page opens gets it as it starts.
+        self.call("Target.setAutoAttach", **_AUTO_ATTACH)
         # Only the page's own documents are paused, to refuse an HTTPS-to-HTTP redirect before the http request leaves.
         self.call("Fetch.enable", patterns=_DOCUMENT_REQUESTS)
 
     def call(self, method: str, *, in_page: bool = True, **parameters: object) -> DevToolsMessage:
         """Send one command and return its result, while handling the events that arrive first."""
-        sent = self._send(method, parameters, in_page=in_page)
+        sent = self._send(method, parameters, session=self._session if in_page else None)
         while True:
             message = self._receive()
             if message.get("id") == sent:
@@ -289,12 +298,12 @@ class _Page:
             raise self.failure
         return message
 
-    def _send(self, method: str, parameters: DevToolsMessage, *, in_page: bool) -> int:
-        """Send one command without waiting for its answer, and return its id."""
+    def _send(self, method: str, parameters: DevToolsMessage, *, session: str | None) -> int:
+        """Send one command, to the browser or to the session of a target, without waiting for its answer."""
         self._next_id += 1
         message: DevToolsMessage = {"id": self._next_id, "method": method, "params": parameters}
-        if in_page:
-            message["sessionId"] = self._session
+        if session is not None:
+            message["sessionId"] = session
         self.browser.send(message)
         return self._next_id
 
@@ -304,9 +313,11 @@ class _Page:
         parameters = message.get("params", {})
         if method == "Page.javascriptDialogOpening":
             # A dialog stops the page, and every command to it, until it is answered.
-            self._send("Page.handleJavaScriptDialog", {"accept": False}, in_page=True)
+            self._send("Page.handleJavaScriptDialog", {"accept": False}, session=self._session)
         elif method == "Fetch.requestPaused":
             self._answer_request(parameters)
+        elif method == "Target.attachedToTarget" and message.get("sessionId") in self._sessions:
+            self._set_up_target(parameters["sessionId"])
         elif (
             method == "Network.responseReceived"
             and parameters.get("type") == "Document"
@@ -340,10 +351,17 @@ class _Page:
                 self._send(
                     "Fetch.failRequest",
                     {"requestId": request_id, "errorReason": "BlockedByClient"},
-                    in_page=True,
+                    session=self._session,
                 )
                 return
-        self._send("Fetch.continueRequest", {"requestId": request_id}, in_page=True)
+        self._send("Fetch.continueRequest", {"requestId": request_id}, session=self._session)
+
+    def _set_up_target(self, session: str) -> None:
+        """Give a target that the page opened the User-Agent and the auto-attach of the page, and let it start."""
+        self._sessions.add(session)
+        self._send("Network.setUserAgentOverride", {"userAgent": self._user_agent}, session=session)
+        self._send("Target.setAutoAttach", _AUTO_ATTACH, session=session)
+        self._send("Runtime.runIfWaitingForDebugger", {}, session=session)
 
 
 def _match_expression(selector: str) -> str:

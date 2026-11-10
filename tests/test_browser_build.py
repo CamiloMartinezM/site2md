@@ -211,6 +211,32 @@ class BrowserBuildTests(BrowserTestCase):
                 self.assertIn("Chrome/", user_agent)
                 self.assertTrue(user_agent.endswith(" site2md/0.6.0"), user_agent)
 
+    def test_a_frame_of_another_site_asks_with_the_same_user_agent(self) -> None:
+        routes: dict[str, Route] = {"/from-frame": (200, {"Content-Type": "text/plain"}, b"ok")}
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            # localhost is another site than 127.0.0.1, so the browser runs the frame in a process of its own.
+            other = server.origin.replace("127.0.0.1", "localhost")
+            routes["/page"] = (
+                200,
+                HTML,
+                (
+                    f'<html><body><iframe src="{other}/frame"></iframe><script>'
+                    'window.addEventListener("message", function () {'
+                    ' document.body.insertAdjacentHTML("beforeend", "<p class=done>Done</p>"); });'
+                    "</script></body></html>"
+                ).encode(),
+            )
+            frame = b'<script>fetch("/from-frame").then(function () { parent.postMessage("done", "*"); });</script>'
+            routes["/frame"] = (200, HTML, b"<html><body>" + frame + b"</body></html>")
+
+            result = self.build(f"{server.origin}/page", Path(temp_dir) / "out.md", "--wait-for", "p.done")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("/from-frame", server.requests)
+            for path, user_agent in zip(server.requests, server.user_agents):
+                assert user_agent is not None
+                self.assertTrue(user_agent.endswith(" site2md/0.6.0"), f"{path}: {user_agent}")
+
     def test_the_page_is_read_after_ten_seconds_of_the_pages_own_time(self) -> None:
         page = script_page(
             """
