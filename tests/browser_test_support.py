@@ -46,6 +46,8 @@ _WINDOWS_PROCESS_QUERY = (
     "{ $_.CommandLine -and $_.CommandLine.Contains($env:SITE2MD_PROCESS_FOLDER) } "
     "| ForEach-Object { $_.ProcessId }"
 )
+# The browsers that this test process has started once. On a fresh CI runner a first start can take minutes.
+_STARTED_BROWSERS: set[str] = set()
 
 
 def _processes_naming(folder: Path) -> list[str]:
@@ -78,6 +80,29 @@ def _remove_test_root(root: Path) -> None:
     shutil.rmtree(root, ignore_errors=True)
 
 
+def _start_once(program: str) -> None:
+    """Start the browser once and let it close, so that its slow first start counts against no test's timeout."""
+    if program in _STARTED_BROWSERS:
+        return
+    _STARTED_BROWSERS.add(program)
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as profile:
+        subprocess.run(
+            [
+                program,
+                "--headless",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--edge-skip-compat-layer-relaunch",
+                f"--user-data-dir={profile}",
+                "--dump-dom",
+                "about:blank",
+            ],
+            check=False,
+            capture_output=True,
+            timeout=300,
+        )
+
+
 class BrowserTestCase(InstalledCliTestCase):
     """Run the installed command with --browser, or skip where no browser is installed."""
 
@@ -85,12 +110,13 @@ class BrowserTestCase(InstalledCliTestCase):
     def setUpClass(cls) -> None:
         super().setUpClass()
         try:
-            find_browser()
+            program = find_browser()
         except RemoteFetchError as error:
             if os.environ.get("CI") == "true":
                 # A runner without a browser must fail, or the checks would pass without running.
                 raise RuntimeError(f"CI has no browser: {error}") from error
             raise unittest.SkipTest(str(error)) from error
+        _start_once(program)
 
     def assert_failed_without_replacing_output(
         self, result: subprocess.CompletedProcess[str], output: Path
