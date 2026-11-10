@@ -167,6 +167,9 @@ def build(
         browser: Read the page from an installed Chrome, Edge or Chromium after its scripts have run,
             so that content a script adds is there. Page mode only. Set SITE2MD_BROWSER to the path of
             a browser to use that one.
+        wait_for: With --browser, read the page as soon as an element matches this CSS selector, in
+            real time, so a page that keeps a request open is read too. The build fails if no element
+            matches within 30 seconds, and before any request if the browser rejects the selector.
         progress: Draw a progress bar. Pass --no-progress to skip it, for scripts and benchmarks.
         extract: Extractor ID. After saving the Markdown, run this Extractor on exactly the
             saved file in the same process, and write the extraction result to standard output.

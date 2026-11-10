@@ -352,6 +352,7 @@ class CommandStartupTests(InstalledCliTestCase):
             "--max-pages",
             "--no-progress",
             "--browser",
+            "--wait-for",
             "--extract",
             "--extract-output",
             "--entry-points-only",

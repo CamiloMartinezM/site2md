@@ -448,6 +448,16 @@ class BrowserOptionRulesTests(InstalledCliTestCase):
         self.assertIn("--browser", text)
         self.assertIn("SITE2MD_BROWSER", text)
 
+    def test_the_help_describes_wait_for_and_the_rule_that_it_needs_the_browser(self) -> None:
+        result = self.run_site2md("build", "--help")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        text = " ".join(result.stdout.split())
+        self.assertIn("--wait-for", text)
+        # Only its description says how long the wait lasts.
+        self.assertIn("seconds", text)
+        self.assertIn("--wait-for needs --browser", text)
+
 
 class BrowserBuildFailureTests(BrowserTestCase):
     """Each failure that a plain fetch reports is reported the same way, and leaves the output as it was."""
