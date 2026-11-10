@@ -551,7 +551,7 @@ class BrowserBuildFailureTests(BrowserTestCase):
             tmp = temp_root / "tmp"
             tmp.mkdir()
 
-            # Python stops at once on the browser's options, and says that it doesn't know them.
+            # Python stops at once on the browser's first option, and says that it doesn't know it.
             result = self.build_failing(
                 f"{server.origin}/page",
                 temp_root,
@@ -563,7 +563,7 @@ class BrowserBuildFailureTests(BrowserTestCase):
                 result.stdout.startswith("Error fetching remote page: The browser stopped before the page was read: "),
                 result.stdout,
             )
-            self.assertIn("Unknown option", result.stdout)
+            self.assertIn("--headless", result.stdout)
             self.assertEqual(server.requests, [])
             self.assert_no_browser_left(temp_root)
 
