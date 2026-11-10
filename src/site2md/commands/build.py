@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import importlib
 import os
 import re
 import sys
+import threading
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, TextIO
 
@@ -104,6 +106,13 @@ def _plain_line(message: str, *, soft_wrap: bool) -> str | None:
         if len(line) > (width or 80) - 2:
             return None
     return line
+
+
+def _preload_extraction() -> None:
+    """Import the extraction modules ahead of their use, on a thread of its own."""
+    # build imports the module again when it extracts, and that import reports a failure.
+    with suppress(Exception):
+        importlib.import_module("site2md.file_extraction")
 
 
 @contextmanager
@@ -208,6 +217,11 @@ def build(
             soft_wrap=True,
         )
         sys.exit(1)
+
+    if extract is not None:
+        # The extraction modules take tens of milliseconds to load, which fits into the time
+        # that the build spends waiting for the network and the disk.
+        threading.Thread(target=_preload_extraction, daemon=True).start()
 
     if is_remote:
         with _progress_bar(console, "[cyan]Building remote page...", 1, is_shown=progress) as advance:
