@@ -89,7 +89,8 @@ def slow_dumps(value, *arguments, **options):
 
 json.dumps = slow_dumps
 """
-TEN_SECOND_TIMEOUT_HOOK = SHORT_TIMEOUT_HOOK.replace("= 3", "= 10")
+# Room for a test's slow start on top of the browser's own, which takes seconds on a CI runner.
+TWENTY_SECOND_TIMEOUT_HOOK = SHORT_TIMEOUT_HOOK.replace("= 3", "= 20")
 # Makes the removal of the browser's folder fail, as it does where a process still holds a file in it.
 KEEP_BROWSER_FOLDER_HOOK = """import shutil
 
@@ -632,16 +633,13 @@ class BrowserBuildFailureTests(BrowserTestCase):
 
     def test_an_empty_page_is_reported_as_empty_and_not_waited_for_when_a_selector_is_given(self) -> None:
         with RecordingServer({"/empty": (200, HTML, b"")}) as server, tempfile.TemporaryDirectory() as temp_dir:
-            # With the old behaviour the build waits the ten seconds for an element that can't be there.
-            hook_environment = self.startup_hook_environment(Path(temp_dir), TEN_SECOND_TIMEOUT_HOOK)
+            # With the old behaviour the build waits the 30 seconds for an element that can't be there.
             started = time.monotonic()
 
-            result = self.build_failing(
-                f"{server.origin}/empty", Path(temp_dir), "--wait-for", "main", extra_environment=hook_environment
-            )
+            result = self.build_failing(f"{server.origin}/empty", Path(temp_dir), "--wait-for", "main")
 
             self.assertEqual(result.stdout.strip(), "Error fetching remote page: Final HTML response body is empty.")
-            self.assertLess(time.monotonic() - started, 9)
+            self.assertLess(time.monotonic() - started, 20)
 
     def test_a_content_length_that_is_not_a_number_fails_as_it_does_under_a_plain_fetch(self) -> None:
         def malformed(handler: BaseHTTPRequestHandler) -> None:
@@ -679,13 +677,10 @@ class BrowserBuildFailureTests(BrowserTestCase):
             f'setTimeout(function () {{ location.replace("http://127.0.0.1:{unused_port()}/gone"); }}, 300);'
         )
         with RecordingServer({"/start": (200, HTML, page)}) as server, tempfile.TemporaryDirectory() as temp_dir:
-            hook_environment = self.startup_hook_environment(Path(temp_dir), TEN_SECOND_TIMEOUT_HOOK)
             # With a selector, the build must not wait for it on the browser's error page.
             for options in ((), ("--wait-for", "p.never")):
                 with self.subTest(options=options):
-                    result = self.build_failing(
-                        f"{server.origin}/start", Path(temp_dir), *options, extra_environment=hook_environment
-                    )
+                    result = self.build_failing(f"{server.origin}/start", Path(temp_dir), *options)
 
                     self.assertEqual(
                         result.stdout.strip(),
@@ -764,7 +759,7 @@ class BrowserBuildFailureTests(BrowserTestCase):
         page = script_page('document.getElementById("content").innerHTML = "<p>Here</p>";')
         with RecordingServer({"/page": (200, HTML, page)}) as server, tempfile.TemporaryDirectory() as temp_dir:
             # The timeout runs from the start of the browser, so a slow start must leave time for the wait.
-            hook_environment = self.startup_hook_environment(Path(temp_dir), SLOW_START_HOOK + TEN_SECOND_TIMEOUT_HOOK)
+            hook_environment = self.startup_hook_environment(Path(temp_dir), SLOW_START_HOOK + TWENTY_SECOND_TIMEOUT_HOOK)
 
             result = self.build_failing(
                 f"{server.origin}/page", Path(temp_dir), "--wait-for", "li[data-never]", extra_environment=hook_environment
@@ -772,7 +767,7 @@ class BrowserBuildFailureTests(BrowserTestCase):
 
             self.assertEqual(
                 result.stdout.strip(),
-                "Error fetching remote page: No element matched the --wait-for selector 'li[data-never]' within 10 seconds.",
+                "Error fetching remote page: No element matched the --wait-for selector 'li[data-never]' within 20 seconds.",
             )
 
     def test_an_invalid_selector_fails_before_any_request_to_the_site(self) -> None:
@@ -831,9 +826,7 @@ class BrowserBuildFailureTests(BrowserTestCase):
                 ),
             }
             with RecordingServer(routes, certificate=CERTIFICATE) as secure_server, tempfile.TemporaryDirectory() as temp_dir:
-                hook_environment = self.startup_hook_environment(
-                    Path(temp_dir), ACCEPT_TEST_CERTIFICATE_HOOK + TEN_SECOND_TIMEOUT_HOOK
-                )
+                hook_environment = self.startup_hook_environment(Path(temp_dir), ACCEPT_TEST_CERTIFICATE_HOOK)
                 for path in ("/script", "/refresh"):
                     # With a selector, the build must not go on waiting for it either.
                     for options in ((), ("--wait-for", "p.never")):
