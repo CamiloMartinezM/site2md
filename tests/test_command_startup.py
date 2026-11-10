@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from tests.cli_test_support import InstalledCliTestCase
+from tests.cli_test_support import InstalledCliTestCase, RecordingServer, Route
 
 # Writes the name of every module the command has loaded by the time it exits.
 RECORD_MODULES_HOOK = """import atexit
@@ -223,6 +223,53 @@ class CommandStartupTests(InstalledCliTestCase):
             self.assertEqual(result.returncode, 0)
             modules = set(json.loads(log.read_text(encoding="utf-8")))
         self.assertFalse(self.is_loaded(modules, "rich"))
+
+    def test_page_build_does_not_load_the_css_selector_library(self) -> None:
+        routes: dict[str, Route] = {
+            "/page": (
+                200,
+                {"Content-Type": "text/html"},
+                b"<html><body><main><p>Hello</p></main></body></html>",
+            )
+        }
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            modules = self.modules_loaded_by(
+                root, "build", f"{server.origin}/page", "--output", root / "out.md"
+            )
+
+        # Only the name that Beautiful Soup imports is there, and none of the library's own modules.
+        self.assertFalse(any(module.startswith("soupsieve.") for module in modules))
+
+    def test_follow_build_loads_the_css_selector_library(self) -> None:
+        entry = b'<html><body><main><a class="detail" href="/child">Child</a></main></body></html>'
+        routes: dict[str, Route] = {
+            "/entry": (200, {"Content-Type": "text/html"}, entry),
+            "/robots.txt": (404, {"Content-Type": "text/plain"}, b"missing"),
+            "/child": (
+                200,
+                {"Content-Type": "text/html"},
+                b"<html><body><main><p>child text</p></main></body></html>",
+            ),
+        }
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            modules = self.modules_loaded_by(
+                root,
+                "build",
+                f"{server.origin}/entry",
+                "--mode",
+                "follow",
+                "--follow-selector",
+                "a.detail",
+                "--output",
+                root / "out.md",
+            )
+
+            self.assertTrue(any(module.startswith("soupsieve.") for module in modules))
+            self.assertIn("child text", (root / "out.md").read_text(encoding="utf-8"))
 
     def test_extract_does_not_load_the_conversion_modules(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
