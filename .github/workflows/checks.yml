@@ -76,15 +76,15 @@ jobs:
 
             # On the Ubuntu runner Edge can't start its sandbox: AppArmor blocks the user namespaces it needs,
             # and its setuid fallback isn't set up, so it aborts. Fix the runner; site2md keeps the sandbox on.
-            # Edge's first starts there also take from 10 to over 30 seconds, more than a test allows, so they
-            # happen here.
+            # Edge's first start there also takes from 30 to over 90 seconds, more than a test allows, so it
+            # happens here.
             - name: Prepare Edge on the Ubuntu runner
               if: matrix.python-version == '3.14' && runner.os == 'Linux'
               run: |
                   sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
                   for start in 1 2 3; do
                       profile="$(mktemp -d)"
-                      time timeout 120 /opt/microsoft/msedge/msedge --headless --no-first-run --user-data-dir="$profile" --dump-dom about:blank > /dev/null
+                      time timeout 300 /opt/microsoft/msedge/msedge --headless --no-first-run --user-data-dir="$profile" --dump-dom about:blank > /dev/null
                       rm -rf "$profile"
                   done
 
