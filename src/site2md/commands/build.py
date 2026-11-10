@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import os
+import re
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-
-from rich.console import Console
+from typing import TYPE_CHECKING, TextIO
 
 from site2md._types import RemoteMode
 from site2md.converter import convert_html_to_markdown
@@ -15,10 +16,99 @@ from site2md.finder import find_html_files
 from site2md.merger import merge_markdowns
 from site2md.remote_build import RemoteBuildError, RemoteBuildRequest, build_remote
 
+if TYPE_CHECKING:
+    from rich.console import Console
+
+# The styles in build's messages. Away from a terminal, Rich prints a message without them.
+_STYLE_TAGS = re.compile(r"\[/?(?:bold|red|yellow|dim|bold green|bold white on green)\]")
+# Rich replaces a name between two colons with an emoji when it knows the name.
+_EMOJI_CODE = re.compile(r":\S*?:")
+
+
+class _BuildConsole:
+    """Print build's messages through Rich, or without loading it where Rich only drops the styles.
+
+    That is where there is no terminal and no progress bar. A message that Rich would also wrap,
+    or change in any other way, still goes through Rich, so the lines are the same either way.
+    """
+
+    def __init__(self, *, use_stderr: bool, with_progress: bool) -> None:
+        self._use_stderr = use_stderr
+        # Both variables can make Rich treat a pipe or a file as a terminal.
+        self._is_plain = not with_progress and not {"FORCE_COLOR", "TTY_COMPATIBLE"} & os.environ.keys()
+        self._rich: Console | None = None
+
+    @property
+    def rich(self) -> Console:
+        """Return the Rich console, created at its first use."""
+        if self._rich is None:
+            # Imported here so that a build that prints only plain lines never loads Rich.
+            from rich.console import Console
+
+            self._rich = Console(stderr=self._use_stderr)
+        return self._rich
+
+    def print(self, message: str, *, soft_wrap: bool = False) -> None:
+        """Print one message, which may hold Rich markup."""
+        stream = sys.stderr if self._use_stderr else sys.stdout
+        if self._is_plain and not _is_terminal(stream):
+            line = _plain_line(message, soft_wrap=soft_wrap)
+            if line is not None:
+                stream.write(f"{line}\n")
+                stream.flush()
+                return
+        self.rich.print(message, soft_wrap=soft_wrap)
+
+
+def _is_terminal(stream: TextIO) -> bool:
+    """Return whether a stream writes to a terminal."""
+    if not stream.isatty():
+        return False
+    if sys.platform == "win32":
+        # The null device says that it is a terminal on Windows, but it has no size.
+        try:
+            os.get_terminal_size(stream.fileno())
+        except OSError:
+            return False
+        except ValueError:  # not a standard stream, so there is no way to tell
+            pass
+    return True
+
+
+def _plain_line(message: str, *, soft_wrap: bool) -> str | None:
+    """Return the line that Rich prints for a message away from a terminal, or None if only Rich can tell."""
+    tags = _STYLE_TAGS.findall(message)
+    line = _STYLE_TAGS.sub("", message)
+    if (
+        "\\[" in message  # an escaped bracket
+        or "[" in line  # markup other than build's styles, perhaps in a path or a URL
+        or len(tags) % 2
+        or any(closing != f"[/{opening[1:]}" for opening, closing in zip(tags[::2], tags[1::2]))
+        or not (line.isascii() and line.isprintable())  # wide and control characters
+        or _EMOJI_CODE.search(line)
+    ):
+        return None
+    if not soft_wrap:
+        # Rich wraps at COLUMNS, or else at the width of a terminal on a standard stream, or else at
+        # 80 columns. On an old Windows console it wraps up to two columns earlier.
+        columns = os.environ.get("COLUMNS", "")
+        if columns.isdigit():
+            width = int(columns)
+        else:
+            width = 80
+            for descriptor in (0, 1, 2):
+                try:
+                    width = min(width, os.get_terminal_size(descriptor).columns or 80)
+                except (OSError, ValueError):
+                    pass
+        if len(line) > (width or 80) - 2:
+            return None
+    return line
+
 
 @contextmanager
 def _progress_bar(
-    console: Console, description: str, total: int, *, is_shown: bool
+    console: _BuildConsole, description: str, total: int, *, is_shown: bool
 ) -> Iterator[Callable[[], None]]:
     """Draw a progress bar on the console while the block runs, and yield the function that advances it."""
     if not is_shown:
@@ -27,7 +117,7 @@ def _progress_bar(
     # Imported here so that --no-progress never loads rich.progress.
     from rich.progress import Progress
 
-    with Progress(console=console) as progress:
+    with Progress(console=console.rich) as progress:
         task = progress.add_task(description, total=total)
         yield lambda: progress.advance(task)
 
@@ -74,7 +164,7 @@ def build(
         values_only: With --extract, write only a JSON array of the record values, as extract
             does.
     """
-    console = Console(stderr=extract is not None)
+    console = _BuildConsole(use_stderr=extract is not None, with_progress=progress)
     markdown_contents: list[str] = []
     is_remote = input_source.startswith(("http://", "https://"))
 

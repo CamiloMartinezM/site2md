@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -41,18 +43,23 @@ EXTRACTORS_SUMMARY = "List installed Extractors using static provider metadata."
 class CommandStartupTests(InstalledCliTestCase):
     """Check that a command loads only its own modules and that help still describes them all."""
 
-    def modules_loaded_by(self, root: Path, *arguments: object) -> set[str]:
+    def modules_loaded_by(
+        self, root: Path, *arguments: object, environment: dict[str, str] | None = None
+    ) -> set[str]:
         """Run the installed command and return the names of the modules it loaded."""
         log = root / "modules.json"
-        environment = self.startup_hook_environment(root, RECORD_MODULES_HOOK)
-        environment["SITE2MD_MODULE_LOG"] = str(log)
+        hook_environment = self.startup_hook_environment(root, RECORD_MODULES_HOOK)
+        hook_environment["SITE2MD_MODULE_LOG"] = str(log)
+        hook_environment.update(environment or {})
 
-        result = self.run_site2md(*arguments, extra_environment=environment)
+        result = self.run_site2md(*arguments, extra_environment=hook_environment)
 
         self.assertEqual(result.returncode, 0, result.stderr)
         return set(json.loads(log.read_text(encoding="utf-8")))
 
-    def modules_loaded_by_local_build(self, *options: object) -> set[str]:
+    def modules_loaded_by_local_build(
+        self, *options: object, environment: dict[str, str] | None = None
+    ) -> set[str]:
         """Build a one-page local folder with the options and return the modules it loaded."""
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -62,7 +69,9 @@ class CommandStartupTests(InstalledCliTestCase):
                 "<html><body><main><p>Hello</p></main></body></html>", encoding="utf-8"
             )
 
-            return self.modules_loaded_by(root, "build", pages, "--output", root / "out.md", *options)
+            return self.modules_loaded_by(
+                root, "build", pages, "--output", root / "out.md", *options, environment=environment
+            )
 
     def help_text(self, *arguments: object) -> str:
         """Run the installed command with --help and return its text without box-drawing."""
@@ -149,6 +158,71 @@ class CommandStartupTests(InstalledCliTestCase):
 
             self.assertTrue(self.is_loaded(modules, "cyclopts"))
             self.assertIn("Hello", output.read_text(encoding="utf-8"))
+
+    def test_build_without_a_progress_bar_or_a_terminal_does_not_load_rich(self) -> None:
+        # COLUMNS keeps the long temporary paths on one line: a line to wrap goes through Rich.
+        modules = self.modules_loaded_by_local_build(
+            "--no-progress", environment={"COLUMNS": "500"}
+        )
+
+        self.assertFalse(self.is_loaded(modules, "rich"))
+
+    def test_build_with_a_message_to_wrap_loads_rich(self) -> None:
+        modules = self.modules_loaded_by_local_build(
+            "--no-progress", environment={"COLUMNS": "20"}
+        )
+
+        self.assertTrue(self.is_loaded(modules, "rich"))
+
+    def test_build_with_forced_colour_loads_rich(self) -> None:
+        modules = self.modules_loaded_by_local_build(
+            "--no-progress", environment={"COLUMNS": "500", "FORCE_COLOR": "1"}
+        )
+
+        self.assertTrue(self.is_loaded(modules, "rich"))
+
+    def test_build_with_messages_on_the_null_device_does_not_load_rich(self) -> None:
+        # On Windows the null device says that it is a terminal. With --extract the messages
+        # go to standard error.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            pages = root / "pages"
+            pages.mkdir()
+            (pages / "index.html").write_text(
+                "<html><body><main><h3>Startup</h3><p><strong>Capital:</strong> Startup City<br>"
+                "<strong>Population:</strong> 3<br><strong>Area (km2):</strong> 4</p>"
+                "</main></body></html>",
+                encoding="utf-8",
+            )
+            log = root / "modules.json"
+            environment = {
+                **os.environ,
+                **self.startup_hook_environment(root, RECORD_MODULES_HOOK),
+                "SITE2MD_MODULE_LOG": str(log),
+                "PYTHONIOENCODING": "utf-8",
+                "COLUMNS": "500",
+            }
+
+            result = subprocess.run(
+                [
+                    str(self.command),
+                    "build",
+                    str(pages),
+                    "--no-progress",
+                    "--output",
+                    str(root / "out.md"),
+                    "--extract",
+                    "site2md.scrapethissite.countries",
+                ],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                env=environment,
+            )
+
+            self.assertEqual(result.returncode, 0)
+            modules = set(json.loads(log.read_text(encoding="utf-8")))
+        self.assertFalse(self.is_loaded(modules, "rich"))
 
     def test_extract_does_not_load_the_conversion_modules(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
