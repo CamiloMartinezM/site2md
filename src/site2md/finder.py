@@ -19,6 +19,8 @@ def find_html_files(root_dir: Path) -> list[Path]:
     Returns:
         A list of Path objects to the HTML files in the desired order.
     """
+    if not root_dir.is_dir():
+        return []
     html_files = []
 
     # helper for sorting
