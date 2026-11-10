@@ -173,6 +173,7 @@ def build(
         console.print(
             f"[bold white on green]Success![/bold white on green] Markdown created at {output}"
         )
+        document = summary.document
     else:
         input_dir = Path(input_source)
         if not input_dir.exists():
@@ -198,7 +199,7 @@ def build(
             f"[bold green]Merging[/bold green] {len(markdown_contents)} files into {output}..."
         )
         try:
-            merge_markdowns(markdown_contents, output)
+            document = merge_markdowns(markdown_contents, output)
         except OSError as error:
             console.print(f"[red]Error writing output:[/red] {error}", soft_wrap=True)
             sys.exit(1)
@@ -209,12 +210,12 @@ def build(
     if extract is None:
         return
     # Imported here so that plain build never loads the extraction modules.
-    from site2md.file_extraction import FileExtractionError, extract_markdown_file
+    from site2md.file_extraction import FileExtractionError, write_extraction
 
     try:
-        warnings = extract_markdown_file(
+        warnings = write_extraction(
             extract,
-            output,
+            document,
             output=extract_output,
             entry_points_only=entry_points_only,
             values_only=values_only,

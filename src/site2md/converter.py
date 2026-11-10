@@ -92,7 +92,7 @@ def convert_html_to_markdown(html_path: Path) -> str:
 def convert_remote_page_to_markdown(page: RemotePage) -> str:
     """Convert a remote page while retaining usable remote references."""
     soup = BeautifulSoup(
-        page.content_path.read_bytes(),
+        page.content,
         "html.parser",
         from_encoding=page.encoding,
     )

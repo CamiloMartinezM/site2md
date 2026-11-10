@@ -58,6 +58,8 @@ class RemoteBuildSummary:
     warnings: tuple[str, ...]
     reached_limits: tuple[str, ...]
     retained_workspace: Path | None
+    # The bytes written to the destination, so that a caller needn't read the file back.
+    document: bytes
 
 
 class RemoteBuildError(RuntimeError):
@@ -101,7 +103,7 @@ class _TraversalState:
     workspace: Path
     index_pages: list[dict[str, object]]
     limits: _RemoteLimits
-    fragments: list[Path]
+    fragments: list[bytes]
     fetched: int
     skipped: int
     failed: int
@@ -121,7 +123,7 @@ def _traverse_children(
     entry_page: RemotePage,
     workspace: Path,
     index_pages: list[dict[str, object]],
-    entry_fragment: Path,
+    entry_fragment: bytes,
     limits: _RemoteLimits,
 ) -> _TraversalState:
     """Run one bounded traversal and return its ordered document state."""
@@ -250,7 +252,6 @@ def _process_child(
         target,
         depth,
         index_entry,
-        child_path,
         child,
     )
 
@@ -307,13 +308,12 @@ def _process_fetched_child(
     target: str,
     depth: int,
     index_entry: dict[str, object],
-    child_path: Path,
     child: RemotePage,
 ) -> TraversalControl:
     """Deduplicate, discover from, and convert one fetched child page."""
     index_entry["source_url"] = child.source_url
     index_entry["body_bytes"] = child.body_bytes
-    index_entry["stored_bytes"] = _stored_bytes(child_path)
+    index_entry["stored_bytes"] = len(child.content)
     index_entry["status"] = "fetched"
     final_url = _normalize_url(child.source_url)
     if url_origin(final_url) != url_origin(state.entry_page.source_url):
@@ -350,15 +350,13 @@ def _process_fetched_child(
         _write_debugging_index(state.workspace, state.index_pages)
         return "continue"
 
+    fragment = _source_section_bytes(child_markdown)
     child_converted = state.workspace / f"converted-{index:04}.md"
-    child_converted.write_text(
-        f"{child_markdown}\n\n---\n\n",
-        encoding="utf-8",
-    )
+    child_converted.write_bytes(fragment)
     index_entry["markdown"] = child_converted.name
     index_entry["status"] = "converted"
     _write_debugging_index(state.workspace, state.index_pages)
-    state.fragments.append(child_converted)
+    state.fragments.append(fragment)
     state.fetched += 1
     return "continue"
 
@@ -504,7 +502,7 @@ def _ordered_anchor_targets(
 ) -> list[str]:
     """Resolve and filter unique same-origin anchors in document order."""
     soup = BeautifulSoup(
-        page.content_path.read_bytes(),
+        page.content,
         "html.parser",
         from_encoding=page.encoding,
     )
@@ -553,11 +551,17 @@ def _normalize_url(url: str) -> str:
     return urlunsplit((scheme, display_host, parsed.path or "/", parsed.query, ""))
 
 
-def _stage_destination(source: Path, destination: Path) -> Path:
+def _source_section_bytes(markdown: str) -> bytes:
+    """Return one page's Markdown and its separator as the bytes that a text-mode write stores."""
+    # Encoded here, not by write_text, so that the document is assembled without reading files back.
+    return f"{markdown}\n\n---\n\n".replace("\n", os.linesep).encode("utf-8")
+
+
+def _stage_destination(document: bytes, destination: Path) -> Path:
     """Write a complete destination-side temporary file without replacing output."""
     temporary_path: Path | None = None
     try:
-        with source.open("rb") as source_file, tempfile.NamedTemporaryFile(
+        with tempfile.NamedTemporaryFile(
             mode="wb",
             dir=destination.parent,
             prefix=f".{destination.name}.",
@@ -565,7 +569,7 @@ def _stage_destination(source: Path, destination: Path) -> Path:
             delete=False,
         ) as temporary_file:
             temporary_path = Path(temporary_file.name)
-            shutil.copyfileobj(source_file, temporary_file)
+            temporary_file.write(document)
             temporary_file.flush()
             os.fsync(temporary_file.fileno())
         return temporary_path
@@ -689,24 +693,20 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
 
         index_pages[0]["source_url"] = page.source_url
         index_pages[0]["body_bytes"] = page.body_bytes
-        index_pages[0]["stored_bytes"] = _stored_bytes(entry_path)
+        index_pages[0]["stored_bytes"] = len(page.content)
         index_pages[0]["status"] = "fetched"
         _write_debugging_index(workspace, index_pages)
 
         try:
-            markdown = convert_remote_page_to_markdown(page)
-            converted_path = workspace / "converted.md"
-            converted_path.write_text(
-                f"{markdown}\n\n---\n\n",
-                encoding="utf-8",
-            )
+            entry_fragment = _source_section_bytes(convert_remote_page_to_markdown(page))
+            (workspace / "converted.md").write_bytes(entry_fragment)
             index_pages[0]["markdown"] = "converted.md"
             index_pages[0]["status"] = "converted"
             _write_debugging_index(workspace, index_pages)
         except Exception as error:
             raise RemoteBuildError(str(error), stage="conversion") from error
 
-        fragments = [converted_path]
+        fragments = [entry_fragment]
         fetched = 1
         skipped = 0
         failed = 0
@@ -719,7 +719,7 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
                 entry_page=page,
                 workspace=workspace,
                 index_pages=index_pages,
-                entry_fragment=converted_path,
+                entry_fragment=entry_fragment,
                 limits=limits,
             )
             fragments = traversal.fragments
@@ -729,17 +729,11 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
             warnings = traversal.warnings
             reached_limits = traversal.reached_limits
 
-        document_path = workspace / "document.md"
-        with document_path.open("wb") as document:
-            for fragment in fragments:
-                with fragment.open("rb") as source:
-                    shutil.copyfileobj(source, document)
+        document = b"".join(fragments)
+        (workspace / "document.md").write_bytes(document)
 
         try:
-            staged_destination = _stage_destination(
-                document_path,
-                request.destination,
-            )
+            staged_destination = _stage_destination(document, request.destination)
         except OSError as error:
             raise RemoteBuildError(str(error), stage="destination") from error
 
@@ -763,6 +757,7 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
             warnings=tuple(warnings),
             reached_limits=tuple(reached_limits),
             retained_workspace=workspace if request.keep_temp else None,
+            document=document,
         )
     except BaseException as error:
         failure = _remote_build_failure(error)

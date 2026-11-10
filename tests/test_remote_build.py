@@ -50,6 +50,8 @@ class RemoteBuildTests(unittest.TestCase):
             index = json.loads((workspace / "index.json").read_text(encoding="utf-8"))
             self.assertEqual([page["status"] for page in index["pages"]], ["converted"])
             self.assertIn("remote", destination.read_text(encoding="utf-8"))
+            self.assertEqual(summary.document, destination.read_bytes())
+            self.assertEqual(summary.document, (workspace / "document.md").read_bytes())
 
     def test_kept_workspace_holds_only_the_named_artifacts(self) -> None:
         routes = {

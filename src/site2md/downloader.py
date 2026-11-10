@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 import shutil
 import tempfile
 import time
@@ -103,8 +102,8 @@ class _ResponseAccounting:
         response: IO[bytes],
         headers: HTTPMessage | Message[str, str],
         output: IO[bytes] | None = None,
-    ) -> int:
-        """Read and count one response body, optionally retaining its bytes."""
+    ) -> bytes:
+        """Read, count and return one response body, also writing it to the output as it arrives."""
         max_bytes = self.page_max_bytes
         reached_limit: Literal["page", "aggregate"] = "page"
         if self.aggregate_max_bytes is not None:
@@ -125,6 +124,7 @@ class _ResponseAccounting:
             if content_length > max_bytes:
                 raise self._limit_error(reached_limit, declared_size=content_length)
 
+        chunks: list[bytes] = []
         response_bytes = 0
         while True:
             chunk = response.read(_CHUNK_SIZE)
@@ -136,7 +136,8 @@ class _ResponseAccounting:
                 raise self._limit_error(reached_limit)
             if output is not None:
                 output.write(chunk)
-        return response_bytes
+            chunks.append(chunk)
+        return b"".join(chunks)
 
     def _limit_error(
         self,
@@ -176,6 +177,8 @@ class RemotePage:
     source_url: str
     encoding: str | None
     body_bytes: int
+    # The bytes stored at content_path. Reading a file back right after writing it is slow on Windows.
+    content: bytes
 
 
 class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -275,13 +278,13 @@ def _fetch_page(
                 )
 
             with content_path.open("wb") as output:
-                final_body_bytes = accounting.read(
+                content = accounting.read(
                     response,
                     response.headers,
                     output,
                 )
 
-            if final_body_bytes == 0:
+            if not content:
                 raise RemoteFetchError("Final HTML response body is empty.")
 
             return RemotePage(
@@ -289,6 +292,7 @@ def _fetch_page(
                 source_url=response.geturl(),
                 encoding=response.headers.get_content_charset(),
                 body_bytes=accounting.bytes_received,
+                content=content,
             )
     except RemoteFetchError as error:
         error.bytes_received = max(error.bytes_received, accounting.bytes_received)
@@ -358,9 +362,7 @@ def fetch_robots_policy(
     request = urllib.request.Request(robots_url, headers={"User-Agent": USER_AGENT})
     try:
         with opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-            body_buffer = io.BytesIO()
-            accounting.read(response, response.headers, body_buffer)
-            body = body_buffer.getvalue()
+            body = accounting.read(response, response.headers)
     except RemoteFetchError as error:
         if error.reached_limit is not None:
             return None, (

@@ -8,7 +8,11 @@ from typing import Annotated, NoReturn
 
 import cyclopts
 
-from site2md.file_extraction import FileExtractionError, extract_markdown_file
+from site2md.file_extraction import (
+    FileExtractionError,
+    read_markdown_input,
+    write_extraction,
+)
 
 
 def _extract_failure(message: str) -> NoReturn:
@@ -42,9 +46,9 @@ def extract(
     if output is not None and not output.parent.is_dir():
         _extract_failure(f"output folder does not exist: {output.parent}")
     try:
-        warnings = extract_markdown_file(
+        warnings = write_extraction(
             extractor_id,
-            None if input_source == "-" else Path(input_source),
+            read_markdown_input(None if input_source == "-" else Path(input_source)),
             output=output,
             entry_points_only=entry_points_only,
             values_only=values_only,
