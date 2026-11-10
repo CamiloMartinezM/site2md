@@ -97,6 +97,7 @@ Fix every error rather than silencing it (rule 3). A narrow run can miss errors:
 ### Functions and modules
 
 - **Give each function one job.** Keep the CLI layer thin: `main.py` registers the commands, and each module in `src/site2md/commands/` parses its arguments, calls into a module, prints and exits.
+  - `main.py` also binds a plain `build` command line itself, so that such a run never loads cyclopts (ADR 0005). It reads the parameters from `build`'s signature, and leaves a command line to cyclopts when it uses a parameter whose annotation it doesn't know.
 - **Make options keyword-only** by placing them after `*`, especially booleans and limits, as `_fetch_page(url, *, max_page_size_mib, ...)` does.
 - **Keep decisions apart from I/O** where that's practical, so the logic can be tested without files or a network.
 
@@ -142,6 +143,7 @@ Fix every error rather than silencing it (rule 3). A narrow run can miss errors:
 
 - **`build` reports through the rich console.** Pass `soft_wrap=True` when a message contains a path, so the path stays whole on one line (#21).
   - With `--extract`, the console writes to standard error, so that standard output holds only the JSON.
+  - Without a terminal and without a progress bar, the console prints the same lines without loading Rich (ADR 0005). A message whose style isn't in `_STYLE_TAGS` still goes through Rich, so add a new style there.
 - **`extract` writes only the JSON document to standard output.** Diagnostics go to standard error.
 
 ## Tests
