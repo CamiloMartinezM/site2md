@@ -10,12 +10,38 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
 from tests.browser_test_support import BrowserTestCase
-from tests.cli_test_support import InstalledCliTestCase, RecordingServer
+from tests.cli_test_support import InstalledCliTestCase, RecordingServer, Route
 from tests.test_browser_build import HTML, INTERRUPT_AT_NAVIGATION_HOOK, PLAIN_PAGE, SHORT_TIMEOUT_HOOK
 
 # What a person's session leaves in a profile folder, as far as these tests are concerned.
 SESSION_FILE = "session.txt"
 SESSION_TEXT = "a session that must stay"
+COOKIE = "session=abc"
+
+
+def respond(handler: BaseHTTPRequestHandler, status: int, headers: dict[str, str], body: bytes) -> None:
+    """Send one response from a route that decides by the request."""
+    handler.send_response(status)
+    for name, value in headers.items():
+        handler.send_header(name, value)
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+def remember(handler: BaseHTTPRequestHandler) -> None:
+    """Answer with a page and a cookie that lasts an hour, as a site does after a sign-in."""
+    headers = {**HTML, "Set-Cookie": f"{COOKIE}; Max-Age=3600; Path=/"}
+    respond(handler, 200, headers, b"<html><body><main><h1>Signed in</h1></main></body></html>")
+
+
+def members(handler: BaseHTTPRequestHandler) -> None:
+    """Answer visitors with the cookie with a page, and send the others to the sign-in page."""
+    if COOKIE in handler.headers.get("Cookie", ""):
+        body = b"<html><body><main><h1>Members</h1><p>Only for signed-in visitors.</p></main></body></html>"
+        respond(handler, 200, HTML, body)
+    else:
+        respond(handler, 302, {"Location": "/sign-in"}, b"")
 
 
 class BrowserProfileOptionRulesTests(InstalledCliTestCase):
@@ -182,4 +208,31 @@ class BrowserProfileTests(BrowserTestCase):
                 self.assertNotIn(str(root / "profile").encode(), content, path.name)
             # The browser's own temporary folder is gone, and only the workspace is left.
             self.assertEqual([path.name for path in (root / "tmp").iterdir()], [workspace.name])
+            self.assert_session_kept_and_browser_gone(root)
+
+    def test_a_later_build_has_the_session_that_an_earlier_one_left(self) -> None:
+        routes: dict[str, Route] = {
+            "/remember": remember,
+            "/members": members,
+            "/sign-in": (200, HTML, b"<html><body><main><h1>Sign in</h1></main></body></html>"),
+        }
+        with RecordingServer(routes) as server:
+            root = self.new_root()
+            output = root / "out.md"
+
+            # Without the cookie, the members' page sends the browser to the sign-in page.
+            first = self.build(f"{server.origin}/members", root)
+            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+            self.assertIn("# Sign in", output.read_text(encoding="utf-8"))
+            self.assertIn(f"<!-- Source: {server.origin}/sign-in -->", output.read_text(encoding="utf-8"))
+
+            visit = self.build(f"{server.origin}/remember", root)
+            self.assertEqual(visit.returncode, 0, visit.stdout + visit.stderr)
+
+            # A new browser on the same folder has the cookie that the earlier one kept.
+            later = self.build(f"{server.origin}/members", root)
+            self.assertEqual(later.returncode, 0, later.stdout + later.stderr)
+            markdown = output.read_text(encoding="utf-8")
+            self.assertIn("Only for signed-in visitors.", markdown)
+            self.assertIn(f"<!-- Source: {server.origin}/members -->", markdown)
             self.assert_session_kept_and_browser_gone(root)
