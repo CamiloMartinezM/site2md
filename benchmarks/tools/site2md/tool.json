@@ -1,6 +1,6 @@
 {
   "name": "site2md",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "solution": "One `build --extract` step converts the page, runs a minimal Extractor written for this benchmark on the saved Markdown, and writes only the record values. The crawl runs the same step in site mode with `--max-pages 20 --max-depth 2` and reuses the same Extractor across the document's source sections. The step runs in the opt-in fast modes `--no-progress`, `--entry-points-only` and `--values-only`. site2md is installed from its release tag, because the PyPI name belongs to a different project. This is the Python package: the table also lists site2md's executable, and the chart shows the executable instead.",
   "requirements": [
     "site2md @ git+https://github.com/CamiloMartinezM/site2md@v{version}"

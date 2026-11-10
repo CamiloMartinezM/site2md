@@ -13,7 +13,7 @@ The question was how to make `build` faster than it was in 0.5.0, compared with 
 
 The page task is the benchmark's step: `site2md build <url> --no-progress --output page.md --extract benchmark.countries --entry-points-only --values-only > output.json`. The numbers are the mean ± standard deviation of 60 runs per cell for the page task and 40 for the build alone, on the Windows 11 machine of the published benchmarks, with Python 3.12. The cells of each pair of rows ran interleaved, and every round of the page task matched `benchmarks/expected/countries.json`.
 
-In the published table pandoc takes 254 ms and Scrapling 334 ms. In this session they took 245 to 252 ms and 331 ms. So the executable is now ahead of Scrapling and about 15 ms behind pandoc, and the package is about 20 ms behind Scrapling. The published table is measured from a release, so it shows 0.5.0 until 0.6.0 is tagged and rerun. Nothing was measured on Linux.
+In the published table pandoc takes 254 ms and Scrapling 334 ms. In this session they took 245 to 252 ms and 331 ms. So the executable is now ahead of Scrapling and about 15 ms behind pandoc, and the package is about 20 ms behind Scrapling. The published table is measured from a release, and its rerun from the 0.6.0 release gave 349 ms ± 8 ms for the package and 264 ms ± 8 ms for the executable, against 625 ms ± 10 ms and 497 ms ± 17 ms for 0.5.0. Nothing was measured on Linux.
 
 ## Method
 
