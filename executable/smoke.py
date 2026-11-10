@@ -7,13 +7,21 @@ import os
 import subprocess
 import sys
 import tempfile
-from collections.abc import Sequence
+import threading
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+from site2md.browser import find_browser
+from site2md.downloader import RemoteFetchError
 
 FIXTURES = Path(__file__).resolve().parent / "smoke_fixtures"
 SITE = FIXTURES / "site"
 PROVIDER = FIXTURES / "provider"
+BROWSER_PAGE = FIXTURES / "browser_page.html"
+BROWSER_PAGE_TEXT = b"Built by the script"
 BUILT_IN_ID = "site2md.scrapethissite.countries"
 PROVIDER_ID = "smoke.headings"
 TIMEOUT_SECONDS = 120
@@ -26,6 +34,32 @@ class _Run:
     returncode: int
     stderr: bytes
     output: bytes
+
+
+@contextmanager
+def _serve(page: bytes) -> Iterator[str]:
+    """Serve a page on a free local port, and yield the address of the page."""
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            found = self.path == "/page"
+            self.send_response(200 if found else 404)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(page) if found else 0))
+            self.end_headers()
+            if found:
+                self.wfile.write(page)
+
+        def log_message(self, format: str, *args: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}/page"
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def _run(
@@ -77,10 +111,41 @@ def _listing_problems(listing: _Run) -> list[str]:
     ]
 
 
+def _browser_problems(package: Sequence[str], executable: Sequence[str], *, work: Path) -> list[str]:
+    """Build a page with --browser with both commands, which is the step that shows a module missing from the bundle."""
+    try:
+        find_browser()
+    except RemoteFetchError as error:
+        if os.environ.get("CI") == "true":
+            # A runner without a browser must fail, or the step would be skipped for good.
+            return [f"build with --browser: {error}"]
+        print(f"SKIP build with --browser: {error}")
+        return []
+    package_markdown = work / "browser-package.md"
+    executable_markdown = work / "browser-executable.md"
+    with _serve(BROWSER_PAGE.read_bytes()) as url:
+        arguments = ("build", url, "--browser", "--no-progress", "--output")
+        package_run = _run(package, *arguments, package_markdown, output_file=package_markdown)
+        executable_run = _run(executable, *arguments, executable_markdown, output_file=executable_markdown)
+    problems = _compare("build with --browser", package_run, executable_run)
+    # Both would be equal if neither ran the page's script.
+    if not problems and BROWSER_PAGE_TEXT not in package_run.output:
+        problems = ["build with --browser: the page's script did not run"]
+    return problems
+
+
 def run_smoke(
-    package: Sequence[str], executable: Sequence[str], *, providers: Path, work: Path
+    package: Sequence[str],
+    executable: Sequence[str],
+    *,
+    providers: Path,
+    work: Path,
+    with_browser: bool = False,
 ) -> list[str]:
-    """Run the smoke steps with both commands and return the problems found, none on success."""
+    """Run the smoke steps with both commands and return the problems found, none on success.
+
+    With a browser, one more step builds a page that a script fills in, and a machine without a browser skips it.
+    """
     package_markdown = work / "package.md"
     executable_markdown = work / "executable.md"
     folder = str(providers)
@@ -109,6 +174,8 @@ def run_smoke(
     problems += _listing_problems(
         _run(executable, "extractors", environment={"SITE2MD_PROVIDER_PATH": folder})
     )
+    if with_browser:
+        problems += _browser_problems(package, executable, work=work)
     return problems
 
 
@@ -131,7 +198,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             check=True,
         )
         problems = run_smoke(
-            [sys.executable, "-m", "site2md.main"], [str(executable)], providers=providers, work=work
+            [sys.executable, "-m", "site2md.main"],
+            [str(executable)],
+            providers=providers,
+            work=work,
+            with_browser=True,
         )
 
     for problem in problems:
