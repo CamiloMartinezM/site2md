@@ -38,6 +38,21 @@ def fail_extraction(markdown, extractor_id, **options):
 extraction.extract = fail_extraction
 """
 
+# Writes the name of every module the command has loaded by the time it exits.
+RECORD_MODULES_HOOK = """import atexit
+import json
+import os
+import sys
+
+
+def record_modules():
+    with open(os.environ["SITE2MD_MODULE_LOG"], "w", encoding="utf-8") as log:
+        json.dump(sorted(sys.modules), log)
+
+
+atexit.register(record_modules)
+"""
+
 
 class RecordSchemaDeclaration(TypedDict):
     """The record-schema part of an Extractor declaration in a provider manifest."""
@@ -61,6 +76,17 @@ class ProviderManifest(TypedDict):
 
     manifest_version: int
     extractors: list[ExtractorDeclaration]
+
+
+def respond(handler: BaseHTTPRequestHandler, response: Response) -> None:
+    """Send a fixed response, with its Content-Length, from a handler."""
+    status, headers, body = response
+    handler.send_response(status)
+    for name, value in headers.items():
+        handler.send_header(name, value)
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
 
 
 class _TlsServer(ThreadingHTTPServer):
@@ -101,20 +127,11 @@ class RecordingServer:
                 user_agents.append(self.headers.get("User-Agent"))
                 route = routes.get(self.path)
                 if route is None:
-                    response = (404, {"Content-Type": "text/plain"}, b"not found")
+                    respond(self, (404, {"Content-Type": "text/plain"}, b"not found"))
                 elif callable(route):
                     route(self)
-                    return
                 else:
-                    response = route
-
-                status, headers, body = response
-                self.send_response(status)
-                for name, value in headers.items():
-                    self.send_header(name, value)
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                    respond(self, route)
 
             def log_message(self, format: str, *args: object) -> None:
                 pass

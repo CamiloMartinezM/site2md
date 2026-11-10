@@ -9,22 +9,12 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from tests.cli_test_support import InstalledCliTestCase, RecordingServer, Route
-
-# Writes the name of every module the command has loaded by the time it exits.
-RECORD_MODULES_HOOK = """import atexit
-import json
-import os
-import sys
-
-
-def record_modules():
-    with open(os.environ["SITE2MD_MODULE_LOG"], "w", encoding="utf-8") as log:
-        json.dump(sorted(sys.modules), log)
-
-
-atexit.register(record_modules)
-"""
+from tests.cli_test_support import (
+    RECORD_MODULES_HOOK,
+    InstalledCliTestCase,
+    RecordingServer,
+    Route,
+)
 
 CONVERSION_MODULES = (
     "site2md.converter",

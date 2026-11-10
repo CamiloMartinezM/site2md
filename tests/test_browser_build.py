@@ -3,19 +3,28 @@
 from __future__ import annotations
 
 import json
-import shutil
 import socket
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
-from tests.browser_test_support import TEMP_FOLDER, BrowserTestCase
-from tests.cli_test_support import InstalledCliTestCase, RecordingServer, Route
-from tests.test_command_startup import RECORD_MODULES_HOOK
+from tests.browser_test_support import (
+    HTML,
+    INTERRUPT_AT_NAVIGATION_HOOK,
+    PLAIN_PAGE,
+    SHORT_TIMEOUT_HOOK,
+    TEMP_FOLDER,
+    BrowserTestCase,
+)
+from tests.cli_test_support import (
+    RECORD_MODULES_HOOK,
+    InstalledCliTestCase,
+    RecordingServer,
+    Route,
+)
 
 CERTIFICATE = Path(__file__).resolve().parent / "fixtures" / "tls" / "loopback.pem"
 # A table that a script fills in from a data address, two seconds after the page has loaded.
@@ -45,26 +54,10 @@ setTimeout(function () {
 FILMS_JSON = json.dumps(
     [{"title": f"Film {number:02d}", "awards": number % 3} for number in range(1, 17)]
 ).encode()
-HTML = {"Content-Type": "text/html; charset=utf-8"}
-PLAIN_PAGE = b"<html><body><main><h1>Plain</h1><p>No script here.</p></main></body></html>"
 # The test's server has a self-signed certificate, which the browser has to accept to be asked.
 ACCEPT_TEST_CERTIFICATE_HOOK = """from site2md import browser
 
 browser.BROWSER_SWITCHES += ("--ignore-certificate-errors",)
-"""
-# Raises the interruption at the moment the build asks the browser to load the page.
-INTERRUPT_AT_NAVIGATION_HOOK = """import json
-
-dumps = json.dumps
-
-
-def interrupted_dumps(value, *arguments, **options):
-    if isinstance(value, dict) and value.get("method") == "Page.navigate":
-        raise KeyboardInterrupt
-    return dumps(value, *arguments, **options)
-
-
-json.dumps = interrupted_dumps
 """
 # Holds the browser open for a few seconds more, which is long enough for it to save a download if it may.
 DELAY_CLOSE_HOOK = """import json
@@ -80,10 +73,6 @@ def delayed_dumps(value, *arguments, **options):
 
 
 json.dumps = delayed_dumps
-"""
-SHORT_TIMEOUT_HOOK = """from site2md import downloader
-
-downloader.REQUEST_TIMEOUT_SECONDS = 3
 """
 # The browser's first answer comes four seconds late, as from a browser that starts slowly on a busy runner.
 SLOW_START_HOOK = """import json
@@ -273,12 +262,6 @@ class BrowserBuildTests(BrowserTestCase):
             self.assertNotIn("at twelve seconds", markdown)
 
     def test_wait_for_reads_a_page_that_keeps_a_request_open(self) -> None:
-        release = threading.Event()
-        self.addCleanup(release.set)
-
-        def never_answers(handler: BaseHTTPRequestHandler) -> None:
-            release.wait(30)
-
         # The page's own time stands still while the request is open, so only a selector can end the wait.
         page = script_page(
             """
@@ -288,7 +271,7 @@ class BrowserBuildTests(BrowserTestCase):
             }, 1500);
             """
         )
-        routes: dict[str, Route] = {"/open": (200, HTML, page), "/hang": never_answers}
+        routes: dict[str, Route] = {"/open": (200, HTML, page), "/hang": self.never_answers()}
         with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
             output = Path(temp_dir) / "out.md"
 
@@ -756,12 +739,7 @@ class BrowserBuildFailureTests(BrowserTestCase):
                     self.assertEqual(result.stdout.strip(), f"Error fetching remote page: {message}")
 
     def test_a_page_that_is_not_ready_in_time_fails_as_a_slow_response_does(self) -> None:
-        release = threading.Event()
-        self.addCleanup(release.set)
-
-        def never_answers(handler: BaseHTTPRequestHandler) -> None:
-            release.wait(30)
-
+        never_answers = self.never_answers()
         # Its own time stands still while this request is open, so only the wall clock ends the wait.
         keeps_a_request_open = script_page('fetch("/hang");')
         routes: dict[str, Route] = {
@@ -930,9 +908,7 @@ class BrowserCleanupTests(BrowserTestCase):
         self, url: str, *, hook: str | None = None
     ) -> tuple[subprocess.CompletedProcess[str], Path]:
         """Run build --browser with the temporary folder set to a new one, and return the result and its root."""
-        root = Path(tempfile.mkdtemp(prefix="site2md_test_"))
-        self.addCleanup(self.remove_test_root, root)
-        (root / TEMP_FOLDER).mkdir()
+        root = self.new_test_root()
         environment = self.temp_environment(root)
         if hook is not None:
             environment.update(self.startup_hook_environment(root, hook))
@@ -944,13 +920,6 @@ class BrowserCleanupTests(BrowserTestCase):
             extra_environment=environment,
         )
         return result, root
-
-    @staticmethod
-    def remove_test_root(root: Path) -> None:
-        """Remove a folder that this test made, which is named site2md_test_ and a random string."""
-        assert root.is_absolute()
-        assert root.name.startswith("site2md_test_"), root
-        shutil.rmtree(root, ignore_errors=True)
 
     def test_after_a_successful_build(self) -> None:
         with RecordingServer({"/page": (200, HTML, PLAIN_PAGE)}) as server:
@@ -967,13 +936,7 @@ class BrowserCleanupTests(BrowserTestCase):
             self.assert_no_browser_left(root)
 
     def test_after_a_page_that_is_not_ready_in_time(self) -> None:
-        release = threading.Event()
-        self.addCleanup(release.set)
-
-        def never_answers(handler: BaseHTTPRequestHandler) -> None:
-            release.wait(30)
-
-        with RecordingServer({"/slow": never_answers}) as server:
+        with RecordingServer({"/slow": self.never_answers()}) as server:
             result, root = self.run_in_clean_folder(f"{server.origin}/slow", hook=SHORT_TIMEOUT_HOOK)
 
             self.assertNotEqual(result.returncode, 0)

@@ -2,25 +2,23 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 from collections.abc import Sequence
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
 from site2md.browser import find_browser
-from tests.browser_test_support import TEMP_FOLDER, BrowserTestCase
-from tests.cli_test_support import InstalledCliTestCase, RecordingServer, Route
-from tests.test_browser_build import (
+from tests.browser_test_support import (
     HTML,
     INTERRUPT_AT_NAVIGATION_HOOK,
     PLAIN_PAGE,
     SHORT_TIMEOUT_HOOK,
+    BrowserTestCase,
 )
+from tests.cli_test_support import InstalledCliTestCase, RecordingServer, Route, respond
 
 # What a person's session leaves in a profile folder, as far as these tests are concerned.
 SESSION_FILE = "session.txt"
@@ -28,29 +26,28 @@ SESSION_TEXT = "a session that must stay"
 COOKIE = "session=abc"
 
 
-def respond(handler: BaseHTTPRequestHandler, status: int, headers: dict[str, str], body: bytes) -> None:
-    """Send one response from a route that decides by the request."""
-    handler.send_response(status)
-    for name, value in headers.items():
-        handler.send_header(name, value)
-    handler.send_header("Content-Length", str(len(body)))
-    handler.end_headers()
-    handler.wfile.write(body)
-
-
 def remember(handler: BaseHTTPRequestHandler) -> None:
     """Answer with a page and a cookie that lasts an hour, as a site does after a sign-in."""
     headers = {**HTML, "Set-Cookie": f"{COOKIE}; Max-Age=3600; Path=/"}
-    respond(handler, 200, headers, b"<html><body><main><h1>Signed in</h1></main></body></html>")
+    respond(handler, (200, headers, b"<html><body><main><h1>Signed in</h1></main></body></html>"))
 
 
 def members(handler: BaseHTTPRequestHandler) -> None:
     """Answer visitors with the cookie with a page, and send the others to the sign-in page."""
     if COOKIE in handler.headers.get("Cookie", ""):
         body = b"<html><body><main><h1>Members</h1><p>Only for signed-in visitors.</p></main></body></html>"
-        respond(handler, 200, HTML, body)
+        respond(handler, (200, HTML, body))
     else:
-        respond(handler, 302, {"Location": "/sign-in"}, b"")
+        respond(handler, (302, {"Location": "/sign-in"}, b""))
+
+
+def sign_in_routes() -> dict[str, Route]:
+    """Return the routes of a site that keeps a page for the visitors who have signed in."""
+    return {
+        "/remember": remember,
+        "/members": members,
+        "/sign-in": (200, HTML, b"<html><body><main><h1>Sign in</h1></main></body></html>"),
+    }
 
 
 class BrowserProfileOptionRulesTests(InstalledCliTestCase):
@@ -131,20 +128,11 @@ class BrowserProfileTests(BrowserTestCase):
 
     def new_root(self) -> Path:
         """Return a new folder with a profile folder that holds a session, and a folder for temporary files."""
-        root = Path(tempfile.mkdtemp(prefix="site2md_test_"))
-        self.addCleanup(self.remove_test_root, root)
-        (root / TEMP_FOLDER).mkdir()
+        root = self.new_test_root()
         (root / "profile").mkdir()
         (root / "profile" / SESSION_FILE).write_text(SESSION_TEXT, encoding="utf-8")
         (root / "out.md").write_text("previous", encoding="utf-8")
         return root
-
-    @staticmethod
-    def remove_test_root(root: Path) -> None:
-        """Remove a folder that this test made, which is named site2md_test_ and a random string."""
-        assert root.is_absolute()
-        assert root.name.startswith("site2md_test_"), root
-        shutil.rmtree(root, ignore_errors=True)
 
     def build(self, url: str, root: Path, *options: object, hook: str | None = None) -> subprocess.CompletedProcess[str]:
         """Run build --browser --browser-profile with the profile folder of a root, and its own temporary folder."""
@@ -187,14 +175,8 @@ class BrowserProfileTests(BrowserTestCase):
             self.assert_session_kept_and_browser_gone(root)
 
     def test_the_folder_stays_after_a_page_that_is_not_ready_in_time(self) -> None:
-        release = threading.Event()
-        self.addCleanup(release.set)
-
-        def never_answers(handler: BaseHTTPRequestHandler) -> None:
-            release.wait(30)
-
         # A request that never ends keeps the browser busy until the deadline, and then it is ended.
-        with RecordingServer({"/slow": never_answers}) as server:
+        with RecordingServer({"/slow": self.never_answers()}) as server:
             root = self.new_root()
 
             result = self.build(f"{server.origin}/slow", root, hook=SHORT_TIMEOUT_HOOK)
@@ -231,11 +213,7 @@ class BrowserProfileTests(BrowserTestCase):
             self.assert_session_kept_and_browser_gone(root, kept=[workspace.name])
 
     def test_a_later_build_has_the_session_that_an_earlier_one_left(self) -> None:
-        routes: dict[str, Route] = {
-            "/remember": remember,
-            "/members": members,
-            "/sign-in": (200, HTML, b"<html><body><main><h1>Sign in</h1></main></body></html>"),
-        }
+        routes = sign_in_routes()
         with RecordingServer(routes) as server:
             root = self.new_root()
             output = root / "out.md"
@@ -258,11 +236,7 @@ class BrowserProfileTests(BrowserTestCase):
             self.assert_session_kept_and_browser_gone(root)
 
     def test_a_session_that_a_browser_left_after_a_visit_by_hand_is_used(self) -> None:
-        routes: dict[str, Route] = {
-            "/remember": remember,
-            "/members": members,
-            "/sign-in": (200, HTML, b"<html><body><main><h1>Sign in</h1></main></body></html>"),
-        }
+        routes = sign_in_routes()
         with RecordingServer(routes) as server:
             root = self.new_root()
             # The person starts the same browser with the folder, visits the site and closes the browser.
@@ -344,11 +318,7 @@ class BrowserProfileTests(BrowserTestCase):
             self.assertNotIn("Another browser", result.stdout)
 
     def test_the_session_is_kept_when_the_page_is_read_with_wait_for(self) -> None:
-        routes: dict[str, Route] = {
-            "/remember": remember,
-            "/members": members,
-            "/sign-in": (200, HTML, b"<html><body><main><h1>Sign in</h1></main></body></html>"),
-        }
+        routes = sign_in_routes()
         with RecordingServer(routes) as server:
             root = self.new_root()
             self.assertEqual(self.build(f"{server.origin}/remember", root).returncode, 0)

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import sys
-import tempfile
 import textwrap
 import unittest
 from pathlib import Path
@@ -12,7 +11,7 @@ from unittest import mock
 
 from executable.smoke import run_smoke
 from tests.browser_test_support import BrowserTestCase
-from tests.executable_test_support import install_smoke_provider
+from tests.executable_test_support import new_smoke_workspace
 
 ENTRY_SCRIPT = Path(__file__).resolve().parents[1] / "executable" / "entry.py"
 PACKAGE = [sys.executable, "-m", "site2md.main"]
@@ -24,14 +23,7 @@ class SmokeComparisonTests(unittest.TestCase):
     """Run the smoke steps against stand-ins for the executable."""
 
     def setUp(self) -> None:
-        temp_dir = tempfile.TemporaryDirectory()
-        self.addCleanup(temp_dir.cleanup)
-        self.root = Path(temp_dir.name)
-        self.providers = self.root / "providers"
-        self.providers.mkdir()
-        install_smoke_provider(self.providers)
-        self.work = self.root / "work"
-        self.work.mkdir()
+        self.root, self.providers, self.work = new_smoke_workspace(self)
 
     def smoke(self, executable: list[str], *, with_browser: bool = False) -> list[str]:
         """Return the problems that the smoke steps report for a stand-in executable."""
@@ -109,14 +101,7 @@ class BrowserSmokeTests(BrowserTestCase):
     """Run the browser step against stand-ins for the executable, on a machine that has a browser."""
 
     def setUp(self) -> None:
-        temp_dir = tempfile.TemporaryDirectory()
-        self.addCleanup(temp_dir.cleanup)
-        self.root = Path(temp_dir.name)
-        self.providers = self.root / "providers"
-        self.providers.mkdir()
-        install_smoke_provider(self.providers)
-        self.work = self.root / "work"
-        self.work.mkdir()
+        self.root, self.providers, self.work = new_smoke_workspace(self)
 
     def smoke(self, executable: list[str]) -> list[str]:
         """Return the problems that all the smoke steps, with the browser step, report for a stand-in."""
