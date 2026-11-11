@@ -382,6 +382,28 @@ def check_no_downgrade(old_url: str, new_url: str) -> None:
         raise RemoteFetchError("Refusing HTTPS-to-HTTP redirect downgrade.")
 
 
+def check_not_intermediate_page(requested_url: str, page: RemotePage) -> None:
+    """Raise RemoteFetchError when the page is an intermediate page that a redirect put in front of the requested one.
+
+    A sign-in, a consent page or a browser check keeps the address that it sends the browser back to
+    in its query. The page is one when a parameter of its final URL holds, percent-decoded, the
+    requested URL, or the requested URL's path with its query.
+    """
+    # shortcut: a sign-in that returns to no address isn't recognised, and a real page that also names the requested address is refused.
+    requested = urllib.parse.urldefrag(requested_url).url
+    if requested == urllib.parse.urldefrag(page.source_url).url:
+        return
+    parts = urllib.parse.urlsplit(requested)
+    path_with_query = urllib.parse.urlunsplit(("", "", parts.path or "/", parts.query, ""))
+    for parameter in urllib.parse.urlsplit(page.source_url).query.split("&"):
+        if urllib.parse.unquote(parameter.partition("=")[2]) in (requested, path_with_query):
+            raise RemoteFetchError(
+                f"Redirected from {requested_url} to {page.source_url}, "
+                "an intermediate page such as a sign-in or a browser check.",
+                bytes_received=page.body_bytes,
+            )
+
+
 def fetch_remote(
     url: str,
     mode: RemoteMode = "page",

@@ -23,6 +23,7 @@ from site2md.downloader import (
     RemoteFetchError,
     RemotePage,
     TraversalRequestPolicy,
+    check_not_intermediate_page,
     fetch_remote,
     fetch_robots_policy,
     url_origin,
@@ -236,6 +237,8 @@ def _process_child(
             content_path=child_path,
             request_policy=request_policy,
         )
+        # Raised here, it is handled like any other failed child, and its body is counted once.
+        check_not_intermediate_page(target, child)
     except RemoteFetchError as error:
         return _handle_child_fetch_error(
             state,
@@ -720,6 +723,8 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
                     max_body_bytes=max_total_bytes,
                     content_path=entry_path,
                 )
+            # Here the two ways of getting a page meet, and the requested and the final URL are both known.
+            check_not_intermediate_page(request.entry_url, page)
         except InvalidSelectorError as error:
             # The selector is the caller's input, as an invalid follow selector is, and no page was asked for.
             index_pages[0].update(status="invalid", detail=str(error))
