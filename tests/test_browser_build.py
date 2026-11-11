@@ -229,7 +229,7 @@ class BrowserBuildTests(BrowserTestCase):
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(server.requests, ["/films"])
-            self.assertEqual(server.user_agents, ["site2md/0.6.0"])
+            self.assertEqual(server.user_agents, ["site2md/0.7.0"])
             self.assertNotIn("| Film ", output.read_text(encoding="utf-8"))
 
     def test_the_user_agent_is_the_browsers_own_followed_by_the_site2md_version(self) -> None:
@@ -247,7 +247,7 @@ class BrowserBuildTests(BrowserTestCase):
                 assert user_agent is not None
                 self.assertTrue(user_agent.startswith("Mozilla/5.0 ("), user_agent)
                 self.assertIn("Chrome/", user_agent)
-                self.assertTrue(user_agent.endswith(" site2md/0.6.0"), user_agent)
+                self.assertTrue(user_agent.endswith(" site2md/0.7.0"), user_agent)
 
     def test_a_frame_of_another_site_asks_with_the_same_user_agent(self) -> None:
         routes: dict[str, Route] = {"/from-frame": (200, {"Content-Type": "text/plain"}, b"ok")}
@@ -273,7 +273,7 @@ class BrowserBuildTests(BrowserTestCase):
             self.assertIn("/from-frame", server.requests)
             for path, user_agent in zip(server.requests, server.user_agents):
                 assert user_agent is not None
-                self.assertTrue(user_agent.endswith(" site2md/0.6.0"), f"{path}: {user_agent}")
+                self.assertTrue(user_agent.endswith(" site2md/0.7.0"), f"{path}: {user_agent}")
 
     def test_a_service_worker_and_the_request_it_makes_ask_with_the_same_user_agent(self) -> None:
         # The browser fetches a worker's script itself, before any session of the build can see the worker.

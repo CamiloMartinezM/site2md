@@ -128,7 +128,7 @@ class BrowserTestCase(InstalledCliTestCase):
 
     def assert_every_request_has_the_site2md_user_agent(self, server: RecordingServer) -> None:
         """Assert that every request that the server received had the browser's own User-Agent followed by the site2md version."""
-        without_suffix = [user_agent for user_agent in server.user_agents if not (user_agent or "").endswith(" site2md/0.6.0")]
+        without_suffix = [user_agent for user_agent in server.user_agents if not (user_agent or "").endswith(" site2md/0.7.0")]
         self.assertEqual(without_suffix, [])
 
     def new_test_root(self) -> Path:

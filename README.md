@@ -4,7 +4,7 @@
 
 ![Tests](./docs/tests.svg)
 ![Coverage](./docs/coverage.svg)
-![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)
+![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.10+-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
@@ -30,7 +30,7 @@
 
 ### Standalone Executable (Windows/Linux) 🚀
 
-The executable starts faster than a Python environment and needs neither Python nor pip. It is a second download next to the package, which stays the default install. Download the archive for your system from the [latest release](https://github.com/CamiloMartinezM/site2md/releases/latest). `<version>` below is the release's version, such as `0.6.0`.
+The executable starts faster than a Python environment and needs neither Python nor pip. It is a second download next to the package, which stays the default install. Download the archive for your system from the [latest release](https://github.com/CamiloMartinezM/site2md/releases/latest). `<version>` below is the release's version, such as `0.7.0`.
 
 - `site2md-<version>-windows-x86_64.zip` for Windows.
 - `site2md-<version>-linux-x86_64.tar.gz` for Linux, built on Ubuntu 22.04, so it needs glibc 2.35 or newer.
@@ -124,7 +124,7 @@ A formula that a page holds as TeX text, between `$…$`, `$$…$$`, `\(…\)` o
 - **MathJax 2**: the author's TeX from the `<script type="math/tex">` next to the rendered formula, also with `mode=display`. Every other script is removed, as before.
 - **MathJax 3 with assistive MathML**, and **plain MathML**: TeX built from the MathML. The elements `mi`, `mn`, `mo`, `mtext`, `mrow`, `msub`, `msup`, `msubsup`, `mfrac`, `msqrt` and `mroot` are converted, and so is `mathvariant="double-struck"`. A formula with any other element or `mathvariant` stays in the Markdown as the page's `<math>` element.
 
-MathJax 3 can be set up without assistive MathML, and its SVG output draws paths. Such a page holds no text for a formula, so the formula is not in the Markdown. A formula that a script draws after the page has loaded is not there either, because `site2md` doesn't run JavaScript.
+MathJax 3 can be set up without assistive MathML, and its SVG output draws paths. Such a page holds no text for a formula, so the formula is not in the Markdown. A formula that a script draws after the page has loaded is not there either, because a plain build doesn't run JavaScript.
 
 ---
 
@@ -193,7 +193,7 @@ site2md build https://example.com/app --browser --wait-for "table.results tr" --
 - **`--wait-for SELECTOR`.** Reads the page as soon as an element matches the CSS selector, in the page's real time and without that budget. It is the way to read a page that keeps a request open, because the page's own time never gets past such a request. If no element matches within the 30-second timeout, the build fails with one line that names the selector. A selector that the browser doesn't accept fails before any request. It needs `--browser`.
 - **What stays as in a plain fetch.** Only a final `2xx` response of type `text/html` or `application/xhtml+xml` is converted, by its `Content-Type` header. Redirects are followed and an HTTPS-to-HTTP downgrade is refused, whether a server, a script or a meta refresh moves the page. The 30-second timeout runs from starting the browser to reading the page, and `--max-page-size-mib` limits the page as the browser shows it. The address that the browser ends on is the source, so the source marker and the links are those of a plain build. The same failure gives the same line, and an existing output file stays as it was.
 - **What the browser loads.** Everything that the page asks for, as any browser does: its scripts, style sheets, fonts, images and data, from the page's host and from others, and the page's icon. Nothing is blocked, and nothing checks `robots.txt`: as in every page-mode build, the page is a direct request, and these requests belong to it. A plain build makes one request.
-- **What it says.** The User-Agent is the browser's own, `HeadlessChrome` included, followed by ` site2md/<version>`, and every request that the browser makes has it: the page's, those of a frame of another site, the page's icon, and a service worker's script and the requests of its worker. When a build ends, also when it fails, site2md first closes the page and its service and shared workers, so that nothing is asked after the browser has stopped saying who it is. The page's own `pagehide` and `unload` handlers therefore run, and what they ask has the suffix too.
+- **What it says.** The User-Agent is the browser's own, `HeadlessChrome` included, followed by ` site2md/<version>`, and every request that the browser makes has it: the page's, those of a frame of another site, the page's icon, and a service worker's script and the requests of its worker. When a build ends, also when it fails, site2md first closes the page and its service and shared workers, so that nothing is asked after the browser has stopped saying who it is. The page's own `pagehide` and `unload` handlers therefore run if the page had loaded, and what they ask has the suffix too.
 - **What it doesn't do.** It doesn't hide that the browser is automated, and it doesn't answer a browser check, a CAPTCHA or any other defence of a site: a denial isn't a reason to bypass the restriction. The browser keeps its sandbox, and site2md never passes `--no-sandbox`, so where a browser can't start its sandbox the build fails with the browser's reason. Downloads are refused and dialogs are dismissed. It doesn't click, type or scroll, and it doesn't read frames or shadow roots. Content that the page hides with CSS still comes out.
 - **The profile.** Each build uses a new temporary profile, which is removed afterwards with every browser process, also after a failure or an interruption. `--keep-temp` never keeps it. A page that only signed-in visitors get needs `--browser-profile` ([below](#read-a-page-that-only-signed-in-visitors-get)).
 - **Platforms.** It works on Windows and Linux. The browser takes its commands over a pipe that only site2md and the browser hold, and no port is opened. macOS isn't promised.
@@ -448,7 +448,7 @@ site2md against the tools you might pick instead. Every tool extracts the same 2
 
 ## 📚 Documentation
 
-The tool is self-documenting via the CLI. Release-specific behavior and limits are recorded in the [0.6.0](docs/release-0.6.0.md), [0.5.0](docs/release-0.5.0.md) and [0.4.0](docs/release-0.4.0.md) release notes and the [0.4.1](docs/release-0.4.1.md), [0.4.2](docs/release-0.4.2.md), [0.4.3](docs/release-0.4.3.md), [0.4.4](docs/release-0.4.4.md), [0.4.5](docs/release-0.4.5.md) and [0.4.6](docs/release-0.4.6.md) patch notes.
+The tool is self-documenting via the CLI. Release-specific behavior and limits are recorded in the [0.7.0](docs/release-0.7.0.md), [0.6.0](docs/release-0.6.0.md), [0.5.0](docs/release-0.5.0.md) and [0.4.0](docs/release-0.4.0.md) release notes and the [0.4.1](docs/release-0.4.1.md), [0.4.2](docs/release-0.4.2.md), [0.4.3](docs/release-0.4.3.md), [0.4.4](docs/release-0.4.4.md), [0.4.5](docs/release-0.4.5.md) and [0.4.6](docs/release-0.4.6.md) patch notes.
 
 ```bash
 site2md --help
