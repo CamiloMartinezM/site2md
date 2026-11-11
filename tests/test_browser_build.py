@@ -15,6 +15,7 @@ from tests.browser_test_support import (
     HTML,
     INTERRUPT_AT_NAVIGATION_HOOK,
     PLAIN_PAGE,
+    RECORD_DEVTOOLS_HOOK,
     SHORT_TIMEOUT_HOOK,
     TEMP_FOLDER,
     BrowserTestCase,
@@ -768,9 +769,9 @@ class BrowserBuildFailureTests(BrowserTestCase):
             self.assert_every_request_has_the_site2md_user_agent(server)
 
     def test_what_a_page_asks_as_a_failed_build_closes_it_has_the_user_agent(self) -> None:
-        # The page is closed before the browser, so what it asks as it ends is labelled.
-        # A browser tells a page that it ends only once the page's load event has run. A build that fails when the
-        # document ends can be earlier than that, so this one fails when the page is read, which is after it.
+        # What a browser asks once the page's session has ended has no label, so the page has to be gone before the
+        # browser is told to close. Whether the page's last request then still leaves is a race with the browser's end,
+        # so the test reads the order of what the build and the browser said, and checks whatever did reach the server.
         page = script_page(
             'addEventListener("pagehide", function () { fetch("/bye", { keepalive: true }); });'
             ' document.getElementById("content").textContent = "x".repeat(2 * 1024 * 1024);'
@@ -780,12 +781,18 @@ class BrowserBuildFailureTests(BrowserTestCase):
             "/bye": (200, {"Content-Type": "text/plain"}, b"ok"),
         }
         with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
-            result = self.build_failing(f"{server.origin}/page", Path(temp_dir), "--max-page-size-mib", "1")
+            hook = self.startup_hook_environment(Path(temp_dir), RECORD_DEVTOOLS_HOOK)
+
+            result = self.build_failing(
+                f"{server.origin}/page", Path(temp_dir), "--max-page-size-mib", "1", extra_environment=hook
+            )
 
             self.assertEqual(
                 result.stdout.strip(), "Error fetching remote page: Response exceeded the 1 MiB limit while streaming."
             )
-            self.assertIn("/bye", server.requests)
+            said = (Path(temp_dir) / "startup-hook" / "devtools.log").read_text(encoding="utf-8").splitlines()
+            closing = ("sent Target.closeTarget", "read Target.detachedFromTarget", "sent Browser.close")
+            self.assertEqual([line for line in said if line in closing][-3:], list(closing))
             self.assert_every_request_has_the_site2md_user_agent(server)
 
     def test_a_page_sent_as_a_download_fails_and_no_file_is_written(self) -> None:
