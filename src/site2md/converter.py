@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 from bs4.element import PreformattedString
 from markdownify import MarkdownConverter
 
+from site2md._formulas import FORMULA
 from site2md.downloader import RemotePage
 
 _EXCLUDED_TAG_NAMES = frozenset({"nav", "script", "style", "noscript"})
@@ -39,6 +40,26 @@ class _Tag(Tag):
                 parent = parent.parent
             return parent
         return super().find_parent(name, attrs, **kwargs)
+
+
+class _Converter(MarkdownConverter):
+    """A converter that writes a TeX formula as the page has it, where it escapes the text around it."""
+
+    def escape(self, text: str, parent_tags: set[str]) -> str:
+        """Escape the text of a node except its formulas, where `_` and `*` are TeX and not Markdown."""
+        # The stub of markdownify 1.2 leaves out `escape`, which every supported version has.
+        escape_prose = super().escape  # type: ignore[misc]
+        # Every formula holds a dollar sign or a backslash, and most text holds neither.
+        if "$" not in text and "\\" not in text:
+            return escape_prose(text, parent_tags)
+        escaped: list[str] = []
+        end = 0
+        for formula in FORMULA.finditer(text):
+            escaped.append(escape_prose(text[end : formula.start()], parent_tags))
+            escaped.append(formula.group())
+            end = formula.end()
+        escaped.append(escape_prose(text[end:], parent_tags))
+        return "".join(escaped)
 
 
 def _parse(markup: str | bytes, encoding: str | None = None) -> BeautifulSoup:
@@ -150,7 +171,7 @@ def _convert_soup_to_markdown(soup: BeautifulSoup, source: str) -> str:
 def md(soup: BeautifulSoup) -> str:
     """Render a parsed tree as Markdown."""
     # Keeps the name of the markdownify function it replaced, which the tests swap to make a conversion fail.
-    return MarkdownConverter(heading_style="atx").convert_soup(soup)
+    return _Converter(heading_style="atx").convert_soup(soup)
 
 
 def convert_html_to_markdown(html_path: Path) -> str:

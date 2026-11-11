@@ -22,8 +22,10 @@ from jsonschema import (  # type: ignore[import-untyped]
     Draft202012Validator,
     SchemaError,
 )
+from marko.element import Element
 from packaging.version import InvalidVersion, Version
 
+from site2md._formulas import FORMULA
 from site2md._types import PositionedMarkoNode
 from site2md.extractors.v1 import (
     ConvertedDocument,
@@ -103,9 +105,29 @@ NODE_KINDS = {
     "TableRow": "table_row",
     "TableCell": "table_cell",
     "BlankLine": "blank_line",
+    "Formula": "text",
 }
 
 
+class Formula(marko.inline.InlineElement):
+    """A TeX formula, which Markdown has no syntax for: Marko reads it as one text node, as written."""
+
+    # The priority of a code span, so that a code span that starts first keeps its text.
+    priority = 7
+    pattern = FORMULA
+    parse_group = 0
+
+
+class _FormulaFirstParser(marko.Parser):
+    """A parser that tries Formula first, so that a formula opened by a backslash wins over the escape there."""
+
+    def add_element(self, element: type[Element]) -> None:
+        super().add_element(element)
+        if element is Formula:
+            others = {
+                name: other for name, other in self.inline_elements.items() if other is not Formula
+            }
+            self.inline_elements = {"Formula": Formula, **others}
 
 
 class ExtractionError(Exception):
@@ -603,7 +625,8 @@ def _converted_document(
 ) -> ConvertedDocument:
     """Translate Marko output into provider-facing site2md nodes."""
     normalized, original_offsets = _normalize_markdown(markdown)
-    marko_document = marko.Markdown(extensions=["gfm"]).parse(normalized)
+    formulas = marko.MarkoExtension(parser_mixins=[_FormulaFirstParser], elements=[Formula])
+    marko_document = marko.Markdown(extensions=["gfm", formulas]).parse(normalized)
     section_nodes: list[list[Node]] = [[]]
     section_sources: list[str | None] = [None]
     section_has_markdown = [False]
