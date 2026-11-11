@@ -19,10 +19,10 @@ _TEX_ESCAPES = str.maketrans(
         "&": r"\&",
         "_": r"\_",
         "$": r"\$",
-        "⁡": None,
-        "⁢": None,
-        "⁣": None,
-        "⁤": None,
+        "\u2061": None,
+        "\u2062": None,
+        "\u2063": None,
+        "\u2064": None,
     }
 )
 # These start a TeX command or a space there, and writing them as TeX needs a choice that a rule can't make.
