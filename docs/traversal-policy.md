@@ -38,9 +38,17 @@ Before requesting children, traversal retrieves `/robots.txt` for the traversal 
 
 Child requests are sequential. The delay is the greatest of one second, an applicable `crawl-delay`, or the interval implied by an applicable `request-rate`. Each delay starts when the previous child response arrives, redirect responses included, so the server never receives two child requests closer together than the delay. There is no delay override. Use traversal only where the site's robots policy and terms permit it; policy denial is expected enforcement and must not be bypassed.
 
+## Intermediate pages
+
+A redirect can end at an **intermediate page**: a sign-in page, a consent page or a browser check that stands in front of the page that was requested. It isn't that page's content, so it is never converted, and site2md doesn't answer it or retry. After redirects, a response is an intermediate page when a parameter of its final URL has a value that, percent-decoded, equals the requested URL, or the requested URL's path with its query: `/login?return_to=%2Farticles%2Fone` follows a request to `/articles/one`. A fragment of the requested URL isn't compared, and a response that wasn't redirected is never one. Every other redirect, same-origin or cross-origin, is as it was: the final URL is the page's identity and source attribution.
+
+An entry page that ends at an intermediate page is an entry-page failure in every remote mode: one line that names the requested URL and the final URL, exit status 1, and an existing destination left as it was. A child that ends at one is an expected child failure: one warning that names both URLs, counted as failed, with nothing converted and no link taken from it, and the traversal goes on. The child was requested, so it counts toward the page budget as any failed child does, its body counts toward the aggregate limit, and its response starts the next request delay. With `--browser` the requested URL is the one that was passed and the final URL is the address that the browser ends on, so a script's move to a sign-in page is refused as a redirect's is.
+
+The rule has two limits, which are not solved here. A sign-in redirect that carries no return address isn't recognised, and its page is converted. A redirect to the real page that also carries the old address as a parameter is refused.
+
 ## Outcomes and debugging
 
-Expected child retrieval, robots, media-type, size, redirect-boundary, or conversion failures produce concise warnings. Traversal continues within its remaining budgets and writes the successful source sections in deterministic order. The final summary reports fetched, skipped, failed, and reached-limit counts.
+Expected child retrieval, robots, media-type, size, redirect-boundary, intermediate-page, or conversion failures produce concise warnings. Traversal continues within its remaining budgets and writes the successful source sections in deterministic order. The final summary reports fetched, skipped, failed, and reached-limit counts.
 
 Entry-page failure, invalid or empty follow selection, invalid configuration, interruption, unexpected internal failure, and output failure are fatal. Fatal outcomes preserve an existing destination. Successful bounded output replaces the destination atomically.
 

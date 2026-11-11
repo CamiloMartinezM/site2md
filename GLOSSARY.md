@@ -40,6 +40,10 @@ _Avoid_: Crawl quota, download allowance
 An HTML document fetched from a URL, or read from a browser that has run its scripts, together with its final source URL, which provides the base for resolving relative links.
 _Avoid_: Downloaded file, scraped page
 
+**Intermediate page**:
+A page that a redirect leads to in front of the page that was requested, such as a sign-in page, a consent page or a browser check. It is recognised by a parameter of its final URL whose percent-decoded value is the requested URL, or the requested URL's path with its query. An entry page that ends at one fails the build, a child that ends at one gives a warning and counts as failed, and the page is never converted.
+_Avoid_: Login page, interstitial, redirect page
+
 **Browser rendering**:
 Reading a remote page from an installed Chromium-based browser instead of from the server's response, after the page's scripts have run for a fixed budget of the page's own time, or, with `--wait-for`, until an element matches a CSS selector. It applies to page mode only, and it yields the same remote page, so conversion doesn't change.
 _Avoid_: Headless scraping, JavaScript mode, dynamic mode
