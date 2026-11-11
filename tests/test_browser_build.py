@@ -7,6 +7,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -131,6 +132,20 @@ def script_page(script: str) -> bytes:
         '<!DOCTYPE html><html><head><meta charset="utf-8"></head>'
         f'<body><main id="content"></main><script>{script}</script></body></html>'
     ).encode()
+
+
+def malformed_content_length(page: bytes) -> Route:
+    """Return a route that answers with a Content-Length that is not a number, so that a reader goes on to the end of the connection."""
+
+    def route(handler: BaseHTTPRequestHandler) -> None:
+        handler.send_response(200)
+        handler.send_header("Content-Type", "text/html")
+        handler.send_header("Content-Length", "abc")
+        handler.end_headers()
+        handler.wfile.write(page)
+        handler.close_connection = True
+
+    return route
 
 
 def unused_port() -> int:
@@ -259,6 +274,31 @@ class BrowserBuildTests(BrowserTestCase):
             for path, user_agent in zip(server.requests, server.user_agents):
                 assert user_agent is not None
                 self.assertTrue(user_agent.endswith(" site2md/0.6.0"), f"{path}: {user_agent}")
+
+    def test_a_service_worker_and_the_request_it_makes_ask_with_the_same_user_agent(self) -> None:
+        # The browser fetches a worker's script itself, before any session of the build can see the worker.
+        page = script_page(
+            'navigator.serviceWorker.register("/worker.js")'
+            ".then(function () { return navigator.serviceWorker.ready; })"
+            '.then(function () { document.getElementById("content").innerHTML = "<p class=ready>Ready</p>"; });'
+        )
+        worker = b'self.addEventListener("install", function (event) { event.waitUntil(fetch("/from-worker")); });'
+        routes: dict[str, Route] = {
+            "/page": (200, HTML, page),
+            "/worker.js": (200, {"Content-Type": "text/javascript"}, worker),
+            "/from-worker": (200, {"Content-Type": "text/plain"}, b"ok"),
+        }
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "out.md"
+
+            # The page shows its marker once the worker is active, so both requests have been made by then.
+            result = self.build(f"{server.origin}/page", output, "--wait-for", "p.ready")
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("Ready", output.read_text(encoding="utf-8"))
+            self.assertIn("/worker.js", server.requests)
+            self.assertIn("/from-worker", server.requests)
+            self.assert_every_request_has_the_site2md_user_agent(server)
 
     def test_the_page_is_read_after_ten_seconds_of_the_pages_own_time(self) -> None:
         page = script_page(
@@ -657,16 +697,7 @@ class BrowserBuildFailureTests(BrowserTestCase):
             self.assertEqual(result.stdout.strip(), "Error fetching remote page: Final HTML response body is empty.")
 
     def test_a_content_length_that_is_not_a_number_fails_as_it_does_under_a_plain_fetch(self) -> None:
-        def malformed(handler: BaseHTTPRequestHandler) -> None:
-            # The browser and the plain fetch both read on until the server closes the connection.
-            handler.send_response(200)
-            handler.send_header("Content-Type", "text/html")
-            handler.send_header("Content-Length", "abc")
-            handler.end_headers()
-            handler.wfile.write(PLAIN_PAGE)
-            handler.close_connection = True
-
-        with RecordingServer({"/page": malformed}) as server, tempfile.TemporaryDirectory() as temp_dir:
+        with RecordingServer({"/page": malformed_content_length(PLAIN_PAGE)}) as server, tempfile.TemporaryDirectory() as temp_dir:
             expected = "Error fetching remote page: Response Content-Length is malformed."
             output = Path(temp_dir) / "plain.md"
             output.write_text("previous", encoding="utf-8")
@@ -701,6 +732,54 @@ class BrowserBuildFailureTests(BrowserTestCase):
                         result.stdout.strip(),
                         "Error fetching remote page: Malformed or unavailable response: net::ERR_CONNECTION_REFUSED",
                     )
+
+    def test_a_service_worker_that_still_asks_when_a_failed_build_closes_the_browser_has_the_user_agent(self) -> None:
+        # A worker outlives its page, so it is still asking when the build ends and the browser is told to close.
+        page = script_page('navigator.serviceWorker.register("/worker.js");')
+        worker = b'self.addEventListener("activate", function () { setInterval(function () { fetch("/tick"); }, 1); });'
+        routes: dict[str, Route] = {
+            "/worker.js": (200, {"Content-Type": "text/javascript"}, worker),
+            "/tick": (200, {"Content-Type": "text/plain"}, b"ok"),
+        }
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+
+            def cut_short(handler: BaseHTTPRequestHandler) -> None:
+                # The server promises more bytes than it sends, and ends the connection once the worker is asking.
+                handler.send_response(200)
+                handler.send_header("Content-Type", "text/html")
+                handler.send_header("Content-Length", str(len(page) + 1000))
+                handler.end_headers()
+                handler.wfile.write(page)
+                handler.wfile.flush()
+                give_up = time.monotonic() + 20
+                while server.requests.count("/tick") < 5 and time.monotonic() < give_up:
+                    time.sleep(0.01)
+                handler.close_connection = True
+
+            routes["/page"] = cut_short
+
+            result = self.build_failing(f"{server.origin}/page", Path(temp_dir))
+
+            self.assertTrue(
+                result.stdout.startswith("Error fetching remote page: Malformed or unavailable response: net::ERR_"),
+                result.stdout,
+            )
+            self.assertGreaterEqual(server.requests.count("/tick"), 5)
+            self.assert_every_request_has_the_site2md_user_agent(server)
+
+    def test_what_a_page_asks_as_a_failed_build_closes_it_has_the_user_agent(self) -> None:
+        # The build fails as soon as the page has loaded. The page is closed before the browser, so what it asks as it ends is labelled.
+        page = script_page('addEventListener("pagehide", function () { fetch("/bye", { keepalive: true }); });')
+        routes: dict[str, Route] = {
+            "/page": malformed_content_length(page),
+            "/bye": (200, {"Content-Type": "text/plain"}, b"ok"),
+        }
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            result = self.build_failing(f"{server.origin}/page", Path(temp_dir))
+
+            self.assertEqual(result.stdout.strip(), "Error fetching remote page: Response Content-Length is malformed.")
+            self.assertIn("/bye", server.requests)
+            self.assert_every_request_has_the_site2md_user_agent(server)
 
     def test_a_page_sent_as_a_download_fails_and_no_file_is_written(self) -> None:
         name = "site2md-browser-test-download.html"

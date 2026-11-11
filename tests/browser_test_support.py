@@ -16,7 +16,7 @@ from pathlib import Path
 
 from site2md.browser import find_browser
 from site2md.downloader import RemoteFetchError
-from tests.cli_test_support import InstalledCliTestCase, Route
+from tests.cli_test_support import InstalledCliTestCase, RecordingServer, Route
 
 # The folder of a test root that holds all the temporary files of the run under test.
 TEMP_FOLDER = "tmp"
@@ -125,6 +125,11 @@ class BrowserTestCase(InstalledCliTestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(output.read_text(encoding="utf-8"), "previous")
         self.assertNotIn("Traceback", result.stderr)
+
+    def assert_every_request_has_the_site2md_user_agent(self, server: RecordingServer) -> None:
+        """Assert that every request that the server received had the browser's own User-Agent followed by the site2md version."""
+        without_suffix = [user_agent for user_agent in server.user_agents if not (user_agent or "").endswith(" site2md/0.6.0")]
+        self.assertEqual(without_suffix, [])
 
     def new_test_root(self) -> Path:
         """Return a new folder for a test, with a folder for the temporary files of its runs, removed at the end."""
