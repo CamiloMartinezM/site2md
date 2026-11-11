@@ -40,6 +40,34 @@ SHORT_TIMEOUT_HOOK = """from site2md import downloader
 
 downloader.REQUEST_TIMEOUT_SECONDS = 3
 """
+# Writes down, in order, each command that the build sends to the browser and each message that it reads from it.
+RECORD_DEVTOOLS_HOOK = """import json
+from pathlib import Path
+
+LOG = Path(__file__).with_name("devtools.log")
+dumps, loads = json.dumps, json.loads
+
+
+def record(direction, message):
+    if isinstance(message, dict) and "method" in message:
+        with LOG.open("a", encoding="utf-8") as log:
+            log.write(f"{direction} {message['method']}\\n")
+
+
+def recording_dumps(value, *arguments, **options):
+    record("sent", value)
+    return dumps(value, *arguments, **options)
+
+
+def recording_loads(text, *arguments, **options):
+    message = loads(text, *arguments, **options)
+    record("read", message)
+    return message
+
+
+json.dumps = recording_dumps
+json.loads = recording_loads
+"""
 # Reads the command line of every process, so that a test can tell whether a browser is left.
 _WINDOWS_PROCESS_QUERY = (
     "Get-CimInstance Win32_Process | Where-Object "
