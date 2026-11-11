@@ -283,13 +283,19 @@ Before requesting child pages, follow and site modes retrieve and enforce `robot
 
 Remote fetches use a 30-second timeout, a versioned `site2md` user agent, and no automatic retries. They accept final, nonempty `text/html` or `application/xhtml+xml` responses with a `2xx` status. Redirects can use HTTP or HTTPS, but HTTPS-to-HTTP downgrades are rejected. Child redirects must remain on the traversal origin.
 
+A redirect can also end at an intermediate page: a sign-in page, a consent page or a browser check that stands in front of the page that you asked for. site2md never converts one, because it isn't the page's content, and it doesn't answer it.
+
+- **How it is recognised.** After redirects, a response is an intermediate page when a parameter of its final URL has a value that, percent-decoded, equals the requested URL, or the requested URL's path with its query. Such pages keep the address that they send the browser back to in their query: a request to `https://example.com/articles/one` that ends at `https://example.com/login?return_to=%2Farticles%2Fone` is one. A fragment of the requested URL isn't compared, and a response that wasn't redirected is never one.
+- **What build does.** An entry page that ends at an intermediate page fails the build in every remote mode, with one line that names the requested URL and the final URL, and an existing output file stays as it was. In follow and site modes, a child that ends at one gives a warning that names both URLs and counts as failed, nothing from it is converted or followed, and the traversal goes on. `--browser` applies the same rule to the address that the browser ends on.
+- **Two limits.** A sign-in redirect that carries no return address isn't recognised, and its page is converted. A redirect to the real page that also carries the old address as a parameter is refused.
+
 Use traversal only when the website's robots policy and terms permit automated access. Policy denial is an expected boundary and isn't a reason to bypass the restriction.
 
 ### Understand traversal output and failures
 
 Follow and site modes produce one Markdown document. The entry page appears first, followed by successful child pages in deterministic order. Source markers and section separators preserve each page's provenance. To extract structured data, pass the completed multi-source document to `site2md extract` in a separate command, or add `--extract` to `build` ([below](#convert-and-extract-in-one-command)).
 
-Expected child failures produce warnings and don't discard pages that were already converted. Reaching a page, depth, or aggregate-content limit also completes successfully with a bounded partial document. Entry-page failures, invalid follow selections, interruptions, unexpected failures, and output failures are fatal and preserve an existing destination.
+Expected child failures, such as a child that is redirected to an [intermediate page](#control-remote-traversal), produce warnings and don't discard pages that were already converted. Reaching a page, depth, or aggregate-content limit also completes successfully with a bounded partial document. Entry-page failures, invalid follow selections, interruptions, unexpected failures, and output failures are fatal and preserve an existing destination.
 
 With `--keep-temp`, the retained workspace contains fetched HTML, available partial child data, converted fragments, the assembled document, and `index.json`. The index maps attempted URLs to their status and available files for debugging. Its format is unstable and has no compatibility guarantees.
 
