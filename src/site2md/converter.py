@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 from typing import Any, cast
@@ -12,6 +13,7 @@ from bs4.element import PreformattedString
 from markdownify import MarkdownConverter
 
 from site2md._formulas import FORMULA
+from site2md._mathml import math_to_tex
 from site2md.downloader import RemotePage
 
 _EXCLUDED_TAG_NAMES = frozenset({"nav", "script", "style", "noscript"})
@@ -28,6 +30,10 @@ _EXCLUDED_CLASS_NAMES = frozenset(
 )
 # Some html.parser versions read the text of these elements raw, so it changes when it is parsed twice.
 _RAW_TEXT_TAG_NAMES = frozenset({"iframe", "noembed", "noframes", "plaintext", "xmp"})
+# The wrappers of a rendered formula, whose MathML says what their hidden visual copy shows again.
+_FORMULA_CLASS_NAMES = frozenset({"katex", "MathJax"})
+# MathJax 2 keeps the author's TeX in a script of this type, and a display formula says so in its mode.
+_TEX_SCRIPT_TYPE = re.compile(r"\s*math/tex\s*(?:;\s*mode\s*=\s*(display))?\s*", re.IGNORECASE)
 
 
 class _Tag(Tag):
@@ -85,6 +91,24 @@ class _Converter(MarkdownConverter):
         escaped.append(escape_prose(text[end:], parent_tags))
         return "".join(escaped)
 
+    def convert_math(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        """Write a MathML formula as TeX, or keep it as the page's element when there is no TeX for it."""
+        is_display = el.get("display") == "block" or el.find_parent(class_="katex-display")
+        return _write_math(el, is_display=bool(is_display))
+
+    def convert_mjx_container(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        """Write a MathJax 3 formula from its assistive MathML, the only text it has."""
+        math = el.find("math")
+        if not isinstance(math, Tag):
+            return text
+        return _write_math(math, is_display=el.get("display") == "true")
+
+    def convert_script(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        """Write a MathJax 2 source as a formula. `_clean_soup` removes every other script."""
+        script_type = _tex_script_type(el)
+        is_display = bool(script_type and script_type.group(1))
+        return _write_tex(el.get_text().strip(), is_display=is_display)
+
 
 def _parse(markup: str | bytes, encoding: str | None = None) -> BeautifulSoup:
     """Parse HTML with the standard-library parser."""
@@ -102,6 +126,37 @@ def _resolve_reference(reference: str, base_url: str) -> str:
     if parsed.scheme and parsed.scheme.lower() not in {"http", "https"}:
         return reference
     return urljoin(base_url, reference)
+
+
+def _tex_script_type(script: Tag) -> re.Match[str] | None:
+    """Return the match of a MathJax 2 source's type, or None for any other script."""
+    script_type = script.get("type")
+    return _TEX_SCRIPT_TYPE.fullmatch(script_type) if isinstance(script_type, str) else None
+
+
+def _mathjax_output_before(script: Tag) -> list[Tag]:
+    """Return what MathJax 2 wrote for a source: its preview and its rendered frame, right before the script."""
+    written: list[Tag] = []
+    sibling = script.find_previous_sibling(True)
+    while isinstance(sibling, Tag) and any(
+        name.startswith("MathJax") for name in sibling.attrs.get("class", ())
+    ):
+        written.append(sibling)
+        sibling = sibling.find_previous_sibling(True)
+    return written
+
+
+def _write_tex(tex: str, *, is_display: bool) -> str:
+    """Write TeX between dollar signs, and a display formula in a paragraph of its own."""
+    if not tex:
+        return ""
+    return f"\n\n$${tex}$$\n\n" if is_display else f"${tex}$"
+
+
+def _write_math(math: Tag, *, is_display: bool) -> str:
+    """Write a `<math>` element as a formula, or as the page's element when it has no TeX."""
+    tex = math_to_tex(math)
+    return str(math) if tex is None else _write_tex(tex, is_display=is_display)
 
 
 def _clean_soup(soup: BeautifulSoup, source_url: str | None = None) -> None:
@@ -124,10 +179,20 @@ def _clean_soup(soup: BeautifulSoup, source_url: str | None = None) -> None:
                     if attribute == "href" and tag.name == "base" and not base_found:
                         base_found = True
                         base_url = urljoin(source_url, value)
-        if tag.name in _EXCLUDED_TAG_NAMES or not _EXCLUDED_CLASS_NAMES.isdisjoint(
-            attributes.get("class", ())
-        ):
-            excluded.append(tag)
+        classes = attributes.get("class", ())
+        if tag.name in _EXCLUDED_TAG_NAMES or not _EXCLUDED_CLASS_NAMES.isdisjoint(classes):
+            if tag.name == "script" and _tex_script_type(tag):
+                # The source is the formula and convert_script writes it, so what MathJax drew goes.
+                excluded.extend(_mathjax_output_before(tag))
+            else:
+                excluded.append(tag)
+        elif classes and not _FORMULA_CLASS_NAMES.isdisjoint(classes) and tag.find("math"):
+            # The copy that the library hides from assistive technology shows what its MathML says.
+            excluded.extend(
+                child
+                for child in tag.children
+                if isinstance(child, Tag) and child.get("aria-hidden") == "true"
+            )
     if base_url is not None:
         for tag, attribute, value in references:
             tag[attribute] = _resolve_reference(value, base_url)

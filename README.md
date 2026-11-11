@@ -116,6 +116,16 @@ Remote conversion processes the HTML returned by the server. It doesn't run Java
 - **Offline Reading** - Read documentation on your e-reader or Markdown view.
 - **Archiving** - Save a local HTML collection or one remote page in a readable text format.
 
+### Formulas
+
+A formula that a page holds as TeX text, between `$…$`, `$$…$$`, `\(…\)` or `\[…\]`, is written as the page has it. A formula that a page has already rendered is written once, as TeX between dollar signs. A display formula goes between `$$` and `$$`, in a paragraph of its own. The converter reads these kinds of markup:
+
+- **KaTeX**, and any `<math>` element with an `application/x-tex` annotation: the author's TeX from the annotation.
+- **MathJax 2**: the author's TeX from the `<script type="math/tex">` next to the rendered formula, also with `mode=display`. Every other script is removed, as before.
+- **MathJax 3 with assistive MathML**, and **plain MathML**: TeX built from the MathML. The elements `mi`, `mn`, `mo`, `mtext`, `mrow`, `msub`, `msup`, `msubsup`, `mfrac`, `msqrt` and `mroot` are converted, and so is `mathvariant="double-struck"`. A formula with any other element or `mathvariant` stays in the Markdown as the page's `<math>` element.
+
+MathJax 3 can be set up without assistive MathML, and its SVG output draws paths. Such a page holds no text for a formula, so the formula is not in the Markdown. A formula that a script draws after the page has loaded is not there either, because `site2md` doesn't run JavaScript.
+
 ---
 
 ## 🚀 Usage
