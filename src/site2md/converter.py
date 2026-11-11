@@ -45,6 +45,30 @@ class _Tag(Tag):
 class _Converter(MarkdownConverter):
     """A converter that writes a TeX formula as the page has it, where it escapes the text around it."""
 
+    def __init__(self, **options: Any) -> None:
+        super().__init__(**options)
+        # The last item of each loose list, by the id of its list, so that a list is read once and not at every item.
+        self._last_items_of_loose_lists: dict[int, Tag | None] = {}
+
+    def convert_li(self, el: Tag, text: str | None, parent_tags: set[str]) -> str:
+        """Write a list item, and a blank line after it unless it is the last of a loose list."""
+        item: str = super().convert_li(el, text, parent_tags)  # type: ignore[misc]
+        parent = el.parent
+        if parent is None:
+            return item
+        last_item = self._last_item_of_loose_list(parent)
+        # Identity, not equality: comparing two tags compares their whole content.
+        return item + "\n" if last_item is not None and last_item is not el else item
+
+    def _last_item_of_loose_list(self, list_tag: Tag) -> Tag | None:
+        """Return the last item of a list where an item has a paragraph as a direct child, else None."""
+        key = id(list_tag)
+        if key not in self._last_items_of_loose_lists:
+            items = [c for c in list_tag.children if isinstance(c, Tag) and c.name == "li"]
+            is_loose = any(isinstance(c, Tag) and c.name == "p" for item in items for c in item.children)
+            self._last_items_of_loose_lists[key] = items[-1] if is_loose else None
+        return self._last_items_of_loose_lists[key]
+
     def escape(self, text: str, parent_tags: set[str]) -> str:
         """Escape the text of a node except its formulas, where `_` and `*` are TeX and not Markdown."""
         # The stub of markdownify 1.2 leaves out `escape`, which every supported version has.
