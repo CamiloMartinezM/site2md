@@ -768,16 +768,23 @@ class BrowserBuildFailureTests(BrowserTestCase):
             self.assert_every_request_has_the_site2md_user_agent(server)
 
     def test_what_a_page_asks_as_a_failed_build_closes_it_has_the_user_agent(self) -> None:
-        # The build fails as soon as the page has loaded. The page is closed before the browser, so what it asks as it ends is labelled.
-        page = script_page('addEventListener("pagehide", function () { fetch("/bye", { keepalive: true }); });')
+        # The page is closed before the browser, so what it asks as it ends is labelled.
+        # A browser tells a page that it ends only once the page's load event has run. A build that fails when the
+        # document ends can be earlier than that, so this one fails when the page is read, which is after it.
+        page = script_page(
+            'addEventListener("pagehide", function () { fetch("/bye", { keepalive: true }); });'
+            ' document.getElementById("content").textContent = "x".repeat(2 * 1024 * 1024);'
+        )
         routes: dict[str, Route] = {
-            "/page": malformed_content_length(page),
+            "/page": (200, HTML, page),
             "/bye": (200, {"Content-Type": "text/plain"}, b"ok"),
         }
         with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
-            result = self.build_failing(f"{server.origin}/page", Path(temp_dir))
+            result = self.build_failing(f"{server.origin}/page", Path(temp_dir), "--max-page-size-mib", "1")
 
-            self.assertEqual(result.stdout.strip(), "Error fetching remote page: Response Content-Length is malformed.")
+            self.assertEqual(
+                result.stdout.strip(), "Error fetching remote page: Response exceeded the 1 MiB limit while streaming."
+            )
             self.assertIn("/bye", server.requests)
             self.assert_every_request_has_the_site2md_user_agent(server)
 
