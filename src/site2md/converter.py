@@ -49,7 +49,7 @@ class _Tag(Tag):
 
 
 class _Converter(MarkdownConverter):
-    """A converter that writes a TeX formula as the page has it, where it escapes the text around it."""
+    """A converter that writes formulas as TeX, and a loose list with blank lines between its items."""
 
     def __init__(self, **options: Any) -> None:
         super().__init__(**options)
@@ -104,10 +104,12 @@ class _Converter(MarkdownConverter):
         return _write_math(math, is_display=el.get("display") == "true")
 
     def convert_script(self, el: Tag, text: str, parent_tags: set[str]) -> str:
-        """Write a MathJax 2 source as a formula. `_clean_soup` removes every other script."""
+        """Write a MathJax 2 source as a formula, and nothing for any other script."""
         script_type = _tex_script_type(el)
-        is_display = bool(script_type and script_type.group(1))
-        return _write_tex(el.get_text().strip(), is_display=is_display)
+        # `_clean_soup` removes every other script, but a tree that is parsed a second time is not cleaned again.
+        if script_type is None:
+            return ""
+        return _write_tex(el.get_text().strip(), is_display=bool(script_type.group(1)))
 
 
 def _parse(markup: str | bytes, encoding: str | None = None) -> BeautifulSoup:
