@@ -9,22 +9,12 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from tests.cli_test_support import InstalledCliTestCase, RecordingServer, Route
-
-# Writes the name of every module the command has loaded by the time it exits.
-RECORD_MODULES_HOOK = """import atexit
-import json
-import os
-import sys
-
-
-def record_modules():
-    with open(os.environ["SITE2MD_MODULE_LOG"], "w", encoding="utf-8") as log:
-        json.dump(sorted(sys.modules), log)
-
-
-atexit.register(record_modules)
-"""
+from tests.cli_test_support import (
+    RECORD_MODULES_HOOK,
+    InstalledCliTestCase,
+    RecordingServer,
+    Route,
+)
 
 CONVERSION_MODULES = (
     "site2md.converter",
@@ -167,6 +157,28 @@ class CommandStartupTests(InstalledCliTestCase):
 
         self.assertFalse(self.is_loaded(modules, "rich"))
 
+    def test_build_of_a_folder_with_brackets_in_its_name_does_not_load_rich(self) -> None:
+        # A bracket in a name is text, not markup, so the line prints the same without Rich.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            pages = root / "pages[draft]"
+            pages.mkdir()
+            (pages / "index.html").write_text(
+                "<html><body><main><p>Hello</p></main></body></html>", encoding="utf-8"
+            )
+
+            modules = self.modules_loaded_by(
+                root,
+                "build",
+                pages,
+                "--no-progress",
+                "--output",
+                root / "out[final].md",
+                environment={"COLUMNS": "500"},
+            )
+
+        self.assertFalse(self.is_loaded(modules, "rich"))
+
     def test_build_with_a_message_to_wrap_loads_rich(self) -> None:
         modules = self.modules_loaded_by_local_build(
             "--no-progress", environment={"COLUMNS": "20"}
@@ -241,6 +253,23 @@ class CommandStartupTests(InstalledCliTestCase):
 
         # Only the name that Beautiful Soup imports is there, and none of the library's own modules.
         self.assertFalse(any(module.startswith("soupsieve.") for module in modules))
+
+    def test_page_build_does_not_load_the_browser_module(self) -> None:
+        routes: dict[str, Route] = {
+            "/page": (
+                200,
+                {"Content-Type": "text/html"},
+                b"<html><body><main><p>Hello</p></main></body></html>",
+            )
+        }
+        with RecordingServer(routes) as server, tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            modules = self.modules_loaded_by(
+                root, "build", f"{server.origin}/page", "--output", root / "out.md"
+            )
+
+        self.assertFalse(self.is_loaded(modules, "site2md.browser"))
 
     def test_follow_build_loads_the_css_selector_library(self) -> None:
         entry = b'<html><body><main><a class="detail" href="/child">Child</a></main></body></html>'
@@ -334,6 +363,8 @@ class CommandStartupTests(InstalledCliTestCase):
             "--mode",
             "--max-pages",
             "--no-progress",
+            "--browser",
+            "--wait-for",
             "--extract",
             "--extract-output",
             "--entry-points-only",

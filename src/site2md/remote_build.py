@@ -18,6 +18,8 @@ from site2md._types import RemoteBuildStage, RemoteMode, TraversalControl
 from site2md.converter import convert_remote_page_to_markdown
 from site2md.downloader import (
     DEFAULT_MAX_PAGE_SIZE_MIB,
+    BrowserCleanupError,
+    InvalidSelectorError,
     RemoteFetchError,
     RemotePage,
     TraversalRequestPolicy,
@@ -45,6 +47,9 @@ class RemoteBuildRequest:
     include_query: bool = False
     max_total_size_mib: int | None = None
     max_page_size_mib: int | None = None
+    use_browser: bool = False
+    wait_for: str | None = None
+    browser_profile: Path | None = None
     keep_temp: bool = False
 
 
@@ -393,6 +398,27 @@ def _validate_request(request: RemoteBuildRequest) -> _RemoteLimits:
             stage="validation",
         )
 
+    if request.use_browser and request.mode != "page":
+        raise RemoteBuildError(
+            "--browser can only be used with --mode page.",
+            stage="validation",
+        )
+    if request.wait_for is not None and not request.use_browser:
+        raise RemoteBuildError(
+            "--wait-for can only be used with --browser.",
+            stage="validation",
+        )
+    if request.browser_profile is not None and not request.use_browser:
+        raise RemoteBuildError(
+            "--browser-profile can only be used with --browser.",
+            stage="validation",
+        )
+    # A typo would otherwise start a new profile, and the page would be read as a stranger.
+    if request.browser_profile is not None and not request.browser_profile.is_dir():
+        raise RemoteBuildError(
+            f"Browser profile folder '{request.browser_profile}' does not exist or is not a folder.",
+            stage="validation",
+        )
     if request.mode != "follow" and request.follow_selectors:
         raise RemoteBuildError(
             "--follow-selector can only be used with --mode follow.",
@@ -675,13 +701,34 @@ def build_remote(request: RemoteBuildRequest) -> RemoteBuildSummary:
     try:
         _write_debugging_index(workspace, index_pages)
         try:
-            page = fetch_remote(
-                request.entry_url,
-                request.mode,
-                max_page_size_mib=limits.max_page_size_mib,
-                max_body_bytes=max_total_bytes,
-                content_path=entry_path,
-            )
+            if request.use_browser:
+                # Imported here so that a build without --browser never loads the browser module.
+                from site2md.browser import fetch_with_browser
+
+                page = fetch_with_browser(
+                    request.entry_url,
+                    max_page_size_mib=limits.max_page_size_mib,
+                    content_path=entry_path,
+                    wait_for=request.wait_for,
+                    profile=request.browser_profile,
+                )
+            else:
+                page = fetch_remote(
+                    request.entry_url,
+                    request.mode,
+                    max_page_size_mib=limits.max_page_size_mib,
+                    max_body_bytes=max_total_bytes,
+                    content_path=entry_path,
+                )
+        except InvalidSelectorError as error:
+            # The selector is the caller's input, as an invalid follow selector is, and no page was asked for.
+            index_pages[0].update(status="invalid", detail=str(error))
+            _write_debugging_index(workspace, index_pages)
+            raise RemoteBuildError(str(error), stage="validation") from error
+        except BrowserCleanupError as error:
+            index_pages[0].update(status="failed", detail=str(error))
+            _write_debugging_index(workspace, index_pages)
+            raise RemoteBuildError(str(error), stage="cleanup") from error
         except RemoteFetchError as error:
             _record_fetch_failure(index_pages[0], entry_path, error)
             _write_debugging_index(workspace, index_pages)

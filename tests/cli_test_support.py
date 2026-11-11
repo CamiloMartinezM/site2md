@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import shutil
+import socket
+import ssl
 import subprocess
 import sys
 import threading
@@ -36,6 +38,21 @@ def fail_extraction(markdown, extractor_id, **options):
 extraction.extract = fail_extraction
 """
 
+# Writes the name of every module the command has loaded by the time it exits.
+RECORD_MODULES_HOOK = """import atexit
+import json
+import os
+import sys
+
+
+def record_modules():
+    with open(os.environ["SITE2MD_MODULE_LOG"], "w", encoding="utf-8") as log:
+        json.dump(sorted(sys.modules), log)
+
+
+atexit.register(record_modules)
+"""
+
 
 class RecordSchemaDeclaration(TypedDict):
     """The record-schema part of an Extractor declaration in a provider manifest."""
@@ -61,10 +78,44 @@ class ProviderManifest(TypedDict):
     extractors: list[ExtractorDeclaration]
 
 
+def respond(handler: BaseHTTPRequestHandler, response: Response) -> None:
+    """Send a fixed response, with its Content-Length, from a handler."""
+    status, headers, body = response
+    handler.send_response(status)
+    for name, value in headers.items():
+        handler.send_header(name, value)
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+class _TlsServer(ThreadingHTTPServer):
+    """Serve HTTPS with one certificate, and shake hands on the handler's thread, not the accepting one."""
+
+    def __init__(
+        self,
+        address: tuple[str, int],
+        handler: type[BaseHTTPRequestHandler],
+        certificate: Path,
+    ) -> None:
+        super().__init__(address, handler)
+        self.context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        self.context.load_cert_chain(certificate)
+
+    def get_request(self) -> tuple[socket.socket, tuple[str, int]]:
+        connection, address = super().get_request()
+        # A browser opens connections that it never uses, and a handshake here would wait for each.
+        return self.context.wrap_socket(connection, server_side=True, do_handshake_on_connect=False), address
+
+    def handle_error(self, request: object, client_address: object) -> None:
+        # The browser drops the connections that it opened ahead and the handshakes that it refused.
+        pass
+
+
 class RecordingServer:
     """Serve fixed responses and record every requested path."""
 
-    def __init__(self, routes: Mapping[str, Route]) -> None:
+    def __init__(self, routes: Mapping[str, Route], *, certificate: Path | None = None) -> None:
         self.requests: list[str] = []
         self.user_agents: list[str | None] = []
         requests = self.requests
@@ -76,32 +127,28 @@ class RecordingServer:
                 user_agents.append(self.headers.get("User-Agent"))
                 route = routes.get(self.path)
                 if route is None:
-                    response = (404, {"Content-Type": "text/plain"}, b"not found")
+                    respond(self, (404, {"Content-Type": "text/plain"}, b"not found"))
                 elif callable(route):
                     route(self)
-                    return
                 else:
-                    response = route
-
-                status, headers, body = response
-                self.send_response(status)
-                for name, value in headers.items():
-                    self.send_header(name, value)
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                    respond(self, route)
 
             def log_message(self, format: str, *args: object) -> None:
                 pass
 
-        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.httpd: ThreadingHTTPServer
+        if certificate is None:
+            self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        else:
+            self.httpd = _TlsServer(("127.0.0.1", 0), Handler, certificate)
+        self.scheme = "http" if certificate is None else "https"
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
 
     @property
     def origin(self) -> str:
-        """Return this server's HTTP origin."""
+        """Return this server's origin, HTTP unless it has a certificate."""
         # server_name comes from getfqdn(), which names the LAN host on Windows.
-        return f"http://127.0.0.1:{self.httpd.server_port}"
+        return f"{self.scheme}://127.0.0.1:{self.httpd.server_port}"
 
     def __enter__(self) -> Self:
         self.thread.start()

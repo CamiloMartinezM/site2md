@@ -4,9 +4,24 @@ from __future__ import annotations
 
 import json
 import shutil
+import tempfile
+import unittest
 from pathlib import Path
 
 from executable.smoke import PROVIDER
+
+
+def new_smoke_workspace(case: unittest.TestCase) -> tuple[Path, Path, Path]:
+    """Return a root folder with a folder of installed providers and a work folder, removed when the test ends."""
+    temp_dir = tempfile.TemporaryDirectory()
+    case.addCleanup(temp_dir.cleanup)
+    root = Path(temp_dir.name)
+    providers = root / "providers"
+    providers.mkdir()
+    install_smoke_provider(providers)
+    work = root / "work"
+    work.mkdir()
+    return root, providers, work
 
 
 def write_provider(folder: Path, extractor_id: str, *, distribution: str = "folder-provider") -> None:

@@ -18,7 +18,7 @@ The command freezes the site2md in the working tree with the PyInstaller version
 uv run --no-project --python 3.12 --with . --with pip executable/smoke.py dist/site2md
 ```
 
-The smoke test builds the HTML fixture in `smoke_fixtures/site` and extracts it with the built-in Extractor, with the executable and with the package, and compares the outputs byte for byte. It then installs the provider in `smoke_fixtures/provider` with `pip install --target`, names that folder in `SITE2MD_PROVIDER_PATH`, compares that extraction with the package's, and checks that `site2md extractors` lists both Extractors. It exits with status 1 and one line per problem when anything differs.
+The smoke test builds the HTML fixture in `smoke_fixtures/site` and extracts it with the built-in Extractor, with the executable and with the package, and compares the outputs byte for byte. It then installs the provider in `smoke_fixtures/provider` with `pip install --target`, names that folder in `SITE2MD_PROVIDER_PATH`, compares that extraction with the package's, and checks that `site2md extractors` lists both Extractors. With a browser installed, it also serves `smoke_fixtures/browser_page.html`, a page whose script fills in its content, from a local port, builds it with `--browser` with the package and with the executable, and compares the outputs. A module that is missing from a frozen build shows only when the build runs, which is why this step exists. A machine without a browser skips it, and a CI run without one fails. It exits with status 1 and one line per problem when anything differs.
 
 ## Release archives
 

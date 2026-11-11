@@ -37,8 +37,16 @@ The combined page-count, traversal-depth, and aggregate-content limits that boun
 _Avoid_: Crawl quota, download allowance
 
 **Remote page**:
-An HTML document fetched from a URL together with its final source URL, which provides the base for resolving relative links.
+An HTML document fetched from a URL, or read from a browser that has run its scripts, together with its final source URL, which provides the base for resolving relative links.
 _Avoid_: Downloaded file, scraped page
+
+**Browser rendering**:
+Reading a remote page from an installed Chromium-based browser instead of from the server's response, after the page's scripts have run for a fixed budget of the page's own time, or, with `--wait-for`, until an element matches a CSS selector. It applies to page mode only, and it yields the same remote page, so conversion doesn't change.
+_Avoid_: Headless scraping, JavaScript mode, dynamic mode
+
+**Kept profile**:
+A folder that `--browser-profile` names for the browser to use as its profile instead of a temporary one. A person makes its session by signing in with the same browser, and site2md leaves the folder in place and never copies anything out of it.
+_Avoid_: Cookie jar, saved login, session folder
 
 **Converted document**:
 The Markdown output of site conversion and the complete source from which structured records are extracted.

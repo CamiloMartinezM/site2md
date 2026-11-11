@@ -20,11 +20,12 @@ from site2md.remote_build import RemoteBuildError, RemoteBuildRequest, build_rem
 
 if TYPE_CHECKING:
     from rich.console import Console
+    from rich.text import Text
 
 # The styles in build's messages. Away from a terminal, Rich prints a message without them.
 _STYLE_TAGS = re.compile(r"\[/?(?:bold|red|yellow|dim|bold green|bold white on green)\]")
-# Rich replaces a name between two colons with an emoji when it knows the name.
-_EMOJI_CODE = re.compile(r":\S*?:")
+# Stands in for a value while Rich reads a message's markup. No message holds this character.
+_PLACEHOLDER = "\ue000"
 
 
 class _BuildConsole:
@@ -50,16 +51,30 @@ class _BuildConsole:
             self._rich = Console(stderr=self._use_stderr)
         return self._rich
 
-    def print(self, message: str, *, soft_wrap: bool = False) -> None:
-        """Print one message, which may hold Rich markup."""
+    def print(self, template: str, *values: object, soft_wrap: bool = False) -> None:
+        """Print one message: build's own markup in the template, and the values for its {}, as they are."""
+        texts = [str(value) for value in values]
         stream = sys.stderr if self._use_stderr else sys.stdout
         if self._is_plain and not _is_terminal(stream):
-            line = _plain_line(message, soft_wrap=soft_wrap)
+            line = _plain_line(template, texts, soft_wrap=soft_wrap)
             if line is not None:
                 stream.write(f"{line}\n")
                 stream.flush()
                 return
-        self.rich.print(message, soft_wrap=soft_wrap)
+        self.rich.print(self._rich_message(template, texts), soft_wrap=soft_wrap)
+
+    def _rich_message(self, template: str, texts: list[str]) -> Text:
+        """Return the message with its markup read and its values put in after, so that Rich never reads them."""
+        message = self.rich.render_str(
+            _fill(template, [_PLACEHOLDER * len(text) for text in texts]), emoji=False, highlight=False
+        )
+        characters = iter("".join(texts))
+        # The text keeps its length, so the styles stay where the markup put them.
+        message.plain = "".join(next(characters) if char == _PLACEHOLDER else char for char in message.plain)
+        # Highlight the message as Rich does a string, with the markup's styles over the highlight's.
+        highlighted = self.rich.highlighter(message.plain)
+        highlighted.copy_styles(message)
+        return highlighted
 
 
 def _is_terminal(stream: TextIO) -> bool:
@@ -77,17 +92,22 @@ def _is_terminal(stream: TextIO) -> bool:
     return True
 
 
-def _plain_line(message: str, *, soft_wrap: bool) -> str | None:
+def _fill(template: str, fields: list[str]) -> str:
+    """Return the template with each {} replaced by the next field."""
+    pieces = template.split("{}")
+    return pieces[0] + "".join(field + piece for field, piece in zip(fields, pieces[1:], strict=True))
+
+
+def _plain_line(template: str, texts: list[str], *, soft_wrap: bool) -> str | None:
     """Return the line that Rich prints for a message away from a terminal, or None if only Rich can tell."""
-    tags = _STYLE_TAGS.findall(message)
-    line = _STYLE_TAGS.sub("", message)
+    tags = _STYLE_TAGS.findall(template)
+    stripped = _STYLE_TAGS.sub("", template)
+    line = _fill(stripped, texts)
     if (
-        "\\[" in message  # an escaped bracket
-        or "[" in line  # markup other than build's styles, perhaps in a path or a URL
+        "[" in stripped  # a style that _STYLE_TAGS lacks
         or len(tags) % 2
         or any(closing != f"[/{opening[1:]}" for opening, closing in zip(tags[::2], tags[1::2]))
         or not (line.isascii() and line.isprintable())  # wide and control characters
-        or _EMOJI_CODE.search(line)
     ):
         return None
     if not soft_wrap:
@@ -143,6 +163,9 @@ def build(
     include_query: bool = False,
     max_total_size_mib: int | None = None,
     max_page_size_mib: int | None = None,
+    browser: bool = False,
+    wait_for: str | None = None,
+    browser_profile: Path | None = None,
     progress: bool = True,
     extract: str | None = None,
     extract_output: Path | None = None,
@@ -162,6 +185,23 @@ def build(
         include_query: Include query-bearing links discovered in site mode.
         max_total_size_mib: Positive traversal body budget (default: 250).
         max_page_size_mib: Positive MiB limit for one remote page (default: 25).
+        browser: Read the page from an installed Chrome, Edge or Chromium after its scripts have run,
+            so that content a script adds is there. Page mode only. Set SITE2MD_BROWSER to the path of
+            a browser to use that one. The browser loads everything the page asks for, from other hosts
+            too, and nothing is blocked or checked against robots.txt. As in a plain fetch, only a 2xx
+            HTML page is converted, an HTTPS-to-HTTP redirect is refused, and the 30-second timeout and
+            --max-page-size-mib apply. It doesn't hide the automation, answer a browser check, or click,
+            type or scroll.
+        wait_for: With --browser, read the page as soon as an element matches this CSS selector, in
+            real time, so a page that keeps a request open is read too. The build fails if no element
+            matches within 30 seconds, and before any request if the browser rejects the selector.
+        browser_profile: With --browser, use this existing folder as the browser's profile and leave it
+            as the browser leaves it, to read a page that only signed-in visitors get. Start the same
+            browser once with --user-data-dir=FOLDER, sign in to the site and close the browser; later
+            builds have that session. site2md has no window of its own for signing in. The folder can't
+            be the browser's everyday profile, which Chrome refuses to debug, and no other browser may
+            have it open. Nothing is ever copied out of it, also not with --keep-temp. Use it only on
+            sites whose terms allow automated access.
         progress: Draw a progress bar. Pass --no-progress to skip it, for scripts and benchmarks.
         extract: Extractor ID. After saving the Markdown, run this Extractor on exactly the
             saved file in the same process, and write the extraction result to standard output.
@@ -185,6 +225,9 @@ def build(
         or include_query
         or max_total_size_mib is not None
         or max_page_size_mib is not None
+        or browser
+        or wait_for is not None
+        or browser_profile is not None
     ):
         console.print("[red]Error:[/red] Remote build options require an HTTP(S) URL.")
         sys.exit(1)
@@ -199,13 +242,15 @@ def build(
     # Check before any work, so a remote build never requests a page it cannot save.
     if not output.parent.is_dir():
         console.print(
-            f"[red]Error:[/red] Output folder '{output.parent}' does not exist.",
+            "[red]Error:[/red] Output folder '{}' does not exist.",
+            output.parent,
             soft_wrap=True,
         )
         sys.exit(1)
     if extract_output is not None and not extract_output.parent.is_dir():
         console.print(
-            f"[red]Error:[/red] Extract output folder '{extract_output.parent}' does not exist.",
+            "[red]Error:[/red] Extract output folder '{}' does not exist.",
+            extract_output.parent,
             soft_wrap=True,
         )
         sys.exit(1)
@@ -237,6 +282,9 @@ def build(
                         include_query=include_query,
                         max_total_size_mib=max_total_size_mib,
                         max_page_size_mib=max_page_size_mib,
+                        use_browser=browser,
+                        wait_for=wait_for,
+                        browser_profile=browser_profile,
                         keep_temp=keep_temp,
                     )
                 )
@@ -251,47 +299,50 @@ def build(
                     "unexpected": "Unexpected remote build error:",
                 }
                 # soft_wrap keeps messages and paths on one line, whole and copyable.
-                console.print(f"[red]{labels[error.stage]}[/red] {error}", soft_wrap=True)
+                console.print("[red]{}[/red] {}", labels[error.stage], error, soft_wrap=True)
                 if error.retained_workspace is not None:
                     console.print(
-                        f"[dim]Temporary files kept at {error.retained_workspace}[/dim]",
+                        "[dim]Temporary files kept at {}[/dim]",
+                        error.retained_workspace,
                         soft_wrap=True,
                     )
                 sys.exit(1)
             advance()
 
         for warning in summary.warnings:
-            console.print(f"[yellow]Warning:[/yellow] {warning}")
+            console.print("[yellow]Warning:[/yellow] {}", warning)
         for reached_limit in summary.reached_limits:
-            console.print(f"[yellow]Reached limit:[/yellow] {reached_limit}")
+            console.print("[yellow]Reached limit:[/yellow] {}", reached_limit)
         console.print(
-            f"Fetched [bold]{summary.fetched}[/bold]; "
-            f"skipped [bold]{summary.skipped}[/bold]; "
-            f"failed [bold]{summary.failed}[/bold]."
+            "Fetched [bold]{}[/bold]; skipped [bold]{}[/bold]; failed [bold]{}[/bold].",
+            summary.fetched,
+            summary.skipped,
+            summary.failed,
         )
         if summary.retained_workspace is not None:
             console.print(
-                f"[dim]Temporary files kept at {summary.retained_workspace}[/dim]",
+                "[dim]Temporary files kept at {}[/dim]",
+                summary.retained_workspace,
                 soft_wrap=True,
             )
         console.print(
-            f"[bold white on green]Success![/bold white on green] Markdown created at {output}"
+            "[bold white on green]Success![/bold white on green] Markdown created at {}", output
         )
         document = summary.document
     else:
         input_dir = Path(input_source)
         if not input_dir.exists():
-            console.print(f"[red]Error:[/red] Input '{input_dir}' does not exist.")
+            console.print("[red]Error:[/red] Input '{}' does not exist.", input_dir)
             sys.exit(1)
 
-        console.print(f"[bold green]Scanning[/bold green] {input_dir} for HTML files...")
+        console.print("[bold green]Scanning[/bold green] {} for HTML files...", input_dir)
         html_files = find_html_files(input_dir)
         if not html_files:
             console.print("[yellow]No HTML files found.[/yellow]")
             # With --extract, a success status would send a script an empty result.
             sys.exit(0 if extract is None else 1)
 
-        console.print(f"Found [bold]{len(html_files)}[/bold] HTML files.")
+        console.print("Found [bold]{}[/bold] HTML files.", len(html_files))
         with _progress_bar(
             console, "[cyan]Converting HTML to Markdown...", len(html_files), is_shown=progress
         ) as advance:
@@ -300,15 +351,15 @@ def build(
                 advance()
 
         console.print(
-            f"[bold green]Merging[/bold green] {len(markdown_contents)} files into {output}..."
+            "[bold green]Merging[/bold green] {} files into {}...", len(markdown_contents), output
         )
         try:
             document = merge_markdowns(markdown_contents, output)
         except OSError as error:
-            console.print(f"[red]Error writing output:[/red] {error}", soft_wrap=True)
+            console.print("[red]Error writing output:[/red] {}", error, soft_wrap=True)
             sys.exit(1)
         console.print(
-            f"[bold white on green]Success![/bold white on green] Markdown created at {output}"
+            "[bold white on green]Success![/bold white on green] Markdown created at {}", output
         )
 
     if extract is None:
@@ -328,8 +379,9 @@ def build(
         for line in error.lines:
             print(line, file=sys.stderr)
         console.print(
-            f"[red]Error:[/red] The converted document is kept at '{output}'. "
+            "[red]Error:[/red] The converted document is kept at '{}'. "
             "Rerun site2md extract on it once the problem is fixed.",
+            output,
             soft_wrap=True,
         )
         sys.exit(1)

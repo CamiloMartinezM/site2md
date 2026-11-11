@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 RemoteMode = Literal["page", "follow", "site"]
 
@@ -17,6 +17,9 @@ RemoteBuildStage = Literal[
 ]
 
 TraversalControl = Literal["continue", "stop"]
+
+# A message of the DevTools protocol. The browser defines its shape, not site2md, and it varies by method.
+DevToolsMessage = dict[str, Any]
 
 
 class PositionedMarkoNode(Protocol):
