@@ -53,6 +53,10 @@ _READ_DOCUMENT = (
     " + document.documentElement.outerHTML]"
 )
 _DOCUMENT_REQUESTS = [{"urlPattern": "*", "resourceType": "Document", "requestStage": "Request"}]
+# Every request of the browser, also those that no page's session reaches, such as a service worker's script.
+_HTTP_REQUESTS = [{"urlPattern": "http://*"}, {"urlPattern": "https://*"}]
+# Workers outlive the page that started them, so closing the page doesn't end them.
+_WORKER_TARGET_TYPES = ("service_worker", "shared_worker")
 # A target that the page opens, such as a frame of another site, waits for site2md before it starts.
 _AUTO_ATTACH = {"autoAttach": True, "waitForDebuggerOnStart": True, "flatten": True}
 
@@ -213,6 +217,7 @@ class _Page:
         self._finished_request_ids: set[str] = set()
         self._checked_request_id = ""
         self._next_id = 0
+        self._target_id = ""
         self._session = ""
         # The sessions of the page and of the targets that it opened, by their ids.
         self._sessions: set[str] = set()
@@ -229,6 +234,7 @@ class _Page:
         pages = [target["targetId"] for target in targets if target["type"] == "page"]
         target_id = pages[0] if pages else self.call("Target.createTarget", in_page=False, url="about:blank")["targetId"]
         # A flat session carries a session id on every command to the page, as the protocol advises.
+        self._target_id = target_id
         self._session = self.call("Target.attachToTarget", in_page=False, targetId=target_id, flatten=True)["sessionId"]
         self._sessions.add(self._session)
         self.call("Browser.setDownloadBehavior", in_page=False, behavior="deny")
@@ -242,6 +248,27 @@ class _Page:
         self.call("Target.setAutoAttach", **_AUTO_ATTACH)
         # Only the page's own documents are paused, to refuse an HTTPS-to-HTTP redirect before the http request leaves.
         self.call("Fetch.enable", patterns=_DOCUMENT_REQUESTS)
+        # The browser's own session also sees the requests that the browser makes itself, which have no User-Agent override.
+        self.call("Fetch.enable", in_page=False, patterns=_HTTP_REQUESTS)
+
+    def close(self) -> None:
+        """End the page and the workers that outlive it while their sessions can still give the User-Agent."""
+        if not self._session:
+            return
+        deadline = time.monotonic() + _CLOSE_SECONDS
+        # A request that starts after the sessions have ended has the browser's own User-Agent, so nothing may start then.
+        with suppress(_PipeClosed, TimeoutError):
+            targets = self._wait_for_answer(self._send("Target.getTargets", {}, session=None), deadline)
+            workers = [
+                target["targetId"]
+                for target in targets.get("result", {}).get("targetInfos", [])
+                if target["type"] in _WORKER_TARGET_TYPES
+            ]
+            for target_id in workers:
+                self._wait_for_answer(self._send("Target.closeTarget", {"targetId": target_id}, session=None), deadline)
+            self._send("Target.closeTarget", {"targetId": self._target_id}, session=None)
+            while self._session in self._sessions:
+                self._handle(self.browser.receive(deadline))
 
     def call(self, method: str, *, in_page: bool = True, **parameters: object) -> DevToolsMessage:
         """Send one command and return its result, while handling the events that arrive first."""
@@ -284,7 +311,7 @@ class _Page:
             while not self.call("Runtime.evaluate", expression=expression, returnByValue=True)["result"].get("value"):
                 if time.monotonic() >= self.deadline:
                     raise TimeoutError
-                time.sleep(_SELECTOR_POLL_SECONDS)
+                self._listen(_SELECTOR_POLL_SECONDS)
         except TimeoutError:
             seconds = downloader.REQUEST_TIMEOUT_SECONDS
             raise RemoteFetchError(
@@ -319,9 +346,16 @@ class _Page:
             return RemoteFetchError("Final response is a download, which the browser refuses, not a page.")
         return downloader.unavailable_response(navigation["errorText"])
 
-    def _receive(self) -> DevToolsMessage:
+    def _listen(self, seconds: float) -> None:
+        """Act on the browser's events for a while, so that a request that waits to be let go doesn't wait for the pause."""
+        end = min(time.monotonic() + seconds, self.deadline)
+        with suppress(TimeoutError):
+            while True:
+                self._receive(end)
+
+    def _receive(self, deadline: float | None = None) -> DevToolsMessage:
         """Return the next message, after acting on it, and raise the failure that it shows, if it shows one."""
-        message = self.browser.receive(self.deadline)
+        message = self.browser.receive(self.deadline if deadline is None else deadline)
         self._handle(message)
         if self.failure is not None:
             raise self.failure
@@ -336,6 +370,12 @@ class _Page:
         self.browser.send(message)
         return self._next_id
 
+    def _wait_for_answer(self, sent: int, deadline: float) -> DevToolsMessage:
+        """Return the answer to a command, after acting on the events that arrive first, without raising the page's failure."""
+        while (message := self.browser.receive(deadline)).get("id") != sent:
+            self._handle(message)
+        return message
+
     def _handle(self, message: DevToolsMessage) -> None:
         """Act on one event of the page, and ignore the rest."""
         method = message.get("method")
@@ -343,8 +383,12 @@ class _Page:
         if method == "Page.javascriptDialogOpening":
             # A dialog stops the page, and every command to it, until it is answered.
             self._send("Page.handleJavaScriptDialog", {"accept": False}, session=self._session)
+        elif method == "Fetch.requestPaused" and "sessionId" not in message:
+            self._give_user_agent(parameters)
         elif method == "Fetch.requestPaused":
             self._answer_request(parameters)
+        elif method == "Target.detachedFromTarget":
+            self._sessions.discard(parameters["sessionId"])
         elif method == "Target.attachedToTarget" and message.get("sessionId") in self._sessions:
             self._set_up_target(parameters["sessionId"])
         elif (
@@ -389,6 +433,16 @@ class _Page:
                 )
                 return
         self._send("Fetch.continueRequest", {"requestId": request_id}, session=self._session)
+
+    def _give_user_agent(self, parameters: DevToolsMessage) -> None:
+        """Let a request of the browser go on, with the User-Agent that the page's requests have."""
+        headers = parameters["request"]["headers"]
+        command: DevToolsMessage = {"requestId": parameters["requestId"]}
+        if headers.get("User-Agent") != self._user_agent:
+            # The headers that come with the command replace all of the request's.
+            kept = [{"name": name, "value": value} for name, value in headers.items() if name.lower() != "user-agent"]
+            command["headers"] = [*kept, {"name": "User-Agent", "value": self._user_agent}]
+        self._send("Fetch.continueRequest", command, session=None)
 
     def _set_up_target(self, session: str) -> None:
         """Give a target that the page opened the User-Agent and the auto-attach of the page, and let it start."""
@@ -516,25 +570,28 @@ def _read_page(
 ) -> tuple[str, str]:
     """Load a URL, let the page's scripts run, and return the address that the browser ends on and the page's markup."""
     page = _Page(browser, deadline=deadline)
-    page.attach()
-    if wait_for is not None:
-        # The blank start page that the browser opens on can already say, before any request, whether it takes the selector.
-        page.check_selector(wait_for)
-    navigation = page.call("Page.navigate", url=url)
-    if navigation.get("errorText"):
-        raise page.navigation_failure(navigation)
-    page.check_document(accounting=accounting)
-    if wait_for is None:
-        page.wait_until_time_is_up()
-    else:
-        page.wait_for_element(wait_for)
-    # The page may have moved on, and its last document has to pass as well.
-    page.check_document(accounting=accounting)
-    result = page.call("Runtime.evaluate", expression=_READ_DOCUMENT, returnByValue=True)
-    if "exceptionDetails" in result:
-        raise downloader.unavailable_response("the page could not be read.")
-    final_url, markup = result["result"]["value"]
-    return final_url, markup
+    try:
+        page.attach()
+        if wait_for is not None:
+            # The blank start page that the browser opens on can already say, before any request, whether it takes the selector.
+            page.check_selector(wait_for)
+        navigation = page.call("Page.navigate", url=url)
+        if navigation.get("errorText"):
+            raise page.navigation_failure(navigation)
+        page.check_document(accounting=accounting)
+        if wait_for is None:
+            page.wait_until_time_is_up()
+        else:
+            page.wait_for_element(wait_for)
+        # The page may have moved on, and its last document has to pass as well.
+        page.check_document(accounting=accounting)
+        result = page.call("Runtime.evaluate", expression=_READ_DOCUMENT, returnByValue=True)
+        if "exceptionDetails" in result:
+            raise downloader.unavailable_response("the page could not be read.")
+        final_url, markup = result["result"]["value"]
+        return final_url, markup
+    finally:
+        page.close()
 
 
 def _remove_folder(folder: Path) -> None:
